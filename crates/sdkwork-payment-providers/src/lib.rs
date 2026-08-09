@@ -10,6 +10,7 @@ mod http;
 mod money;
 mod operations;
 mod registry;
+mod sandbox_webhook;
 mod stripe;
 mod webhook_peek;
 mod wechat_pay;
@@ -33,4 +34,5 @@ pub use operations::{
     ProviderRefundSubmissionState,
 };
 pub use registry::{provider_registry_for_account, PaymentProviderRegistry};
+pub use sandbox_webhook::SandboxWebhookPaymentProviderAdapter;
 pub use webhook_peek::{peek_webhook_routing_fields, WebhookPeekOutcome};

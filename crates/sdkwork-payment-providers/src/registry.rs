@@ -8,6 +8,7 @@ use crate::credentials::{
 };
 use crate::stripe::{StripePaymentProviderAdapter, StripePaymentProviderConfig};
 use crate::wechat_pay::{WeChatPayProviderAdapter, WeChatPayProviderConfig};
+use crate::SandboxWebhookPaymentProviderAdapter;
 
 #[derive(Clone)]
 pub struct PaymentProviderRegistry {
@@ -29,6 +30,14 @@ impl PaymentProviderRegistry {
         registry.register_stripe(bundle.stripe);
         registry.register_alipay(bundle.alipay, webhook_base.as_deref());
         registry.register_wechat_pay(bundle.wechat_pay, webhook_base.as_deref());
+        // The sandbox webhook adapter is always available so local development
+        // can simulate a PSP payment-success callback through the order
+        // webhook route (`/app/v3/api/orders/payments/webhooks/sandbox`).
+        // Its create/cancel/refund operations are unsupported; those are
+        // handled as no-ops by `operations.rs` before any adapter lookup.
+        registry
+            .adapters
+            .insert("sandbox".to_owned(), Arc::new(SandboxWebhookPaymentProviderAdapter::new()));
         registry
     }
 

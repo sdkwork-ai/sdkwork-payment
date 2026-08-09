@@ -28,6 +28,14 @@ pub fn map_provider_payment_status(provider_code: &str, raw_status: &str) -> Opt
             "notpay" | "userpaying" => Some("pending"),
             _ => None,
         },
+        // The sandbox provider mirrors WeChat-style statuses so local
+        // development can simulate a PSP payment-success webhook end to end.
+        "sandbox" => match status.as_str() {
+            "succeeded" | "success" | "paid" => Some("succeeded"),
+            "pending" | "created" | "processing" => Some("pending"),
+            "failed" | "cancelled" | "canceled" => Some("canceled"),
+            _ => None,
+        },
         _ => None,
     }
 }

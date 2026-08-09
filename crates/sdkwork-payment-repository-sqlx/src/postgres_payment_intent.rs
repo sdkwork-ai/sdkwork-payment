@@ -566,7 +566,7 @@ async fn load_reusable_payment_attempt(
           AND pa.expires_at IS NOT NULL
           AND pa.expires_at > NOW()
           AND o.expired_at IS NOT NULL
-          AND o.expired_at > NOW()
+          AND NULLIF(o.expired_at, '')::timestamptz > NOW()
         ORDER BY pa.created_at DESC, pa.id DESC
         LIMIT 1
        "#,
