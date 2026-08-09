@@ -19,7 +19,7 @@ const LOAD_OWNER_ORDER_FOR_CONFIRMATION: &str = r#"
 SELECT id
 FROM commerce_order
 WHERE tenant_id = CAST($1 AS TEXT)
-  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
   AND owner_user_id = CAST($4 AS TEXT)
   AND id = CAST($5 AS TEXT)
 FOR UPDATE
@@ -31,7 +31,7 @@ SELECT id, payment_intent_id, status,
        out_trade_no
 FROM commerce_payment_attempt
 WHERE tenant_id = CAST($1 AS TEXT)
-  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
   AND owner_user_id = CAST($4 AS TEXT)
   AND order_id = CAST($5 AS TEXT)
   AND ($6::text IS NULL OR id = CAST($6 AS TEXT))
@@ -45,7 +45,7 @@ const LOAD_OWNER_PAYMENT_INTENT_FOR_CONFIRMATION: &str = r#"
 SELECT id, status
 FROM commerce_payment_intent
 WHERE tenant_id = CAST($1 AS TEXT)
-  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
   AND owner_user_id = CAST($4 AS TEXT)
   AND order_id = CAST($5 AS TEXT)
   AND id = CAST($6 AS TEXT)
@@ -59,7 +59,7 @@ SELECT id, payment_intent_id, status,
        out_trade_no
 FROM commerce_payment_attempt
 WHERE tenant_id = CAST($1 AS TEXT)
-  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
   AND owner_user_id = CAST($4 AS TEXT)
   AND order_id = CAST($5 AS TEXT)
   AND id = CAST($6 AS TEXT)
@@ -101,7 +101,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             SELECT id
             FROM commerce_order
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
               AND owner_user_id = CAST($4 AS TEXT)
               AND id = CAST($5 AS TEXT)
             FOR UPDATE
@@ -126,7 +126,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             SELECT id
             FROM commerce_payment_intent
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
               AND owner_user_id = CAST($4 AS TEXT)
               AND order_id = CAST($5 AS TEXT)
               AND deleted_at IS NULL
@@ -148,7 +148,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             SELECT id
             FROM commerce_payment_attempt
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
               AND owner_user_id = CAST($4 AS TEXT)
               AND order_id = CAST($5 AS TEXT)
               AND deleted_at IS NULL
@@ -170,7 +170,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             UPDATE commerce_payment_intent
             SET status = $1, updated_at = $2::timestamptz
             WHERE tenant_id = CAST($3 AS TEXT)
-              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5::text IS NULL))
+              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
               AND owner_user_id = CAST($6 AS TEXT)
               AND order_id = CAST($7 AS TEXT)
               AND deleted_at IS NULL
@@ -193,7 +193,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             UPDATE commerce_payment_attempt
             SET status = $1, updated_at = $2::timestamptz
             WHERE tenant_id = CAST($3 AS TEXT)
-              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5::text IS NULL))
+              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
               AND owner_user_id = CAST($6 AS TEXT)
               AND order_id = CAST($7 AS TEXT)
               AND deleted_at IS NULL
@@ -225,7 +225,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                 SELECT 1
                 FROM commerce_payment_intent
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+                  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
                   AND owner_user_id = CAST($4 AS TEXT)
                   AND order_id = CAST($5 AS TEXT)
                   AND deleted_at IS NULL
@@ -284,7 +284,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             FROM commerce_order o
             WHERE o.id = CAST($1 AS TEXT)
               AND o.tenant_id = CAST($2 AS TEXT)
-              AND ((o.organization_id = CAST($3 AS TEXT)) OR (o.organization_id IS NULL AND $4 IS NULL))
+              AND ((o.organization_id = CAST($3 AS TEXT)) OR (o.organization_id IS NULL AND $4 IS NULL) OR (o.organization_id = '0' AND $4 IS NULL))
               AND o.owner_user_id = CAST($5 AS TEXT)
             FOR UPDATE
             "#,
@@ -590,7 +590,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             UPDATE commerce_payment_intent
             SET status = $1, updated_at = $2::timestamptz
             WHERE tenant_id = CAST($3 AS TEXT)
-              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5::text IS NULL))
+              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
               AND owner_user_id = CAST($6 AS TEXT)
               AND order_id = CAST($7 AS TEXT)
               AND id = CAST($8 AS TEXT)
@@ -645,7 +645,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                 paid_at = COALESCE(paid_at, $2::timestamptz),
                 updated_at = $3::timestamptz
             WHERE tenant_id = CAST($4 AS TEXT)
-              AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $6::text IS NULL))
+              AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $6 IS NULL) OR (organization_id = '0' AND $6 IS NULL))
               AND owner_user_id = CAST($7 AS TEXT)
               AND order_id = CAST($8 AS TEXT)
               AND id = CAST($9 AS TEXT)
@@ -676,7 +676,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                    to_char(paid_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS paid_at
             FROM commerce_payment_attempt
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
               AND owner_user_id = CAST($4 AS TEXT)
               AND order_id = CAST($5 AS TEXT)
               AND id = CAST($6 AS TEXT)
@@ -753,7 +753,7 @@ async fn load_owner_payment_outcome_by_idempotency_in_tx(
         WHERE pi.tenant_id = CAST($1 AS TEXT)
           AND pi.order_id = CAST($2 AS TEXT)
           AND pi.idempotency_key = CAST($3 AS TEXT)
-          AND ((pi.organization_id = CAST($4 AS TEXT)) OR (pi.organization_id IS NULL AND $4::text IS NULL))
+          AND ((pi.organization_id = CAST($4 AS TEXT)) OR (pi.organization_id IS NULL AND $4 IS NULL) OR (pi.organization_id = '0' AND $4 IS NULL))
           AND pi.owner_user_id = CAST($5 AS TEXT)
           AND pi.deleted_at IS NULL
         ORDER BY pa.created_at DESC, pa.id DESC

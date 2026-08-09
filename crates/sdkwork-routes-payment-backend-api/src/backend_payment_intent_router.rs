@@ -128,7 +128,7 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_intent
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL))
+                  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
                   AND ($4::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($4::text))
                 ORDER BY created_at DESC, id DESC
                 LIMIT $5 OFFSET $6
@@ -167,7 +167,7 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
                 FROM commerce_payment_intent
                 WHERE id = CAST($1 AS TEXT)
                   AND tenant_id = CAST($2 AS TEXT)
-                  AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL))
+                  AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL) OR (organization_id = '0' AND $4 IS NULL))
                 LIMIT 1
                 "#,
             )

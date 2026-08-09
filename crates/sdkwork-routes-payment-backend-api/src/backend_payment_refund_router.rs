@@ -467,7 +467,7 @@ impl BackendRefundPool {
                     FROM commerce_refund r
                     INNER JOIN commerce_payment_attempt a ON a.id = r.payment_attempt_id
                     WHERE r.tenant_id = CAST($1 AS TEXT)
-                      AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $3 IS NULL))
+                      AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $3 IS NULL) OR (r.organization_id = '0' AND $3 IS NULL))
                       AND ($4::text IS NULL OR LOWER(r.status) = LOWER($4::text))
                       AND ($5::text IS NULL OR r.order_id = CAST($5 AS TEXT))
                       AND ($6::text IS NULL OR a.payment_intent_id = CAST($6 AS TEXT))
@@ -514,7 +514,7 @@ impl BackendRefundPool {
                 FROM commerce_refund r
                 INNER JOIN commerce_payment_attempt a ON a.id = r.payment_attempt_id
                 WHERE r.id = CAST($1 AS TEXT) AND r.tenant_id = CAST($2 AS TEXT)
-                  AND ((r.organization_id = CAST($3 AS TEXT)) OR (r.organization_id IS NULL AND $4 IS NULL))
+                  AND ((r.organization_id = CAST($3 AS TEXT)) OR (r.organization_id IS NULL AND $4 IS NULL) OR (r.organization_id = '0' AND $4 IS NULL))
                   AND r.deleted_at IS NULL LIMIT 1
                 "#,
             )
@@ -542,7 +542,7 @@ impl BackendRefundPool {
                 FROM commerce_payment_intent i
                 INNER JOIN commerce_payment_attempt a ON a.payment_intent_id = i.id
                 WHERE i.id = CAST($1 AS TEXT) AND i.tenant_id = CAST($2 AS TEXT)
-                  AND ((i.organization_id = CAST($3 AS TEXT)) OR (i.organization_id IS NULL AND $4 IS NULL))
+                  AND ((i.organization_id = CAST($3 AS TEXT)) OR (i.organization_id IS NULL AND $4 IS NULL) OR (i.organization_id = '0' AND $4 IS NULL))
                   AND LOWER(i.status) IN ('succeeded', 'refunding', 'refunded')
                   AND LOWER(a.status) = 'succeeded'
                   AND i.deleted_at IS NULL AND a.deleted_at IS NULL
@@ -819,7 +819,7 @@ async fn ensure_postgres_account_refund_capability(
     provider_account_id: &str,
 ) -> Result<(), CommerceServiceError> {
     let value = sqlx::query_scalar::<_, Value>(
-        "SELECT capabilities FROM commerce_payment_provider_account WHERE id = $1 AND tenant_id = $2 AND (organization_id = $3 OR organization_id = '0' OR organization_id IS NULL) AND status IN ('active','inactive','deprecated') AND deleted_at IS NULL LIMIT 1",
+        "SELECT capabilities FROM commerce_payment_provider_account WHERE id = $1 AND tenant_id = $2 AND (organization_id = $3 OR organization_id = '0' OR organization_id = '0') AND status IN ('active','inactive','deprecated') AND deleted_at IS NULL LIMIT 1",
     )
     .bind(provider_account_id)
     .bind(&subject.tenant_id)

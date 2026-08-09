@@ -27,7 +27,7 @@ pub(crate) async fn select_payment_channel_postgres(
               AND (
                     organization_id = CAST($3 AS TEXT)
                     OR organization_id = '0'
-                    OR organization_id IS NULL
+                    OR organization_id = '0'
                   )
               AND deleted_at IS NULL
             ORDER BY CASE
@@ -52,7 +52,7 @@ pub(crate) async fn select_payment_channel_postgres(
                          AND (
                                rr.organization_id = CAST($3 AS TEXT)
                                OR rr.organization_id = '0'
-                               OR rr.organization_id IS NULL
+                               OR rr.organization_id = '0'
                              )
                          AND rr.channel_id = c.id
                          AND rr.status = 'active'
@@ -84,7 +84,7 @@ pub(crate) async fn select_payment_channel_postgres(
               AND (
                     c.organization_id = CAST($3 AS TEXT)
                     OR c.organization_id = '0'
-                    OR c.organization_id IS NULL
+                    OR c.organization_id = '0'
                   )
               AND (c.provider_account_id IS NULL OR (
                     a.status = 'active'
@@ -93,7 +93,7 @@ pub(crate) async fn select_payment_channel_postgres(
                 AND (
                       a.organization_id = CAST($3 AS TEXT)
                       OR a.organization_id = '0'
-                      OR a.organization_id IS NULL
+                      OR a.organization_id = '0'
                     )
               ))
         ),

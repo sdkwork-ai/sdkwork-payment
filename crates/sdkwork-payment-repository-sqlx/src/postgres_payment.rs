@@ -18,7 +18,7 @@ LEFT JOIN commerce_payment_intent pi
           AND pi2.deleted_at IS NULL
           AND (
                 (pi2.organization_id = o.organization_id)
-             OR (pi2.organization_id IS NULL AND o.organization_id IS NULL)
+             OR (pi2.organization_id IS NULL AND o.organization_id = '0')
           )
         ORDER BY pi2.created_at DESC, pi2.id DESC
         LIMIT 1
@@ -36,7 +36,7 @@ LEFT JOIN commerce_payment_attempt pa
           AND pa2.deleted_at IS NULL
           AND (
                 (pa2.organization_id = o.organization_id)
-             OR (pa2.organization_id IS NULL AND o.organization_id IS NULL)
+             OR (pa2.organization_id IS NULL AND o.organization_id = '0')
           )
         ORDER BY pa2.created_at DESC, pa2.id DESC
         LIMIT 1
@@ -186,7 +186,7 @@ impl PostgresCommercePaymentRecordStore {
         let sql = format!(
             "{LIST_PAYMENT_RECORDS}{PAYMENT_INTENT_JOIN}{PAYMENT_ATTEMPT_JOIN}
 WHERE o.tenant_id = CAST($1 AS TEXT)
-  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL))
+  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL) OR (o.organization_id = '0' AND $2 IS NULL))
   AND o.owner_user_id = CAST($3 AS TEXT)
 ORDER BY COALESCE(pa.paid_at, pa.created_at, o.paid_at, o.created_at) DESC NULLS LAST, o.id DESC
 LIMIT $4 OFFSET $5"
@@ -222,7 +222,7 @@ LIMIT $4 OFFSET $5"
         let sql = format!(
             "{LIST_PAYMENT_RECORDS_BY_ORDER}{PAYMENT_INTENT_JOIN}{PAYMENT_ATTEMPT_JOIN}
 WHERE o.tenant_id = CAST($1 AS TEXT)
-  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL))
+  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL) OR (o.organization_id = '0' AND $2 IS NULL))
   AND o.owner_user_id = CAST($3 AS TEXT)
   AND o.id = CAST($4 AS TEXT)
 ORDER BY COALESCE(pa.paid_at, pa.created_at, o.paid_at, o.created_at) DESC NULLS LAST, o.id DESC
@@ -259,7 +259,7 @@ LIMIT $5 OFFSET $6"
         let sql = format!(
             "{RETRIEVE_PAYMENT_RECORD}{PAYMENT_INTENT_JOIN}{PAYMENT_ATTEMPT_JOIN}
 WHERE o.tenant_id = CAST($1 AS TEXT)
-  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL))
+  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL) OR (o.organization_id = '0' AND $2 IS NULL))
   AND o.owner_user_id = CAST($3 AS TEXT)
   AND (pa.id = CAST($4 AS TEXT) OR pi.id = CAST($4 AS TEXT) OR o.id = CAST($4 AS TEXT))
 LIMIT 1"
@@ -287,7 +287,7 @@ LIMIT 1"
         let sql = format!(
             "{RETRIEVE_PAYMENT_RECORD_BY_OUT_TRADE_NO}{PAYMENT_INTENT_JOIN}{PAYMENT_ATTEMPT_JOIN}
 WHERE o.tenant_id = CAST($1 AS TEXT)
-  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL))
+  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL) OR (o.organization_id = '0' AND $2 IS NULL))
   AND o.owner_user_id = CAST($3 AS TEXT)
   AND COALESCE(NULLIF(pa.out_trade_no, ''), NULLIF(o.order_no, '')) = CAST($4 AS TEXT)
 LIMIT 1"
@@ -317,7 +317,7 @@ LIMIT 1"
         let sql = format!(
             "{FETCH_PAYMENT_STATISTICS}{PAYMENT_INTENT_JOIN}{PAYMENT_ATTEMPT_JOIN}
 WHERE o.tenant_id = CAST($1 AS TEXT)
-  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL))
+  AND ((o.organization_id = CAST($2 AS TEXT)) OR (o.organization_id IS NULL AND $2 IS NULL) OR (o.organization_id = '0' AND $2 IS NULL))
   AND o.owner_user_id = CAST($3 AS TEXT)
 ) stats"
         );

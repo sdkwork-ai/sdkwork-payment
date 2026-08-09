@@ -393,7 +393,7 @@ async fn load_active_attempt_owner_user_id_postgres(
     attempt_id: &str,
 ) -> Result<String, CommerceServiceError> {
     let row = sqlx::query(
-        "SELECT owner_user_id FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL)) AND order_id = CAST($3 AS TEXT) AND id = CAST($4 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
+        "SELECT owner_user_id FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL)) AND order_id = CAST($3 AS TEXT) AND id = CAST($4 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
     )
     .bind(tenant_id)
     .bind(organization_id)

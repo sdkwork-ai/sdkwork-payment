@@ -130,7 +130,7 @@ pub async fn replay_stored_webhook_event_postgres(
         SET status = $1, processed_at = $2::timestamptz,
             updated_at = $2::timestamptz, retries = $3, last_error = NULL
         WHERE id = CAST($4 AS TEXT) AND tenant_id = CAST($5 AS TEXT)
-          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $6::text IS NULL))
+          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $6 IS NULL) OR (organization_id = '0' AND $6 IS NULL))
         "#,
     )
     .bind(WEBHOOK_EVENT_STATUS_PROCESSED)

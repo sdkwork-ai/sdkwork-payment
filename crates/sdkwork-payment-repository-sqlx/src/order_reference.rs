@@ -36,7 +36,7 @@ pub(crate) async fn load_order_payment_reference_postgres(
         FROM commerce_order o
         WHERE o.id = CAST($1 AS TEXT)
           AND o.tenant_id = CAST($2 AS TEXT)
-          AND ((o.organization_id = CAST($3 AS TEXT)) OR (o.organization_id IS NULL AND $3::text IS NULL))
+          AND ((o.organization_id = CAST($3 AS TEXT)) OR (o.organization_id IS NULL AND $3 IS NULL) OR (o.organization_id = '0' AND $3 IS NULL))
           AND o.owner_user_id = CAST($4 AS TEXT)
         "#,
     )

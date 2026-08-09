@@ -79,7 +79,7 @@ pub async fn load_provider_credentials_postgres(
     organization_id: Option<&str>,
     provider_account_id: &str,
 ) -> Result<ProviderCredentialSet, CommerceServiceError> {
-    let rows = sqlx::query("SELECT credential_kind, ciphertext, encryption_key_id, encryption_algorithm FROM commerce_payment_provider_credential WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL)) AND provider_account_id = CAST($3 AS TEXT) AND status = 'active' AND deleted_at IS NULL")
+    let rows = sqlx::query("SELECT credential_kind, ciphertext, encryption_key_id, encryption_algorithm FROM commerce_payment_provider_credential WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL)) AND provider_account_id = CAST($3 AS TEXT) AND status = 'active' AND deleted_at IS NULL")
         .bind(tenant_id).bind(organization_id).bind(provider_account_id)
         .fetch_all(pool).await.map_err(store_error)?;
     decrypt_rows(
@@ -157,7 +157,7 @@ async fn ensure_account_postgres(
     organization_id: Option<&str>,
     provider_account_id: &str,
 ) -> Result<(), CommerceServiceError> {
-    let found = sqlx::query_scalar::<_, i64>("SELECT 1 FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL)) AND deleted_at IS NULL")
+    let found = sqlx::query_scalar::<_, i64>("SELECT 1 FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL")
         .bind(provider_account_id).bind(tenant_id).bind(organization_id)
         .fetch_optional(&mut **transaction).await.map_err(store_error)?;
     if found.is_none() {

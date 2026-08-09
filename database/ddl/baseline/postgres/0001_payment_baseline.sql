@@ -26,7 +26,7 @@
 CREATE TABLE IF NOT EXISTS commerce_payment_method (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     method_key      TEXT NOT NULL,
     display_name    TEXT NOT NULL,
     display_name_i18n JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_method_tenant_org
 CREATE TABLE IF NOT EXISTS commerce_payment_intent (
     id                TEXT PRIMARY KEY,
     tenant_id         TEXT NOT NULL,
-    organization_id   TEXT,
+    organization_id   TEXT NOT NULL DEFAULT '0',
     owner_user_id     TEXT NOT NULL,
     order_id          TEXT NOT NULL,
     payment_intent_no TEXT NOT NULL,
@@ -127,7 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_intent_created
 CREATE TABLE IF NOT EXISTS commerce_payment_attempt (
     id                     TEXT PRIMARY KEY,
     tenant_id              TEXT NOT NULL,
-    organization_id        TEXT,
+    organization_id        TEXT NOT NULL DEFAULT '0',
     owner_user_id          TEXT NOT NULL,
     payment_intent_id      TEXT NOT NULL,
     order_id               TEXT NOT NULL,
@@ -183,7 +183,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
 CREATE TABLE IF NOT EXISTS commerce_refund (
     id                  TEXT PRIMARY KEY,
     tenant_id           TEXT NOT NULL,
-    organization_id     TEXT,
+    organization_id     TEXT NOT NULL DEFAULT '0',
     order_id            TEXT NOT NULL,
     payment_attempt_id  TEXT NOT NULL,
     refund_no           TEXT NOT NULL,
@@ -228,7 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_refund_attempt
 CREATE TABLE IF NOT EXISTS commerce_refund_event (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     event_no        TEXT NOT NULL,
     refund_id       TEXT NOT NULL,
     event_type      TEXT NOT NULL
@@ -262,7 +262,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_refund_event_refund
 CREATE TABLE IF NOT EXISTS commerce_payment_channel (
     id                  TEXT PRIMARY KEY,
     tenant_id           TEXT NOT NULL,
-    organization_id    TEXT,
+    organization_id    TEXT NOT NULL DEFAULT '0',
     channel_no          TEXT NOT NULL,
     channel_name        TEXT,
     channel_name_i18n   JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -316,7 +316,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_channel_method
 CREATE TABLE IF NOT EXISTS commerce_payment_provider_account (
     id                          TEXT PRIMARY KEY,
     tenant_id                   TEXT NOT NULL,
-    organization_id             TEXT,
+    organization_id             TEXT NOT NULL DEFAULT '0',
     account_no                  TEXT NOT NULL,
     provider_code               TEXT NOT NULL,
     merchant_id                 TEXT,
@@ -390,7 +390,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_provider_account_cert_expiry
 CREATE TABLE IF NOT EXISTS commerce_payment_provider_credential (
     id                       TEXT PRIMARY KEY,
     tenant_id                TEXT NOT NULL,
-    organization_id          TEXT,
+    organization_id          TEXT NOT NULL DEFAULT '0',
     provider_account_id      TEXT NOT NULL,
     credential_kind          TEXT NOT NULL
                              CHECK (credential_kind IN ('primary_secret', 'webhook_secret', 'certificate')),
@@ -429,7 +429,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_provider_credential_history
 CREATE TABLE IF NOT EXISTS commerce_payment_sub_merchant (
     id                       TEXT PRIMARY KEY,
     tenant_id                TEXT NOT NULL,
-    organization_id          TEXT,
+    organization_id          TEXT NOT NULL DEFAULT '0',
     provider_account_id      TEXT NOT NULL,
     external_sub_merchant_id TEXT NOT NULL,
     sub_appid                TEXT,
@@ -467,7 +467,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_sub_merchant_sub_mch_id
 CREATE TABLE IF NOT EXISTS commerce_payment_certificate (
     id                TEXT PRIMARY KEY,
     tenant_id         TEXT NOT NULL,
-    organization_id   TEXT,
+    organization_id   TEXT NOT NULL DEFAULT '0',
     certificate_no    TEXT NOT NULL,
     provider_code     TEXT NOT NULL,
     kind              TEXT NOT NULL DEFAULT 'public'
@@ -513,7 +513,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_certificate_expiry
 CREATE TABLE IF NOT EXISTS commerce_payment_route_rule (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     rule_no         TEXT NOT NULL,
     priority        INTEGER NOT NULL DEFAULT 0,
     purchase_type   TEXT,
@@ -553,7 +553,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_route_rule_lookup
 CREATE TABLE IF NOT EXISTS commerce_payment_webhook_event (
     id              TEXT PRIMARY KEY,
     tenant_id       TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     event_id        TEXT NOT NULL,
     event_type      TEXT NOT NULL,
     provider_code   TEXT,
@@ -581,7 +581,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_webhook_event_status
 CREATE TABLE IF NOT EXISTS commerce_payment_webhook_delivery (
     id                   TEXT PRIMARY KEY,
     tenant_id            TEXT NOT NULL,
-    organization_id      TEXT,
+    organization_id      TEXT NOT NULL DEFAULT '0',
     delivery_no          TEXT NOT NULL,
     provider_code        TEXT NOT NULL,
     provider_account_id  TEXT,
@@ -622,7 +622,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_webhook_delivery_nonce
 CREATE TABLE IF NOT EXISTS commerce_payment_reconciliation_run (
     id                      TEXT PRIMARY KEY,
     tenant_id               TEXT NOT NULL,
-    organization_id         TEXT,
+    organization_id         TEXT NOT NULL DEFAULT '0',
     run_no                  TEXT NOT NULL,
     provider_code           TEXT,
     provider_account_id     TEXT,
@@ -673,7 +673,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_reconciliation_run_period
 CREATE TABLE IF NOT EXISTS commerce_payment_provider (
     id                   TEXT PRIMARY KEY,
     tenant_id            TEXT NOT NULL,
-    organization_id      TEXT,
+    organization_id      TEXT NOT NULL DEFAULT '0',
     provider_code        TEXT NOT NULL,
     display_name         TEXT NOT NULL,
     display_name_i18n    JSONB NOT NULL DEFAULT '{}'::jsonb,

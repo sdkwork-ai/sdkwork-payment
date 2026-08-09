@@ -78,7 +78,7 @@ pub async fn load_active_provider_account_postgres(
                webhook_secret_ref, certificate_ref, metadata
         FROM commerce_payment_provider_account
         WHERE tenant_id = CAST($1 AS TEXT)
-          AND (organization_id = CAST($2 AS TEXT) OR organization_id = '0' OR organization_id IS NULL)
+          AND (organization_id = CAST($2 AS TEXT) OR organization_id = '0' OR organization_id = '0')
           AND LOWER(provider_code) = LOWER(CAST($3 AS TEXT))
           AND status = 'active'
           AND deleted_at IS NULL
@@ -131,7 +131,7 @@ pub async fn load_active_provider_account_by_id_postgres(
         FROM commerce_payment_provider_account
         WHERE id = CAST($1 AS TEXT)
           AND tenant_id = CAST($2 AS TEXT)
-          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id IS NULL)
+          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id = '0')
           AND status = 'active'
           AND deleted_at IS NULL
         LIMIT 1
@@ -163,7 +163,7 @@ pub async fn load_provider_account_for_existing_payment_postgres(
         FROM commerce_payment_provider_account
         WHERE id = CAST($1 AS TEXT)
           AND tenant_id = CAST($2 AS TEXT)
-          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id IS NULL)
+          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id = '0')
           AND status IN ('active', 'inactive', 'deprecated')
           AND deleted_at IS NULL
         LIMIT 1
@@ -195,7 +195,7 @@ pub async fn load_active_provider_account_for_channel_postgres(
         FROM commerce_payment_channel
         WHERE id = CAST($1 AS TEXT)
           AND tenant_id = CAST($2 AS TEXT)
-          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id IS NULL)
+          AND (organization_id = CAST($3 AS TEXT) OR organization_id = '0' OR organization_id = '0')
           AND LOWER(provider_code) = LOWER(CAST($4 AS TEXT))
           AND status = 'active'
           AND deleted_at IS NULL

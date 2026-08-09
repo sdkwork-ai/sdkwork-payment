@@ -55,7 +55,7 @@ pub async fn close_owner_order_provider_attempts_postgres(
         SELECT id, payment_intent_id
         FROM commerce_payment_attempt
         WHERE tenant_id = CAST($1 AS TEXT)
-          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL))
+          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
           AND owner_user_id = CAST($3 AS TEXT)
           AND order_id = CAST($4 AS TEXT)
           AND ($5::text IS NULL OR id <> CAST($5 AS TEXT))
@@ -147,7 +147,7 @@ async fn close_expired_owner_order_provider_attempts_postgres_scoped(
          AND o.id = pa.order_id
          AND o.owner_user_id = pa.owner_user_id
         WHERE pa.tenant_id = CAST($1 AS TEXT)
-          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2::text IS NULL))
+          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2 IS NULL) OR (pa.organization_id = '0' AND $2 IS NULL))
           AND pa.owner_user_id = CAST($3 AS TEXT)
           AND ($4::text IS NULL OR pa.order_id = CAST($4 AS TEXT))
           AND LOWER(COALESCE(pa.status, '')) IN ('created', 'pending', 'processing')

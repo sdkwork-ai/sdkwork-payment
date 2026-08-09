@@ -12,7 +12,7 @@ const SCENE_FILTER_POSTGRES: &str = r#"
       SELECT 1
       FROM commerce_payment_channel c
       WHERE c.tenant_id = m.tenant_id
-        AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id IS NULL)
+        AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id = '0')
         AND (
               c.method_id = m.id
               OR (c.method_id IS NULL AND c.provider_code = m.provider_code)
@@ -42,7 +42,7 @@ const PROVIDER_ELIGIBILITY_FILTER_POSTGRES: &str = r#"
         ON a.id = c.provider_account_id
        AND a.deleted_at IS NULL
       WHERE c.tenant_id = m.tenant_id
-        AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id IS NULL)
+        AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id = '0')
         AND (c.method_id = m.id OR (c.method_id IS NULL AND c.provider_code = m.provider_code))
         AND c.status = 'active'
         AND c.deleted_at IS NULL
@@ -52,7 +52,7 @@ const PROVIDER_ELIGIBILITY_FILTER_POSTGRES: &str = r#"
                 a.status = 'active'
                 AND LOWER(a.provider_code) = LOWER(m.provider_code)
                 AND a.tenant_id = m.tenant_id
-                AND (a.organization_id = CAST($2 AS TEXT) OR a.organization_id = '0' OR a.organization_id IS NULL)
+                AND (a.organization_id = CAST($2 AS TEXT) OR a.organization_id = '0' OR a.organization_id = '0')
               )
             )
     )
@@ -68,7 +68,7 @@ WITH scoped_methods AS (
            END AS scope_rank
     FROM commerce_payment_method m
     WHERE m.tenant_id = CAST($1 AS TEXT)
-      AND (m.organization_id = CAST($2 AS TEXT) OR m.organization_id = '0' OR m.organization_id IS NULL)
+      AND (m.organization_id = CAST($2 AS TEXT) OR m.organization_id = '0' OR m.organization_id = '0')
       AND m.status = 'active'
       AND m.deleted_at IS NULL
 ),
@@ -94,7 +94,7 @@ SELECT
         SELECT STRING_AGG(DISTINCT c.scene_code, ',')
         FROM commerce_payment_channel c
         WHERE c.tenant_id = m.tenant_id
-          AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id IS NULL)
+          AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0' OR c.organization_id = '0')
           AND (
                 c.method_id = m.id
                 OR (c.method_id IS NULL AND c.provider_code = m.provider_code)

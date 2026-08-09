@@ -523,7 +523,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                         updated_at = CAST($15 AS TIMESTAMPTZ)
                     WHERE id = CAST($16 AS TEXT)
                       AND tenant_id = CAST($17 AS TEXT)
-                      AND ((organization_id = CAST($18 AS TEXT)) OR (organization_id IS NULL AND $18::text IS NULL))
+                      AND ((organization_id = CAST($18 AS TEXT)) OR (organization_id IS NULL AND $18 IS NULL) OR (organization_id = '0' AND $18 IS NULL))
                       AND deleted_at IS NULL
                     RETURNING id, account_no, provider_code, merchant_id, account_name,
                               account_name_i18n, account_mode,
@@ -631,7 +631,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 FROM commerce_payment_provider_account
                 WHERE id = CAST($1 AS TEXT)
                   AND tenant_id = CAST($2 AS TEXT)
-                  AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3::text IS NULL))
+                  AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
                   AND last_test_status = 'success'
                   AND last_tested_at IS NOT NULL
                   AND updated_at IS NOT NULL

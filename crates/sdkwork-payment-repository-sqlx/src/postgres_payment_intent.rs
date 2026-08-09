@@ -152,7 +152,7 @@ impl PostgresCommercePaymentIntentStore {
                    CAST(amount AS TEXT) AS amount, currency_code, status
             FROM commerce_payment_intent
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
               AND owner_user_id = CAST($4 AS TEXT)
               AND id = CAST($5 AS TEXT)
             LIMIT 1
@@ -433,7 +433,7 @@ impl PostgresCommercePaymentIntentStore {
             WHERE tenant_id = CAST($1 AS TEXT)
               AND order_id = CAST($2 AS TEXT)
               AND idempotency_key = CAST($3 AS TEXT)
-              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $4::text IS NULL))
+              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL) OR (organization_id = '0' AND $4 IS NULL))
               AND owner_user_id = CAST($5 AS TEXT)
               AND deleted_at IS NULL
             LIMIT 1
@@ -462,7 +462,7 @@ impl PostgresCommercePaymentIntentStore {
                    payment_method, provider_code, channel_id, status
             FROM commerce_payment_attempt
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
               AND owner_user_id = CAST($3 AS TEXT)
               AND id = CAST($4 AS TEXT)
               AND deleted_at IS NULL
@@ -522,7 +522,7 @@ async fn load_payment_method_for_intent(
           )
           AND (
                 (tenant_id = CAST($2 AS TEXT) AND organization_id = CAST($3 AS TEXT))
-             OR (tenant_id = CAST($4 AS TEXT) AND organization_id IS NULL)
+             OR (tenant_id = CAST($4 AS TEXT) AND organization_id = '0')
           )
         ORDER BY CASE WHEN tenant_id = CAST($5 AS TEXT) THEN 0 ELSE 1 END, sort_order ASC
         LIMIT 1
@@ -558,7 +558,7 @@ async fn load_reusable_payment_attempt(
            AND o.id = pa.order_id
            AND o.owner_user_id = pa.owner_user_id
         WHERE pa.tenant_id = CAST($1 AS TEXT)
-          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2::text IS NULL))
+          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2 IS NULL) OR (pa.organization_id = '0' AND $2 IS NULL))
           AND pa.owner_user_id = CAST($3 AS TEXT)
           AND pa.payment_intent_id = CAST($4 AS TEXT)
           AND LOWER(COALESCE(pa.status, '')) IN ('created', 'pending', 'processing')

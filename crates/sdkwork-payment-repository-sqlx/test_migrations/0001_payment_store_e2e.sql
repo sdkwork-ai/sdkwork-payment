@@ -9,7 +9,7 @@
 CREATE TABLE IF NOT EXISTS commerce_order (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     owner_user_id TEXT NOT NULL,
     order_no TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending_payment',
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS commerce_order_amount_breakdown (
 CREATE TABLE IF NOT EXISTS commerce_payment_intent (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     owner_user_id TEXT NOT NULL,
     order_id TEXT NOT NULL,
     payment_intent_no TEXT NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS commerce_payment_intent (
 CREATE TABLE IF NOT EXISTS commerce_payment_attempt (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     owner_user_id TEXT NOT NULL,
     payment_intent_id TEXT NOT NULL,
     order_id TEXT NOT NULL,
@@ -105,7 +105,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
 CREATE TABLE IF NOT EXISTS commerce_refund (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     order_id TEXT NOT NULL,
     payment_attempt_id TEXT NOT NULL,
     refund_no TEXT NOT NULL,
@@ -130,7 +130,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_refund_idempotency
 CREATE TABLE IF NOT EXISTS commerce_refund_event (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     event_no TEXT NOT NULL,
     refund_id TEXT NOT NULL,
     event_type TEXT NOT NULL
@@ -154,7 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_commerce_refund_event_refund
 CREATE TABLE IF NOT EXISTS commerce_payment_method (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     method_key TEXT NOT NULL,
     display_name TEXT NOT NULL,
     provider_code TEXT NOT NULL,
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS commerce_payment_method (
 CREATE TABLE IF NOT EXISTS commerce_payment_provider_account (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     provider_code TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     deleted_at TEXT
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS commerce_payment_provider_account (
 CREATE TABLE IF NOT EXISTS commerce_payment_channel (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     provider_account_id TEXT,
     method_id TEXT,
     provider_code TEXT NOT NULL,
@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS commerce_payment_channel (
 CREATE TABLE IF NOT EXISTS commerce_payment_route_rule (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     priority INTEGER NOT NULL DEFAULT 0,
     purchase_type TEXT,
     country_code TEXT,
@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS commerce_payment_route_rule (
 CREATE TABLE IF NOT EXISTS commerce_payment_webhook_event (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    organization_id TEXT,
+    organization_id TEXT NOT NULL DEFAULT '0',
     event_id TEXT NOT NULL,
     event_type TEXT NOT NULL,
     provider_code TEXT,
