@@ -129,7 +129,7 @@ fn payment_record_to_pay_outcome(
         .map(|ctx| ctx.out_trade_no.clone())
         .unwrap_or_else(|| record.order_no.clone());
     let mut payment_params =
-        owner_order_payment_params(&provider_code, &record.order_no, None, &out_trade_no);
+        owner_order_payment_params(&provider_code, &record.order_id, &record.order_no, None, &out_trade_no);
     if let Some(ctx) = provider_ctx {
         if let Some(channel_id) = ctx.channel_id.as_deref() {
             payment_params.insert("channelId".to_owned(), channel_id.to_owned());

@@ -60,7 +60,7 @@ pub async fn replay_stored_webhook_event_postgres(
         FROM commerce_payment_webhook_event
         WHERE event_id = CAST($1 AS TEXT)
           AND tenant_id = CAST($2 AS TEXT)
-          AND (organization_id IS NULL AND $3::text IS NULL OR organization_id = CAST($3 AS TEXT))
+          AND (organization_id = CAST($3 AS TEXT) OR (organization_id IS NULL AND $3::text IS NULL) OR (organization_id = '0' AND $3::text IS NULL))
         FOR UPDATE
         "#,
     )

@@ -778,6 +778,7 @@ async fn load_owner_payment_outcome_by_idempotency_in_tx(
     let out_trade_no = string_cell(&row, "out_trade_no");
     let mut payment_params = owner_order_payment_params(
         &string_cell(&row, "provider_code"),
+        &command.order_id,
         order_sn,
         order_subject,
         &out_trade_no,
@@ -854,6 +855,7 @@ async fn load_reusable_owner_payment_in_tx(
     let out_trade_no = string_cell(&row, "out_trade_no");
     let mut payment_params = owner_order_payment_params(
         &string_cell(&row, "provider_code"),
+        &command.order_id,
         order_sn,
         order_subject,
         &out_trade_no,

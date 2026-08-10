@@ -42,6 +42,15 @@ pub async fn rotate_provider_credentials_postgres(
     provider_account_id: &str,
     write: ProviderCredentialWrite,
 ) -> Result<(), CommerceServiceError> {
+    // Platform rows persist the sentinel organization scope (`"0"`) so that
+    // personal-login (no-org) sessions never write NULL into the NOT NULL
+    // `organization_id` column (DATABASE_SPEC DB090).
+    let organization_id = Some(
+        organization_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("0"),
+    );
     let encrypted = encrypt_writes(tenant_id, provider_account_id, write)?;
     if encrypted.is_empty() {
         return Ok(());

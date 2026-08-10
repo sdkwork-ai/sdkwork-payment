@@ -352,7 +352,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        status, sort_order, created_at, updated_at,
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_method
-                WHERE tenant_id = CAST($1 AS TEXT) AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                WHERE tenant_id = CAST($1 AS TEXT) AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                   AND ($3::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($3::text))
                 ORDER BY sort_order ASC, created_at ASC
                 LIMIT $4 OFFSET $5
@@ -442,7 +442,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_provider_account
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL
                 ORDER BY created_at DESC, id DESC
                 LIMIT $3 OFFSET $4
@@ -676,7 +676,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SELECT 1
                 FROM commerce_payment_channel
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                   AND provider_account_id = CAST($3 AS TEXT)
                   AND deleted_at IS NULL
                 LIMIT 1
@@ -729,7 +729,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SET deleted_at = $1
                 WHERE id = CAST($2 AS TEXT)
                   AND tenant_id = CAST($3 AS TEXT)
-                  AND (organization_id IS NULL AND $4::text IS NULL OR organization_id = CAST($4 AS TEXT))
+                  AND (organization_id = CAST($4 AS TEXT) OR (organization_id IS NULL AND $4::text IS NULL) OR (organization_id = '0' AND $4::text IS NULL))
                   AND deleted_at IS NULL
                 "#,
             )
@@ -760,7 +760,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        country_code, status, priority, COUNT(*) OVER() AS total_count
                 FROM commerce_payment_channel
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                 ORDER BY priority ASC, created_at ASC
                 LIMIT $3 OFFSET $4
                 "#,
@@ -859,7 +859,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        ends_at, COUNT(*) OVER() AS total_count
                 FROM commerce_payment_route_rule
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                 ORDER BY priority ASC, created_at ASC
                 LIMIT $3 OFFSET $4
                 "#,
@@ -939,7 +939,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     ) -> CommerceBackendPaymentAdminFuture<'a, ()> {
         Box::pin(async move {
             sqlx::query(
-                "DELETE FROM commerce_payment_route_rule WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND (organization_id IS NULL AND $3::text IS NULL OR organization_id = CAST($3 AS TEXT))",
+                "DELETE FROM commerce_payment_route_rule WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND (organization_id = CAST($3 AS TEXT) OR (organization_id IS NULL AND $3::text IS NULL) OR (organization_id = '0' AND $3::text IS NULL))",
             )
                 .bind(&route_rule_id)
                 .bind(&scope.tenant_id)
@@ -964,7 +964,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        status, provider_transaction_id, created_at, COUNT(*) OVER() AS total_count
                 FROM commerce_payment_attempt
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                 ORDER BY created_at DESC, id DESC
                 LIMIT $3 OFFSET $4
                 "#,
@@ -993,7 +993,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_webhook_event
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                 ORDER BY received_at DESC, id DESC
                 LIMIT $3 OFFSET $4
                 "#,
@@ -1048,7 +1048,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_reconciliation_run
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id IS NULL AND $2::text IS NULL OR organization_id = CAST($2 AS TEXT))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
                 ORDER BY created_at DESC, id DESC
                 LIMIT $3 OFFSET $4
                 "#,
@@ -1084,7 +1084,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             )
             .bind(&id)
             .bind(&payload.tenant_id)
-            .bind(payload.organization_id.as_deref())
+            .bind(
+                payload
+                    .organization_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("0"),
+            )
             .bind(&run_no)
             .bind(&payload.provider_code)
             .bind(&payload.provider_account_id)
