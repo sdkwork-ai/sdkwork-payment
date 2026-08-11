@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "sdkwork-payment-backend-sdk",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "language": "typescript",
   "sdkType": "backend",
   "packageName": "sdkwork-payment-backend-sdk-generated-typescript",

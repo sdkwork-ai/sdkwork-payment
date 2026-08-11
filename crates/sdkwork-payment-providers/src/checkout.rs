@@ -137,6 +137,8 @@ fn payment_params_from_provider(
         "alipay" => {
             // WAP redirect is preferred in-app/browser: the cashier jumps to
             // the Alipay H5 cashier page instead of showing a scan QR code.
+            // PC website pays surface the full cashier form for the browser
+            // to render and auto-submit (`payForm`).
             if let Some(redirect) = outcome.payload.get("redirect_url").and_then(Value::as_str) {
                 params.insert("payUrl".to_owned(), redirect.to_owned());
                 params.insert("nextAction".to_owned(), "redirect".to_owned());
@@ -144,15 +146,32 @@ fn payment_params_from_provider(
                 params.insert("qrCodeUrl".to_owned(), qr.to_owned());
                 params.insert("nextAction".to_owned(), "qr_code".to_owned());
             }
+            if let Some(form) = outcome.payload.get("payForm").and_then(Value::as_str) {
+                params.insert("payForm".to_owned(), form.to_owned());
+            }
+            // App pay returns the signed `orderStr` for the Alipay App SDK.
+            if let Some(order_str) = outcome.payload.get("orderStr").and_then(Value::as_str) {
+                params.insert("orderStr".to_owned(), order_str.to_owned());
+            }
         }
         "wechat_pay" => {
             // JSAPI invocation params take priority inside the WeChat app;
-            // the native code_url remains as the scan/press-and-hold fallback.
+            // the native code_url remains as the scan/press-and-hold
+            // fallback, the H5 h5_url as the mobile-browser cashier link,
+            // and the App PayReq params for the native App SDK.
             if let Some(sdk_params) = outcome.payload.get("sdk_invoke_params") {
                 if let Ok(serialized) = serde_json::to_string(sdk_params) {
                     params.insert("jsapiPayload".to_owned(), serialized);
                     params.insert("nextAction".to_owned(), "jsapi".to_owned());
                 }
+            } else if let Some(app_params) = outcome.payload.get("app_invoke_params") {
+                if let Ok(serialized) = serde_json::to_string(app_params) {
+                    params.insert("appPayload".to_owned(), serialized);
+                    params.insert("nextAction".to_owned(), "app".to_owned());
+                }
+            } else if let Some(h5) = outcome.payload.get("h5_url").and_then(Value::as_str) {
+                params.insert("payUrl".to_owned(), h5.to_owned());
+                params.insert("nextAction".to_owned(), "redirect".to_owned());
             } else if let Some(qr) = outcome.payload.get("code_url").and_then(Value::as_str) {
                 params.insert("qrCodeUrl".to_owned(), qr.to_owned());
                 params.insert("nextAction".to_owned(), "qr_code".to_owned());
@@ -234,6 +253,95 @@ mod tests {
             .as_str()
             .expect("provider idempotency key")
             .is_ascii());
+    }
+
+    #[test]
+    fn alipay_pc_cashier_form_is_surfaced_as_pay_form() {
+        let outcome = PaymentProviderOperationOutcome {
+            provider_code: "alipay".to_owned(),
+            native_id: Some("trade-1".to_owned()),
+            raw_status: None,
+            payload: json!({
+                "out_trade_no": "trade-1",
+                "redirect_url": "https://cashier.alipay.com/gateway.do?biz=1",
+                "payForm": r#"<form action="https://cashier.alipay.com/gateway.do"><input type="hidden" name="biz_content" value="{}"/></form>"#,
+            }),
+        };
+        let params = payment_params_from_provider("alipay", &outcome);
+        assert_eq!(
+            params.get("payUrl").map(String::as_str),
+            Some("https://cashier.alipay.com/gateway.do?biz=1")
+        );
+        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
+        assert!(params.get("payForm").map(String::as_str).is_some_and(|form| form.starts_with("<form")));
+    }
+
+    #[test]
+    fn wechat_h5_url_is_surfaced_as_pay_url() {
+        let outcome = PaymentProviderOperationOutcome {
+            provider_code: "wechat_pay".to_owned(),
+            native_id: Some("h5-1".to_owned()),
+            raw_status: None,
+            payload: json!({
+                "h5_url": "https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=abc",
+            }),
+        };
+        let params = payment_params_from_provider("wechat_pay", &outcome);
+        assert_eq!(
+            params.get("payUrl").map(String::as_str),
+            Some("https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=abc")
+        );
+        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
+        assert!(!params.contains_key("qrCodeUrl"));
+    }
+
+    #[test]
+    fn wechat_app_payreq_params_are_surfaced_as_app_payload() {
+        let outcome = PaymentProviderOperationOutcome {
+            provider_code: "wechat_pay".to_owned(),
+            native_id: Some("prepay-1".to_owned()),
+            raw_status: None,
+            payload: json!({
+                "prepay_id": "prepay-1",
+                "app_invoke_params": {
+                    "appid": "wxappid",
+                    "partnerid": "1900000109",
+                    "prepayid": "prepay-1",
+                    "package": "Sign=WXPay",
+                    "noncestr": "n",
+                    "timestamp": "1720000000",
+                    "sign": "sig",
+                },
+            }),
+        };
+        let params = payment_params_from_provider("wechat_pay", &outcome);
+        assert_eq!(params.get("nextAction").map(String::as_str), Some("app"));
+        let parsed = params
+            .get("appPayload")
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+            .expect("app payload must be serialized json");
+        assert_eq!(parsed["partnerid"], "1900000109");
+        assert_eq!(parsed["package"], "Sign=WXPay");
+        assert!(!params.contains_key("jsapiPayload"));
+        assert!(!params.contains_key("qrCodeUrl"));
+    }
+
+    #[test]
+    fn alipay_app_order_str_is_surfaced_for_the_app_sdk() {
+        let outcome = PaymentProviderOperationOutcome {
+            provider_code: "alipay".to_owned(),
+            native_id: Some("trade-1".to_owned()),
+            raw_status: None,
+            payload: json!({
+                "out_trade_no": "trade-1",
+                "orderStr": "alipay_sdk=alipay-sdk-java-4.38.10.ALL&app_id=2021&biz_content=...",
+            }),
+        };
+        let params = payment_params_from_provider("alipay", &outcome);
+        assert_eq!(
+            params.get("orderStr").map(String::as_str),
+            Some("alipay_sdk=alipay-sdk-java-4.38.10.ALL&app_id=2021&biz_content=...")
+        );
     }
 
     #[test]

@@ -4952,7 +4952,7 @@
           "payments"
         ],
         "summary": "Create a test payment (dev config).",
-        "description": "Dev config: creates a 0.01 (one-cent) test payment against a QR-code-capable payment method (wechat_pay, alipay, or sandbox) without requiring an existing order. The method must be active. The backend creates an internal test order and drives the provider checkout, returning the scan-to-pay QR code URL. Combine with dev.sandboxTrigger to simulate a success callback in development/sandbox environments.",
+        "description": "Dev config: creates a 0.01 (one-cent) test payment against a QR-capable or web-cashier payment method (wechat_native, alipay_qr — scan-to-pay QR; alipay_wap, alipay_pc — web cashier redirect) without requiring an existing order. The method must be active. The backend creates an internal test order and drives the provider checkout, returning the scan-to-pay QR code URL and/or the web cashier redirect URL/form. Combine with dev.sandboxTrigger to simulate a success callback in development/sandbox environments.",
         "operationId": "dev.testPayments",
         "parameters": [
           {
@@ -8027,7 +8027,7 @@
         "properties": {
           "methodKey": {
             "type": "string",
-            "description": "Payment method key (e.g., wechat_native, alipay_qr, sandbox_test); must reference an active QR-code-capable method"
+            "description": "Payment method key (e.g., wechat_native, alipay_qr, alipay_wap, alipay_pc); must reference an active test-payment-capable method"
           },
           "amount": {
             "type": "string",
@@ -8092,7 +8092,16 @@
           "qrCodeUrl": {
             "type": "string",
             "format": "uri",
-            "description": "Scan-to-pay QR code payload (e.g., WeChat native code_url) when the provider returned one"
+            "description": "Scan-to-pay QR code payload (e.g., WeChat native code_url, Alipay precreate qr_code) when the provider returned one"
+          },
+          "payUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Web cashier redirect URL (Alipay WAP/PC cashier link) when the provider returned one; open it in a browser to pay"
+          },
+          "payForm": {
+            "type": "string",
+            "description": "Full Alipay cashier form HTML for browser render and auto-submit (Alipay PC website pay)"
           },
           "expiresAt": {
             "type": "string",

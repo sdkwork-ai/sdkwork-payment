@@ -14,8 +14,8 @@ use sdkwork_payment_providers::{
     ProviderCredentialBundle,
 };
 use sdkwork_payment_repository_sqlx::{
-    enrich_owner_payment_attempt_postgres,
-    OwnerOrderPaymentEnrichmentContext, PostgresCommercePaymentIntentStore,
+    enrich_owner_payment_attempt_postgres, OwnerOrderPaymentEnrichmentContext,
+    PostgresCommercePaymentIntentStore,
 };
 use sdkwork_payment_service::{
     CreateOwnerPaymentAttemptCommand, CreateOwnerPaymentAttemptOutcome,
@@ -186,7 +186,12 @@ struct TestPaymentResult {
     amount: String,
     currency_code: String,
     status: String,
+    /// Scan-to-pay QR code URL (`wechat_native` code_url / `alipay_qr` qr_code).
     qr_code_url: Option<String>,
+    /// Web cashier redirect URL (`alipay_wap`/`alipay_pc` cashier link).
+    pay_url: Option<String>,
+    /// Full Alipay cashier form HTML for browser render + auto submit.
+    pay_form: Option<String>,
     expires_at: Option<String>,
     created_at: String,
 }
@@ -210,7 +215,6 @@ pub fn build_backend_payment_integration_router(host: Arc<PaymentServiceHost>) -
     let pool = IntegrationPool::Postgres(pool);
     build_router(IntegrationState { pool })
 }
-
 
 pub fn backend_payment_integration_router_with_postgres_pool(pool: PgPool) -> Router {
     build_router(IntegrationState {
@@ -792,19 +796,35 @@ async fn trigger_sandbox_event(
 // One-cent test payment (dev config)
 // ===========================================================================
 
-/// QR-code-capable provider codes that support one-cent scan-to-pay testing.
-const QR_TEST_PROVIDER_CODES: [&str; 3] = ["wechat_pay", "alipay", "sandbox"];
+/// Payment method keys that can drive the one-cent test payment. Two classes:
+/// scan-to-pay QR methods (`wechat_native` → WeChat `/v3/pay/transactions/native`
+/// `code_url`, `alipay_qr` → Alipay `alipay.trade.precreate` `qr_code`) and
+/// web-redirect methods (`alipay_wap`/`alipay_pc` → Alipay H5/PC cashier
+/// `redirect_url`/`payForm`). Other products return SDK invocation payloads,
+/// require payer identifiers (openid/buyer_id), or have no checkout at all
+/// (sandbox).
+const TEST_PAYMENT_METHOD_KEYS: [&str; 4] = [
+    "wechat_native",
+    "alipay_qr",
+    "alipay_wap",
+    "alipay_pc",
+];
 const TEST_PAYMENT_ORDER_SUBJECT: &str = "One-cent test payment";
+/// Test order lifetime in minutes. Order-expiration enforcement rejects
+/// payment for orders with missing/expired boundaries, and the provider
+/// checkout window is `min(order expiry, provider checkout TTL)` (900s),
+/// so the test order is created with a 15-minute future expiry that yields
+/// the full QR window.
+const TEST_PAYMENT_ORDER_TTL_MINUTES: i64 = 15;
 
 struct TestPaymentMethodRecord {
-    provider_code: String,
+    method_key: String,
     status: String,
 }
 
 /// Provider-enriched intent store for the test payment flow. Mirrors the
 /// app-api `ProviderEnriched*PaymentIntents` wrappers so the attempt checkout
 /// drives the real provider adapter (WeChat native code_url, Alipay QR, ...).
-
 
 struct PostgresTestPaymentStore {
     inner: Arc<PostgresCommercePaymentIntentStore>,
@@ -824,7 +844,8 @@ impl PostgresTestPaymentStore {
     async fn create_owner_payment_attempt(
         &self,
         command: CreateOwnerPaymentAttemptCommand,
-    ) -> Result<CreateOwnerPaymentAttemptOutcome, sdkwork_contract_service::CommerceServiceError> {
+    ) -> Result<CreateOwnerPaymentAttemptOutcome, sdkwork_contract_service::CommerceServiceError>
+    {
         let registry = self.registry.clone();
         let credentials = self.credentials.clone();
         let pool = self.pool.clone();
@@ -886,10 +907,10 @@ async fn create_test_payment(
     if method.status != "active" {
         return conflict(ctx, "payment method is not active");
     }
-    if !QR_TEST_PROVIDER_CODES.contains(&method.provider_code.as_str()) {
+    if !TEST_PAYMENT_METHOD_KEYS.contains(&method.method_key.as_str()) {
         return validation(
             ctx,
-            "payment method does not support QR-code scan-to-pay testing",
+            "payment method does not support one-cent test payments",
         );
     }
 
@@ -899,6 +920,9 @@ async fn create_test_payment(
     let order_id = stable_id("test-payment-order", &write.idempotency_key);
     let order_no = format!("TP-{}", &order_id[order_id.len().saturating_sub(24)..]);
     let now = now_string();
+    // The test order must carry a future expiry: order-expiration enforcement
+    // rejects intent/attempt creation for orders without a payable boundary.
+    let order_expires_at = now_plus_minutes(TEST_PAYMENT_ORDER_TTL_MINUTES);
     if let Err(error) = insert_test_order(
         &state.pool,
         &subject,
@@ -907,24 +931,34 @@ async fn create_test_payment(
         &amount,
         &currency_code,
         &now,
+        &order_expires_at,
     )
     .await
     {
         return map_service_error(ctx, error);
     }
 
-    let checkout = match create_test_payment_checkout(
-        &state.pool,
-        &subject,
-        &order_id,
-        &method_key,
-        &write,
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => return map_service_error(ctx, error),
-    };
+    let checkout =
+        match create_test_payment_checkout(&state.pool, &subject, &order_id, &method_key, &write)
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                // PSP credential/config and upstream transport failures are
+                // diagnosable setup problems for a dev test payment, not
+                // internal errors: surface the concrete message as a 4xx
+                // instead of a generic 50001 so the operator can act on it
+                // (e.g., configure a provider account + channel, or fix the
+                // upstream call).
+                if matches!(error.code(), "provider-unavailable" | "transport") {
+                    return validation(
+                        ctx,
+                        format!("payment provider checkout failed: {}", error.message()),
+                    );
+                }
+                return map_service_error(ctx, error);
+            }
+        };
     let (intent, attempt) = checkout;
 
     let qr_code_url = attempt
@@ -947,6 +981,8 @@ async fn create_test_payment(
             currency_code,
             status: attempt.status,
             qr_code_url,
+            pay_url: attempt.payment_params.get("payUrl").cloned(),
+            pay_form: attempt.payment_params.get("payForm").cloned(),
             expires_at: attempt.payment_params.get("expiresAt").cloned(),
             created_at: now,
         },
@@ -964,7 +1000,9 @@ async fn create_test_payment_checkout(
     sdkwork_contract_service::CommerceServiceError,
 > {
     let credentials = ProviderCredentialBundle::from_env();
-    let registry = Arc::new(PaymentProviderRegistry::from_credentials(credentials.clone()));
+    let registry = Arc::new(PaymentProviderRegistry::from_credentials(
+        credentials.clone(),
+    ));
     let intent_command = CreateOwnerPaymentIntentCommand::new(
         &subject.tenant_id,
         subject.organization_id.as_deref(),
@@ -1009,7 +1047,7 @@ async fn load_payment_method_for_test(
     match pool {
         IntegrationPool::Postgres(pool) => {
             let row = sqlx::query(
-                "SELECT method_key, provider_code, status FROM commerce_payment_method WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL)) AND method_key = CAST($3 AS TEXT) AND deleted_at IS NULL LIMIT 1",
+                "SELECT method_key, provider_code, status FROM commerce_payment_method WHERE tenant_id = CAST($1 AS TEXT) AND (organization_id = CAST($2 AS TEXT) OR organization_id = '0') AND method_key = CAST($3 AS TEXT) AND deleted_at IS NULL LIMIT 1",
             )
             .bind(&subject.tenant_id)
             .bind(&subject.organization_id)
@@ -1018,7 +1056,7 @@ async fn load_payment_method_for_test(
             .await
             .map_err(storage)?;
             Ok(row.map(|row| TestPaymentMethodRecord {
-                provider_code: row.try_get("provider_code").unwrap_or_default(),
+                method_key: row.try_get("method_key").unwrap_or_default(),
                 status: row.try_get("status").unwrap_or_default(),
             }))
         }
@@ -1034,12 +1072,13 @@ async fn insert_test_order(
     amount: &str,
     currency_code: &str,
     now: &str,
+    expires_at: &str,
 ) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
     let breakdown_id = stable_id("test-payment-breakdown", order_id);
     match pool {
         IntegrationPool::Postgres(pool) => {
             sqlx::query(
-                "INSERT INTO commerce_order (id, tenant_id, organization_id, owner_user_id, order_no, status, subject, currency_code, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending_payment', $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING",
+                "INSERT INTO commerce_order (id, tenant_id, organization_id, owner_user_id, order_no, status, subject, currency_code, expired_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending_payment', $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING",
             )
             .bind(order_id)
             .bind(&subject.tenant_id)
@@ -1048,13 +1087,14 @@ async fn insert_test_order(
             .bind(order_no)
             .bind(TEST_PAYMENT_ORDER_SUBJECT)
             .bind(currency_code)
+            .bind(expires_at)
             .bind(now)
             .bind(now)
             .execute(pool)
             .await
             .map_err(storage)?;
             sqlx::query(
-                "INSERT INTO commerce_order_amount_breakdown (id, tenant_id, organization_id, order_id, allocation_type, original_amount, discount_amount, payable_amount, currency_code, created_at) VALUES ($1, $2, $3, $4, 'order_total', $5, '0', $6, $7, $8) ON CONFLICT (id) DO NOTHING",
+                "INSERT INTO commerce_order_amount_breakdown (id, tenant_id, organization_id, order_id, allocation_type, original_amount, discount_amount, payable_amount, currency_code, created_at) VALUES ($1, $2, $3, $4, 'order_total', $5, '0', $6, $7, CAST($8 AS TIMESTAMPTZ)) ON CONFLICT (id) DO NOTHING",
             )
             .bind(&breakdown_id)
             .bind(&subject.tenant_id)
@@ -1331,6 +1371,13 @@ fn now_string() -> String {
     sqlx::types::chrono::Utc::now().to_rfc3339()
 }
 
+fn now_plus_minutes(minutes: i64) -> String {
+    sdkwork_utils_rust::format_datetime(
+        sdkwork_utils_rust::add_minutes(sdkwork_utils_rust::now(), minutes),
+        None,
+    )
+}
+
 fn provider_algorithm(provider_code: &str) -> &'static str {
     match provider_code {
         "stripe" => "HMAC-SHA256",
@@ -1406,7 +1453,6 @@ async fn load_provider_account(
         }
     }
 }
-
 
 fn map_provider_account_pg(row: PgRow) -> ProviderAccountRecord {
     ProviderAccountRecord {
@@ -1826,10 +1872,106 @@ async fn insert_sandbox_webhook_event(
     Ok(())
 }
 
-
 fn pg_total(rows: &[PgRow]) -> i64 {
     rows.first()
         .and_then(|row| row.try_get("total_count").ok())
         .unwrap_or(0)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{
+        create_test_payment_checkout, insert_test_order, now_plus_minutes, now_string, stable_id,
+        AppRuntimeSubject, IntegrationPool, TEST_PAYMENT_ORDER_TTL_MINUTES,
+    };
+    use crate::command_headers::AppWriteCommandHeaders;
+
+    #[tokio::test]
+    async fn insert_test_order_accepts_rfc3339_timestamps_for_timestamptz_columns() {
+        // Regression: `commerce_order_amount_breakdown.created_at` is
+        // `TIMESTAMPTZ`; binding the RFC3339 `now` string without a cast makes
+        // PostgreSQL reject the insert (storage error → 50001 on the
+        // `/payments/dev/test_payments` endpoint).
+        let Some(url) = std::env::var("SDKWORK_DATABASE_TEST_POSTGRES_URL").ok() else {
+            eprintln!("SKIP: SDKWORK_DATABASE_TEST_POSTGRES_URL is not configured");
+            return;
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .expect("postgres pool");
+        let cleanup_pool = pool.clone();
+        let pool = IntegrationPool::Postgres(pool);
+        let subject = AppRuntimeSubject {
+            tenant_id: "100001".to_owned(),
+            organization_id: Some("0".to_owned()),
+            user_id: "2".to_owned(),
+        };
+        let idempotency_key = format!("regression-test-payment-{}", sdkwork_utils_rust::uuid());
+        let order_id = stable_id("test-payment-order", &idempotency_key);
+        let order_no = format!("TP-{}", &order_id[order_id.len().saturating_sub(24)..]);
+        insert_test_order(
+            &pool,
+            &subject,
+            &order_id,
+            &order_no,
+            "0.01",
+            "CNY",
+            &now_string(),
+            &now_plus_minutes(TEST_PAYMENT_ORDER_TTL_MINUTES),
+        )
+        .await
+        .expect("test order insert must accept RFC3339 timestamps");
+        // The checkout must advance past the order bootstrap: the only
+        // failure allowed now is the environment-dependent channel eligibility
+        // check (409), never a storage error (50001).
+        let write = AppWriteCommandHeaders {
+            idempotency_key,
+            request_hash: "hash".to_owned(),
+            request_no: "request-regression-checkout".to_owned(),
+        };
+        match create_test_payment_checkout(&pool, &subject, &order_id, "wechat_native", &write)
+            .await
+        {
+            Ok(_) => eprintln!("test payment checkout succeeded"),
+            Err(error) => {
+                assert_eq!(
+                    error.code(),
+                    "conflict",
+                    "checkout must not fail with a storage error after the order bootstrap: {error:?}"
+                );
+                eprintln!(
+                    "test payment checkout stopped at environment-dependent eligibility check: {}",
+                    error.message()
+                );
+            }
+        }
+        let _ = sqlx::query("DELETE FROM commerce_order_amount_breakdown WHERE order_id = $1")
+            .bind(&order_id)
+            .execute(&cleanup_pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM commerce_order WHERE id = $1")
+            .bind(&order_id)
+            .execute(&cleanup_pool)
+            .await;
+    }
+
+    #[test]
+    fn test_order_expiry_is_future_rfc3339_parseable() {
+        let now = sqlx::types::chrono::DateTime::parse_from_rfc3339(&now_string())
+            .expect("now_string must be RFC3339")
+            .with_timezone(&sqlx::types::chrono::Utc);
+        let expires_at = now_plus_minutes(TEST_PAYMENT_ORDER_TTL_MINUTES);
+        let parsed = sqlx::types::chrono::DateTime::parse_from_rfc3339(&expires_at)
+            .expect("test order expiry must be RFC3339")
+            .with_timezone(&sqlx::types::chrono::Utc);
+        // Order-expiration enforcement parses the same RFC3339 form and
+        // requires the boundary to be strictly in the future.
+        let remaining = (parsed - now).num_seconds();
+        assert!(
+            remaining >= TEST_PAYMENT_ORDER_TTL_MINUTES * 60 - 5,
+            "test order expiry must stay near the configured TTL, got {remaining}s"
+        );
+    }
+}

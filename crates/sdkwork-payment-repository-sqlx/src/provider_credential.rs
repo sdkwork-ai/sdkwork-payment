@@ -6,6 +6,12 @@ use sqlx::{PgPool, Row, };
 const PRIMARY_SECRET: &str = "primary_secret";
 const WEBHOOK_SECRET: &str = "webhook_secret";
 const CERTIFICATE: &str = "certificate";
+/// Existence probe for the active provider account under the subject scope.
+/// The literal is explicitly typed `1::bigint` so sqlx decodes it into the
+/// `i64` scalar: an untyped `SELECT 1` literal is `INT4` and fails decoding
+/// with "Rust type `i64` (as SQL type `INT8`) is not compatible with SQL
+/// type `INT4`" under sqlx 0.9.
+const ENSURE_ACCOUNT_POSTGRES_SQL: &str = "SELECT 1::bigint FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL";
 #[derive(Clone, Default)]
 pub struct ProviderCredentialWrite {
     pub primary_secret: Option<String>,
@@ -166,7 +172,7 @@ async fn ensure_account_postgres(
     organization_id: Option<&str>,
     provider_account_id: &str,
 ) -> Result<(), CommerceServiceError> {
-    let found = sqlx::query_scalar::<_, i64>("SELECT 1 FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL")
+    let found = sqlx::query_scalar::<_, i64>(ENSURE_ACCOUNT_POSTGRES_SQL)
         .bind(provider_account_id).bind(tenant_id).bind(organization_id)
         .fetch_optional(&mut **transaction).await.map_err(store_error)?;
     if found.is_none() {
@@ -204,4 +210,28 @@ fn store_error(error: sqlx::Error) -> CommerceServiceError {
 }
 fn credential_error(_error: impl std::fmt::Display) -> CommerceServiceError {
     CommerceServiceError::storage("payment provider credential operation failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_account_probe_literal_is_bigint_typed() {
+        // Regression guard: an untyped `SELECT 1` literal is INT4, which sqlx
+        // 0.9 refuses to decode into the `i64` scalar (`query_scalar::<_, i64>`)
+        // and turned provider credential rotation into a 50001 internal error.
+        assert!(
+            ENSURE_ACCOUNT_POSTGRES_SQL.starts_with("SELECT 1::bigint FROM"),
+            "existence probe must use a bigint-typed literal for i64 decoding"
+        );
+    }
+
+    #[test]
+    fn ensure_account_probe_covers_tenant_and_organization_scopes() {
+        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("tenant_id = CAST($2 AS TEXT)"));
+        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id IS NULL AND $3 IS NULL"));
+        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id = '0' AND $3 IS NULL"));
+        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("deleted_at IS NULL"));
+    }
 }

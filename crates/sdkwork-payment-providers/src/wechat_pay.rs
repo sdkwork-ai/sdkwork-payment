@@ -260,32 +260,113 @@ impl WeChatPayProviderAdapter {
         })
     }
 
-    /// Builds the JSAPI/App SDK invocation parameters with RSA-SHA256
+    /// Builds the JSAPI SDK invocation parameters with an RSA-SHA256
     /// signature so the cashier can hand them directly to `wx.requestPayment`
-    /// (JSAPI) or the native App SDK.
+    /// (JSAPI / Mini Program).
     ///
     /// V3 签名串格式（per WeChat Pay V3 文档）:
     /// ```text
     /// {appId}\n{timeStamp}\n{nonceStr}\n{package}\n
     /// ```
-    fn build_wechat_sdk_invoke_params(&self, prepay_id: &str) -> ProviderResult<Value> {
+    fn build_wechat_jsapi_invoke_params(&self, prepay_id: &str) -> ProviderResult<Value> {
         let timestamp = unix_timestamp().to_string();
         let nonce = format!("sdkwork-pay-{timestamp}");
         let package = format!("prepay_id={prepay_id}");
-        let sign_payload = format!(
-            "{}\n{}\n{}\n{}\n",
-            self.config.app_id, timestamp, nonce, package
-        );
-        let pay_sign = self.crypto.sign(&sign_payload)?;
-        Ok(json!({
-            "appId": self.config.app_id,
-            "timeStamp": timestamp,
-            "nonceStr": nonce,
-            "package": package,
-            "signType": "RSA",
-            "paySign": pay_sign,
-        }))
+        let pay_sign = self.crypto.sign(&wechat_jsapi_sign_payload(
+            &self.config.app_id,
+            &timestamp,
+            &nonce,
+            &package,
+        ))?;
+        Ok(build_wechat_jsapi_invoke_params(
+            &self.config.app_id,
+            prepay_id,
+            &timestamp,
+            &nonce,
+            &pay_sign,
+        ))
     }
+
+    /// Builds the native App SDK (PayReq) invocation parameters. The App
+    /// 调起参数键集和签名串与 JSAPI 不同：`package` 固定为 `Sign=WXPay`，
+    /// 签名串第 4 行为裸 `prepayId`，且需要 `partnerid`（商户号）。
+    fn build_wechat_app_invoke_params(&self, prepay_id: &str) -> ProviderResult<Value> {
+        let timestamp = unix_timestamp().to_string();
+        let nonce = format!("sdkwork-pay-{timestamp}");
+        let sign = self.crypto.sign(&wechat_app_sign_payload(
+            &self.config.app_id,
+            &timestamp,
+            &nonce,
+            prepay_id,
+        ))?;
+        Ok(build_wechat_app_invoke_params(
+            &self.config.app_id,
+            &self.config.mch_id,
+            prepay_id,
+            &timestamp,
+            &nonce,
+            &sign,
+        ))
+    }
+}
+
+/// V3 JSAPI 调起签名串：`{appId}\n{timeStamp}\n{nonceStr}\n{package}\n`。
+fn wechat_jsapi_sign_payload(
+    app_id: &str,
+    timestamp: &str,
+    nonce: &str,
+    package: &str,
+) -> String {
+    format!("{app_id}\n{timestamp}\n{nonce}\n{package}\n")
+}
+
+/// V3 App 调起签名串：`{appId}\n{timeStamp}\n{nonceStr}\n{prepayId}\n`
+/// （第 4 行为裸 prepayId，不带 `prepay_id=` 前缀）。
+fn wechat_app_sign_payload(
+    app_id: &str,
+    timestamp: &str,
+    nonce: &str,
+    prepay_id: &str,
+) -> String {
+    format!("{app_id}\n{timestamp}\n{nonce}\n{prepay_id}\n")
+}
+
+/// JSAPI（`wx.requestPayment`）调起参数键集。
+fn build_wechat_jsapi_invoke_params(
+    app_id: &str,
+    prepay_id: &str,
+    timestamp: &str,
+    nonce: &str,
+    pay_sign: &str,
+) -> Value {
+    json!({
+        "appId": app_id,
+        "timeStamp": timestamp,
+        "nonceStr": nonce,
+        "package": format!("prepay_id={prepay_id}"),
+        "signType": "RSA",
+        "paySign": pay_sign,
+    })
+}
+
+/// 原生 App SDK（PayReq）调起参数键集：partnerid/prepayid/package=Sign=WXPay。
+fn build_wechat_app_invoke_params(
+    app_id: &str,
+    mch_id: &str,
+    prepay_id: &str,
+    timestamp: &str,
+    nonce: &str,
+    sign: &str,
+) -> Value {
+    json!({
+        "appid": app_id,
+        "partnerid": mch_id,
+        "prepayid": prepay_id,
+        "package": "Sign=WXPay",
+        "noncestr": nonce,
+        "timestamp": timestamp,
+        "sign": sign,
+    })
 }
 
 impl PaymentProviderAdapter for WeChatPayProviderAdapter {
@@ -383,6 +464,8 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
             let response = self.client.post_json(path, payload).await?;
             // For JSAPI/App, generate the SDK invocation signature so the
             // cashier can hand it directly to the WeChat JS SDK / App SDK.
+            // JSAPI uses the wx.requestPayment parameter set; the native App
+            // uses the PayReq set (partnerid/prepayid/package=Sign=WXPay).
             let mut response = response;
             if matches!(method_key, "wechat_jsapi" | "wechat_app") {
                 if let Some(prepay_id) = response
@@ -390,8 +473,13 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
                 {
-                    let sdk_params = self.build_wechat_sdk_invoke_params(&prepay_id)?;
-                    response["sdk_invoke_params"] = sdk_params;
+                    if method_key == "wechat_app" {
+                        response["app_invoke_params"] =
+                            self.build_wechat_app_invoke_params(&prepay_id)?;
+                    } else {
+                        response["sdk_invoke_params"] =
+                            self.build_wechat_jsapi_invoke_params(&prepay_id)?;
+                    }
                 }
             }
             wechat_pay_operation_outcome(PaymentAdapterOperation::CreatePaymentIntent, response)
@@ -611,12 +699,19 @@ fn wechat_pay_operation_outcome(
     operation: PaymentAdapterOperation,
     response: Value,
 ) -> ProviderResult<PaymentProviderOperationOutcome> {
+    // The V3 down-order responses carry a single scenario-specific field:
+    // native → `code_url`, jsapi/app → `prepay_id`, h5 → `h5_url`; query and
+    // refund responses carry `id`/`out_trade_no`/`refund_id`. The chain covers
+    // every response shape so no down-order can fail on the id extraction.
     let native_id = response
         .get("id")
         .and_then(Value::as_str)
         .or_else(|| response.get("refund_id").and_then(Value::as_str))
         .or_else(|| response.get("out_trade_no").and_then(Value::as_str))
         .or_else(|| response.get("out_refund_no").and_then(Value::as_str))
+        .or_else(|| response.get("prepay_id").and_then(Value::as_str))
+        .or_else(|| response.get("code_url").and_then(Value::as_str))
+        .or_else(|| response.get("h5_url").and_then(Value::as_str))
         .map(str::to_owned)
         .ok_or_else(|| {
             ProviderError::invalid_response(operation, "WeChat Pay response is missing id")
@@ -716,8 +811,102 @@ fn wechat_pay_path_for_key(method_key: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{wechat_pay_operation_outcome, wechat_webhook_timestamp_is_fresh};
+    use super::{
+        build_wechat_app_invoke_params, build_wechat_jsapi_invoke_params,
+        wechat_app_sign_payload, wechat_jsapi_sign_payload, wechat_pay_operation_outcome,
+        wechat_webhook_timestamp_is_fresh,
+    };
     use crate::adapter::PaymentAdapterOperation;
+
+    #[test]
+    fn down_order_responses_never_fail_id_extraction() {
+        // Official V3 down-order responses carry only the scenario field:
+        // native → code_url, jsapi/app → prepay_id, h5 → h5_url.
+        let native = wechat_pay_operation_outcome(
+            PaymentAdapterOperation::CreatePaymentIntent,
+            serde_json::json!({ "code_url": "weixin://wxpay/bizpayurl?pr=abc" }),
+        )
+        .expect("native down-order must not fail");
+        assert_eq!(
+            native.native_id.as_deref(),
+            Some("weixin://wxpay/bizpayurl?pr=abc")
+        );
+
+        let jsapi = wechat_pay_operation_outcome(
+            PaymentAdapterOperation::CreatePaymentIntent,
+            serde_json::json!({ "prepay_id": "wx-prepay-1" }),
+        )
+        .expect("jsapi down-order must not fail");
+        assert_eq!(jsapi.native_id.as_deref(), Some("wx-prepay-1"));
+
+        let app = wechat_pay_operation_outcome(
+            PaymentAdapterOperation::CreatePaymentIntent,
+            serde_json::json!({ "prepay_id": "wx-prepay-2" }),
+        )
+        .expect("app down-order must not fail");
+        assert_eq!(app.native_id.as_deref(), Some("wx-prepay-2"));
+
+        let h5 = wechat_pay_operation_outcome(
+            PaymentAdapterOperation::CreatePaymentIntent,
+            serde_json::json!({ "h5_url": "https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=abc" }),
+        )
+        .expect("h5 down-order must not fail");
+        assert_eq!(
+            h5.native_id.as_deref(),
+            Some("https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=abc")
+        );
+
+        // Query/refund responses keep preferring their own identifiers.
+        let query = wechat_pay_operation_outcome(
+            PaymentAdapterOperation::QueryPaymentIntent,
+            serde_json::json!({ "id": "4200001", "out_trade_no": "trade-1" }),
+        )
+        .expect("query response must keep working");
+        assert_eq!(query.native_id.as_deref(), Some("4200001"));
+    }
+
+    #[test]
+    fn app_invoke_params_use_the_payreq_key_set() {
+        let params = build_wechat_app_invoke_params(
+            "wx-appid",
+            "1900000109",
+            "wx-prepay-1",
+            "1720000000",
+            "nonce-1",
+            "sig",
+        );
+        assert_eq!(params["appid"], "wx-appid");
+        assert_eq!(params["partnerid"], "1900000109");
+        assert_eq!(params["prepayid"], "wx-prepay-1");
+        assert_eq!(params["package"], "Sign=WXPay");
+        assert_eq!(params["noncestr"], "nonce-1");
+        assert_eq!(params["timestamp"], "1720000000");
+        assert_eq!(params["sign"], "sig");
+        assert!(params.get("paySign").is_none());
+
+        let jsapi = build_wechat_jsapi_invoke_params(
+            "wx-appid",
+            "wx-prepay-1",
+            "1720000000",
+            "nonce-1",
+            "sig",
+        );
+        assert_eq!(jsapi["package"], "prepay_id=wx-prepay-1");
+        assert_eq!(jsapi["signType"], "RSA");
+        assert_eq!(jsapi["paySign"], "sig");
+    }
+
+    #[test]
+    fn app_sign_payload_uses_the_bare_prepay_id() {
+        assert_eq!(
+            wechat_app_sign_payload("wx-appid", "1720000000", "nonce-1", "wx-prepay-1"),
+            "wx-appid\n1720000000\nnonce-1\nwx-prepay-1\n"
+        );
+        assert_eq!(
+            wechat_jsapi_sign_payload("wx-appid", "1720000000", "nonce-1", "prepay_id=wx-prepay-1"),
+            "wx-appid\n1720000000\nnonce-1\nprepay_id=wx-prepay-1\n"
+        );
+    }
 
     #[test]
     fn refund_outcome_accepts_wechat_refund_identifiers() {

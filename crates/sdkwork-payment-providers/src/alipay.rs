@@ -228,10 +228,13 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
             )?;
             let (api_method, return_field) = alipay_method_for_key(method_key);
             let mut response = self.client.execute(api_method, biz_content).await?;
-            // For redirect-style methods (page.pay/wap.pay), the gateway returns
-            // a form HTML or URL in `body` rather than JSON fields. We surface
-            // it under a normalized key so the cashier can render accordingly.
-            if let Some(field) = return_field {
+            // For redirect-style methods (page.pay/wap.pay) the gateway answers
+            // with a form HTML document or a bare URL instead of JSON fields.
+            // The full form is surfaced for the cashier to render and submit
+            // (the PC/WAP standard flow); the form action URL doubles as a
+            // navigation fallback. The precreate `qr_code` is NOT treated as a
+            // redirect — in-store QR payments must stay scan-first.
+            if let Some(field) = return_field.filter(|field| *field != "qr_code") {
                 if let Some(redirect) = response
                     .get(field)
                     .and_then(Value::as_str)
@@ -239,6 +242,19 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
                 {
                     response["redirect_url"] = json!(redirect);
                 }
+            } else if let Some(text) = response.as_str() {
+                let mut normalized = serde_json::Map::new();
+                if let Some((form, action)) = extract_alipay_pay_form(text) {
+                    normalized.insert("payForm".to_owned(), json!(form));
+                    normalized.insert("redirect_url".to_owned(), json!(action));
+                } else if !text.trim().is_empty() {
+                    normalized.insert("redirect_url".to_owned(), json!(text));
+                }
+                // Synchronous page/wap responses carry no trade id; the
+                // merchant order number keeps the attempt reference stable
+                // for later provider queries.
+                normalized.insert("out_trade_no".to_owned(), json!(out_trade_no));
+                response = Value::Object(normalized);
             }
             alipay_operation_outcome(PaymentAdapterOperation::CreatePaymentIntent, response)
         })
@@ -637,6 +653,44 @@ fn build_alipay_biz_content(
     Ok(biz_content)
 }
 
+/// Extracts the Alipay cashier form (`<form ...>...</form>`) and its action
+/// URL from a gateway form HTML document. Returns `None` when the text does
+/// not contain a form element.
+fn extract_alipay_pay_form(text: &str) -> Option<(String, String)> {
+    let lower = text.to_ascii_lowercase();
+    let form_start = lower.find("<form")?;
+    let form_end = lower[form_start..].find("</form>")? + form_start + "</form>".len();
+    let action_start = lower[form_start..].find("action=")? + form_start + "action=".len();
+    let action_bytes = text.as_bytes();
+    let url = match action_bytes.get(action_start).copied() {
+        Some(b'"') | Some(b'\'') => {
+            let quote = action_bytes[action_start] as char;
+            let url_start = action_start + 1;
+            let relative = text[url_start..].find(quote)?;
+            text[url_start..url_start + relative].to_owned()
+        }
+        _ => {
+            let rest = &text[action_start..];
+            let end = rest
+                .find(|character: char| character.is_whitespace() || character == '>')
+                .unwrap_or(rest.len());
+            text[action_start..action_start + end].to_owned()
+        }
+    };
+    Some((
+        text[form_start..form_end].to_owned(),
+        decode_html_entities(&url),
+    ))
+}
+
+/// Decodes the HTML entities that commonly appear inside gateway URLs.
+fn decode_html_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
 fn alipay_timeout_express(expires_at: Option<&str>) -> ProviderResult<Option<String>> {
     let Some(expires_at) = expires_at.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
@@ -693,9 +747,48 @@ fn percent_decode(value: &str, operation: PaymentAdapterOperation) -> ProviderRe
 mod tests {
     use chrono::{Duration, SecondsFormat, Utc};
 
-    use super::{alipay_operation_outcome, alipay_timeout_express, build_alipay_biz_content};
+    use super::{
+        alipay_operation_outcome, alipay_timeout_express, build_alipay_biz_content,
+        decode_html_entities, extract_alipay_pay_form,
+    };
     use crate::adapter::PaymentAdapterOperation;
     use crate::error::ProviderError;
+
+    #[test]
+    fn wap_gateway_form_html_is_surfaced_as_pay_form_and_action_url() {
+        let html = r#"<!DOCTYPE html><html><body>
+            <form name="punchout_form" method="post" action="https://mclient.alipay.com/cashier/wapPay.htm?biz=1&amp;sign=abc">
+                <input type="hidden" name="biz_content" value="{&quot;out_trade_no&quot;:&quot;t-1&quot;}"/>
+                <input type="submit" value="确认"/>
+            </form>
+        </body></html>"#;
+        let (form, action) = extract_alipay_pay_form(html).expect("form html must parse");
+        assert!(form.starts_with("<form"));
+        assert!(form.contains("</form>"));
+        assert_eq!(
+            action,
+            "https://mclient.alipay.com/cashier/wapPay.htm?biz=1&sign=abc"
+        );
+
+        let unquoted = r#"<form action=https://cashier.alipay.com/gateway.do method="post"></form>"#;
+        let (_, action) = extract_alipay_pay_form(unquoted).expect("unquoted action must parse");
+        assert_eq!(action, "https://cashier.alipay.com/gateway.do");
+    }
+
+    #[test]
+    fn non_form_text_is_not_treated_as_pay_form() {
+        assert!(extract_alipay_pay_form(r#"{"code":"10000","msg":"Success"}"#).is_none());
+        assert!(extract_alipay_pay_form("https://cashier.alipay.com/plain").is_none());
+        assert!(extract_alipay_pay_form("").is_none());
+    }
+
+    #[test]
+    fn html_entities_inside_gateway_urls_are_decoded() {
+        assert_eq!(
+            decode_html_entities("a=1&amp;b=2&#39;x&#39;&quot;y&quot;"),
+            "a=1&b=2'x'\"y\""
+        );
+    }
 
     #[test]
     fn refund_query_outcome_prefers_the_business_refund_status() {
