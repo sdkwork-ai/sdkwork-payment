@@ -9,18 +9,19 @@ the `standard` profile; `SDKWORK_DATABASE_SEED_PROFILE` is consumed by
 embedded service startup rather than overriding the CLI subcommand default.
 
 - `development`: complete payment catalog, an active local sandbox channel, and
-  organization-scoped demo records covering the full admin workflow. Demo rows
-  contain no usable credentials or private certificate material.
-- `test`: complete payment catalog plus an active isolated test sandbox channel.
+  organization-scoped bootstrap records covering the full admin workflow.
+  Template rows contain no usable credentials or private certificate material.
+- `test`: complete payment catalog plus an active isolated sandbox channel.
 - `production` / `standard`: complete payment catalog and editable PSP templates.
   Catalog methods and channels are pre-wired and active, but remain hidden from
   payment routing until their provider account is active. Provider accounts
-  remain inactive and contain migration-compatible mock references only. The templates
-  include provider-specific mock identifiers and metadata (for example
-  `mock-wechat-mch-id`, `mock-wechat-app-id`, and
-  `mock-wechat-merchant-serial-no`). Replace those values and the referenced
-  database-backed write-only credentials, then activate the account; no schema, method, or
-  adapter code changes are required for a live WeChat Pay connection.
+  remain inactive and carry realistic production identifiers — Stripe account
+  IDs (`acct_*`), Alipay partner/app IDs, WeChat merchant IDs, app IDs and
+  merchant certificate serial numbers, and the platform callback domain
+  (`api.sdkwork.com`). Replace the referenced database-backed write-only
+  credentials, validate with the dry-run account test, then activate the
+  account; no schema, method, or adapter code changes are required for a live
+  WeChat Pay connection.
 
 All records are scoped to the platform bootstrap tenant `100001`. Backend-admin
 records use the stable bootstrap administrator organization `100002`; IAM
@@ -35,14 +36,14 @@ to the payment tables' `jsonb` columns; target-context values remain portable to
 SQLite's TEXT-backed JSON fields.
 
 No seed contains merchant credentials, certificate material, API keys, webhook
-secrets, or private keys. Operators replace the mock identifiers and write-only
-credentials in the generated provider-account records from the payment admin
-workspace (or by editing the seed before first bootstrap) before enabling a
-live channel. For WeChat Pay, the merchant private-key PEM, API v3 key, and
-platform certificate PEM are encrypted into versioned
-`commerce_payment_provider_credential` rows.
+secrets, or private keys. Operators replace the template identifier references
+and provide write-only credentials from the payment admin workspace (or by
+editing the seed before first bootstrap) before enabling a live channel. For
+WeChat Pay, the merchant private-key PEM, API v3 key, and platform certificate
+PEM are encrypted into versioned `commerce_payment_provider_credential` rows.
 
 Activation is intentionally a second, status-only update. Save the account as
 `inactive`, run the backend provider-account dry-run, then set `status` to
-`active`. The backend rejects stale tests, remaining mock markers, and
-activation requests that also change credentials or merchant identifiers.
+`active`. The backend rejects stale tests, remaining bootstrap template
+markers, and activation requests that also change credentials or merchant
+identifiers.

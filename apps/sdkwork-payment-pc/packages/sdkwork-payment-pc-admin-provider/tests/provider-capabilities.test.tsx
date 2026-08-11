@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProviderAccountList } from "../src/components/ProviderAccountList";
@@ -32,7 +32,7 @@ describe("payment provider capabilities", () => {
         onEdit={vi.fn()}
         onLoadMore={vi.fn()}
         onRotate={vi.fn()}
-        onSelect={vi.fn()}
+        onToggleStatus={vi.fn()}
         onTest={vi.fn()}
         onDelete={vi.fn()}
       />,
@@ -41,9 +41,71 @@ describe("payment provider capabilities", () => {
     expect(screen.getByText("stripe-main")).toBeInTheDocument();
     expect(document.querySelector('[data-provider="stripe"]')).not.toBeNull();
     expect(screen.getByLabelText("Credential readiness")).toBeInTheDocument();
-    for (const action of ["Add provider account", "Create provider account", "Edit", "Rotate", "Test", "Delete"]) {
+    for (const action of ["Add provider account", "Create provider account", "Edit", "Replace credentials", "Test credentials", "Delete", "Disable"]) {
       expect(screen.queryByRole("button", { name: action })).not.toBeInTheDocument();
     }
+  });
+
+  it("shows an enable/disable status toggle and forwards it to the workspace", () => {
+    const onToggleStatus = vi.fn();
+    render(
+      <ProviderAccountList
+        accounts={[providerAccount as never]}
+        canCreate={false}
+        canEdit
+        canRotate={false}
+        canTest={false}
+        canDelete={false}
+        onCreate={vi.fn()}
+        onEdit={vi.fn()}
+        onLoadMore={vi.fn()}
+        onRotate={vi.fn()}
+        onToggleStatus={onToggleStatus}
+        onTest={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    expect(onToggleStatus).toHaveBeenCalledWith(providerAccount);
+  });
+
+  it("shows Enable for inactive accounts and hides the toggle for suspended ones", () => {
+    const commonProps = {
+      canCreate: false,
+      canEdit: true,
+      canRotate: false,
+      canTest: false,
+      canDelete: false,
+      onCreate: vi.fn(),
+      onEdit: vi.fn(),
+      onLoadMore: vi.fn(),
+      onRotate: vi.fn(),
+      onToggleStatus: vi.fn(),
+      onTest: vi.fn(),
+      onDelete: vi.fn(),
+    } as const;
+
+    const { rerender } = render(
+      <ProviderAccountList
+        {...commonProps}
+        accounts={[{ ...providerAccount, status: "inactive" } as never]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable" })).toBeInTheDocument();
+
+    // Suspended/deprecated accounts are managed through the edit form, so the
+    // quick status toggle must not appear for them.
+    rerender(
+      <ProviderAccountList
+        {...commonProps}
+        accounts={[{ ...providerAccount, status: "suspended" } as never]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
   });
 
   it("hides sub-merchant create, edit, and delete controls for read-only operators", () => {

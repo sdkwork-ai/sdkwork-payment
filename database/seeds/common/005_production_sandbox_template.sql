@@ -6,7 +6,7 @@ INSERT INTO commerce_payment_method (
     idempotency_key, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-method-sandbox-test', '100001', '0', 'sandbox_test', 'Sandbox Test', 'sandbox', 'inactive', 900, 'organization', 'CNY', NULL, '{"bootstrap":true,"configureBeforeActivation":true}', 'bootstrap-payment-method-sandbox-test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-method-sandbox-test', '100001', '0', 'sandbox_test', 'Sandbox', 'sandbox', 'inactive', 900, 'organization', 'CNY', NULL, '{"bootstrap":true,"configureBeforeActivation":true}', 'bootstrap-payment-method-sandbox-test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO commerce_payment_provider_account (
@@ -15,7 +15,7 @@ INSERT INTO commerce_payment_provider_account (
     certificate_ref, capabilities, status, metadata, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-provider-sandbox', '100001', '0', 'bootstrap-sandbox-default', 'sandbox', NULL, 'Sandbox Development Account', 'development', 'CNY', 'database:primary_secret', NULL, NULL, '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-provider-sandbox', '100001', '0', 'sandbox-primary', 'sandbox', '880300001234567', 'Sandbox Account', 'development', 'CNY', 'database:primary_secret', NULL, NULL, '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO commerce_payment_channel (
@@ -24,5 +24,5 @@ INSERT INTO commerce_payment_channel (
     priority, sort_order, metadata, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-channel-sandbox-test', '100001', '0', 'bootstrap-sandbox-test', 'Sandbox Test', 'bootstrap-payment-provider-sandbox', 'bootstrap-payment-method-sandbox-test', 'sandbox', 'api', 'CNY', NULL, 'inactive', 900, 900, '{"bootstrap":true,"configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-channel-sandbox-test', '100001', '0', 'sandbox-channel', 'Sandbox', 'bootstrap-payment-provider-sandbox', 'bootstrap-payment-method-sandbox-test', 'sandbox', 'api', 'CNY', NULL, 'inactive', 900, 900, '{"bootstrap":true,"configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;

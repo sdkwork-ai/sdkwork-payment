@@ -81,6 +81,7 @@ fn load_stripe() -> Option<StripePaymentProviderConfig> {
     Some(StripePaymentProviderConfig {
         secret_key,
         webhook_secret: env_optional("STRIPE_WEBHOOK_SECRET"),
+        publishable_key: env_optional("STRIPE_PUBLISHABLE_KEY"),
     })
 }
 
@@ -148,6 +149,7 @@ fn merge_stripe_account(bundle: &mut ProviderCredentialBundle, account: &Provide
                 .as_ref()
                 .and_then(|value| resolve_secret_ref(value))
         }),
+        publishable_key: metadata_string(&account.metadata, "publishableKey"),
     });
 }
 

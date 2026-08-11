@@ -62,10 +62,15 @@ export type { CreateReconciliationRunCommand } from './create-reconciliation-run
 export type { ReconciliationRunResponse } from './reconciliation-run-response';
 export type { ReconciliationRunListResponse } from './reconciliation-run-list-response';
 export type { SandboxTriggerCommand } from './sandbox-trigger-command';
+export type { SandboxTriggerResult } from './sandbox-trigger-result';
+export type { SandboxTriggerResultResponse } from './sandbox-trigger-result-response';
 export type { SandboxTriggerAsyncResponse } from './sandbox-trigger-async-response';
 export type { CreateTestPaymentCommand } from './create-test-payment-command';
 export type { TestPayment } from './test-payment';
 export type { TestPaymentResponse } from './test-payment-response';
+export type { CheckAttemptStatusCommand } from './check-attempt-status-command';
+export type { CheckAttemptStatusResult } from './check-attempt-status-result';
+export type { CheckAttemptStatusResultResponse } from './check-attempt-status-result-response';
 export type { WebhookSignatureTestCommand } from './webhook-signature-test-command';
 export type { WebhookSignatureTestResult } from './webhook-signature-test-result';
 export type { WebhookSignatureTestResultResponse } from './webhook-signature-test-result-response';

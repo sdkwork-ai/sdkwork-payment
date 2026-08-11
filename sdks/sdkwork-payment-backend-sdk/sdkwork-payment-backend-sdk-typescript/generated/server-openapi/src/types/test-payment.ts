@@ -16,6 +16,10 @@ export interface TestPayment {
   payUrl?: string;
   /** Full Alipay cashier form HTML for browser render and auto-submit (Alipay PC website pay) */
   payForm?: string;
+  /** Stripe PaymentIntent client secret for Stripe.js card collection (stripe methods) */
+  clientSecret?: string;
+  /** Stripe publishable key for Stripe.js (stripe methods) */
+  publishableKey?: string;
   expiresAt?: string;
   createdAt: string;
 }

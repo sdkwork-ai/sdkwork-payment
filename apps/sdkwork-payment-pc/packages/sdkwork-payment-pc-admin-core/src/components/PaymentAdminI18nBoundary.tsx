@@ -11,7 +11,7 @@ const LOCALIZED_ATTRIBUTES = ["aria-label", "placeholder", "title"] as const;
  *  `document.body` via portals, which sit outside the boundary root. These
  *  scope selectors identify portal content owned by admin workspaces. */
 const PORTAL_SCOPE_SELECTOR =
-  '[role="dialog"], [role="listbox"], [data-radix-popper-content-wrapper]';
+  '[role="dialog"], [role="listbox"], [data-radix-popper-content-wrapper], [data-sonner-toaster]';
 
 function escapeRegularExpression(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");

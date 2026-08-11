@@ -199,7 +199,7 @@ pub struct PaymentWebhookAttemptContext {
     pub order_id: String,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PaymentWebhookAttemptIdentity {
+pub struct PaymentWebhookAttemptIdentity {
     pub payment_attempt_id: String,
     pub payment_intent_id: String,
     pub provider_code: String,

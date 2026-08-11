@@ -77,16 +77,23 @@ impl PostgresCommerceRefundStore {
             ));
         }
 
-        let payment_attempt_id = find_succeeded_payment_attempt_in_tx(&mut tx, &command)
+        let payment_attempt = find_succeeded_payment_attempt_in_tx(&mut tx, &command)
             .await?
             .ok_or_else(|| CommerceServiceError::not_found("payment attempt was not found"))?;
+        let (payment_attempt_id, paid_amount, paid_currency_code) = payment_attempt;
 
-        let refund_amount = resolve_refund_amount(&command, &order_ref.total_amount)?;
-        let total_minor = money_to_minor_units(order_ref.total_amount.as_str())?;
+        // The refundable bound is the actually paid amount (the succeeded
+        // attempt amount), not the order total — PSP refunds (e.g. WeChat
+        // `amount.total`) are anchored to the paid amount, so an order whose
+        // payment settled below its total must not allow refunding more.
+        let paid_money = CommerceMoney::new(&paid_amount).map_err(CommerceServiceError::storage)?;
+        let refund_amount = resolve_refund_amount(&command, &paid_money)?;
+        let paid_minor = money_to_minor_units(&paid_amount)?;
         let refund_minor = money_to_minor_units(&refund_amount)?;
-        validate_refund_bounds(refund_minor, total_minor)?;
-        let already_refunded_minor = sum_refunded_amount_in_tx(&mut tx, &command).await?;
-        if refund_minor > total_minor.saturating_sub(already_refunded_minor) {
+        validate_refund_bounds(refund_minor, paid_minor)?;
+        let already_refunded_minor =
+            sum_refunded_amount_in_tx(&mut tx, &command, &paid_currency_code).await?;
+        if refund_minor > paid_minor.saturating_sub(already_refunded_minor) {
             return Err(CommerceServiceError::conflict(
                 "refund amount exceeds remaining refundable amount",
             ));
@@ -533,10 +540,10 @@ impl PostgresCommerceRefundStore {
 async fn find_succeeded_payment_attempt_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     command: &CreateOwnerRefundCommand,
-) -> Result<Option<String>, CommerceServiceError> {
+) -> Result<Option<(String, String, String)>, CommerceServiceError> {
     let row = sqlx::query(
         r#"
-        SELECT id
+        SELECT id, CAST(amount AS TEXT) AS amount, currency_code
         FROM commerce_payment_attempt
         WHERE tenant_id = CAST($1 AS TEXT)
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
@@ -560,12 +567,19 @@ async fn find_succeeded_payment_attempt_in_tx(
     .await
     .map_err(|error| store_error("failed to load payment attempt for refund", error))?;
 
-    Ok(row.map(|row| string_cell(&row, "id")))
+    Ok(row.map(|row| {
+        (
+            string_cell(&row, "id"),
+            string_cell(&row, "amount"),
+            string_cell(&row, "currency_code"),
+        )
+    }))
 }
 
 async fn sum_refunded_amount_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     command: &CreateOwnerRefundCommand,
+    currency_code: &str,
 ) -> Result<i64, CommerceServiceError> {
     let rows = sqlx::query(
         r#"
@@ -574,6 +588,7 @@ async fn sum_refunded_amount_in_tx(
         WHERE tenant_id = CAST($1 AS TEXT)
           AND order_id = CAST($2 AS TEXT)
           AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND currency_code = CAST($4 AS TEXT)
           AND LOWER(COALESCE(status, '')) IN ('submitted', 'processing', 'succeeded')
           AND deleted_at IS NULL
         "#,
@@ -581,6 +596,7 @@ async fn sum_refunded_amount_in_tx(
     .bind(&command.tenant_id)
     .bind(&command.order_id)
     .bind(command.organization_id.as_deref())
+    .bind(currency_code)
     .fetch_all(&mut **tx)
     .await
     .map_err(|error| store_error("failed to sum refunded amount", error))?;

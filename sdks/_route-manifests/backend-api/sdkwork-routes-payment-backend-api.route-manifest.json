@@ -342,6 +342,15 @@
     },
     {
       "method": "POST",
+      "path": "/backend/v3/api/payments/dev/check_attempt_status",
+      "operationId": "dev.checkAttemptStatus",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
       "path": "/backend/v3/api/payments/dev/webhook_signature_test",
       "operationId": "dev.webhookSignatureTest",
       "source": {

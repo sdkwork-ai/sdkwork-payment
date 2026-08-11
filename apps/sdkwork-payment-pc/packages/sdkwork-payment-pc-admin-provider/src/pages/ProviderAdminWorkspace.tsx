@@ -2,7 +2,7 @@
  * Provider admin workspace.
  *
  * Two-tab workspace:
- *   1. Provider Accounts — list + create/edit form + test/rotate actions
+ *   1. Provider Accounts — list + create/edit form + test/replace actions
  *   2. Sub-Merchants — manage sub-merchants under a selected partner account
  *
  * Uses an external store subscription pattern (subscribe/getState) so the host
@@ -22,6 +22,8 @@ import {
   TabsList,
   TabsTrigger,
   Textarea,
+  Toaster,
+  toast,
 } from "@sdkwork/ui-pc-react";
 import {
   AdminFieldLabel,
@@ -50,7 +52,6 @@ import type {
   PaymentBaseDataOption,
   PaymentCredentialRotateDraft,
   PaymentProviderAccountDraft,
-  PaymentProviderAccountTestOptions,
   PaymentProviderAccountUpdateDraft,
   PaymentProviderAdminController,
   PaymentProviderAdminState,
@@ -106,6 +107,23 @@ export function PaymentProviderAdminWorkspace(
   const activeSection = props.section ?? tab;
   const [dialog, setDialog] = React.useState<DialogState>({ kind: "closed" });
   const [guideOpen, setGuideOpen] = React.useState(false);
+  const [disableTarget, setDisableTarget] = React.useState<PaymentProviderAccountView | null>(null);
+  // Guards the enable/disable chains against double-clicks and concurrent
+  // invocations: React state (and therefore the row busy prop) updates
+  // asynchronously, so a second click can slip in before the first mutation
+  // reaches the controller. Handlers catch their own errors, so the lock is
+  // always released in `finally`.
+  const statusMutationLockRef = React.useRef(false);
+
+  function runStatusMutation(action: () => Promise<void>) {
+    if (statusMutationLockRef.current) {
+      return;
+    }
+    statusMutationLockRef.current = true;
+    void action().finally(() => {
+      statusMutationLockRef.current = false;
+    });
+  }
 
   React.useEffect(() => {
     return controller.subscribe(() => {
@@ -114,8 +132,10 @@ export function PaymentProviderAdminWorkspace(
   }, [controller]);
 
   React.useEffect(() => {
-    void controller.load().then(setState).catch(() => {
-      // error already surfaced via controller state.lastError
+    void controller.load().then(setState).catch((error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load provider admin data.",
+      );
     });
   }, [controller]);
 
@@ -140,6 +160,7 @@ export function PaymentProviderAdminWorkspace(
   async function handleCreate(draft: PaymentProviderAccountDraft) {
     await controller.createProviderAccount(draft);
     setDialog({ kind: "closed" });
+    toast.success("Provider account created.");
   }
 
   async function handleUpdate(draft: PaymentProviderAccountUpdateDraft) {
@@ -163,17 +184,35 @@ export function PaymentProviderAdminWorkspace(
       await controller.updateProviderAccount(dialog.account.id, draft);
     }
     setDialog({ kind: "closed" });
+    toast.success("Provider account updated.");
   }
 
   async function handleTest() {
     if (dialog.kind !== "test") {
       return;
     }
-    const options: PaymentProviderAccountTestOptions = {
-      environment: dialog.account.environment,
-      dryRun: true,
-    };
-    await controller.testProviderAccount(dialog.account.id, options);
+    const account = dialog.account;
+    setDialog({ kind: "closed" });
+    const loadingToast = toast.loading("Testing...");
+    try {
+      const result = await controller.testProviderAccount(account.id, {
+        environment: account.environment,
+        dryRun: true,
+      });
+      if (result.ok) {
+        toast.success("Credentials verified", { id: loadingToast });
+      } else {
+        toast.error("Credential test failed", {
+          id: loadingToast,
+          description: result.diagnostic,
+        });
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to test provider account credentials.",
+        { id: loadingToast },
+      );
+    }
   }
 
   async function handleRotate(draft: PaymentCredentialRotateDraft) {
@@ -182,71 +221,124 @@ export function PaymentProviderAdminWorkspace(
     }
     await controller.rotateProviderAccountCredentials(dialog.account.id, draft);
     setDialog({ kind: "closed" });
+    toast.success("Credentials replaced.");
   }
 
   async function handleDelete() {
     if (dialog.kind !== "delete") {
       return;
     }
-    await controller.deleteProviderAccount(dialog.account.id);
-    setDialog({ kind: "closed" });
+    try {
+      await controller.deleteProviderAccount(dialog.account.id);
+      setDialog({ kind: "closed" });
+      toast.success("Provider account deleted.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete provider account.",
+      );
+    }
   }
 
-  function handleSelect(account: PaymentProviderAccountView) {
-    controller.selectProviderAccount(account.id);
-    if (account.accountMode === "partner") {
-      loadSubMerchants(account.id);
-      if (!props.section) {
-        setTab("submerchants");
+  // Row status toggle entry point: disabling an active account asks for
+  // confirmation first (it takes live payment routing offline); enabling runs
+  // the validated activation flow below.
+  function handleToggleStatus(account: PaymentProviderAccountView) {
+    if (account.status === "active") {
+      setDisableTarget(account);
+      return;
+    }
+    runStatusMutation(() => handleEnable(account));
+  }
+
+  async function handleEnable(account: PaymentProviderAccountView) {
+    const loadingToast = toast.loading("Enabling...");
+    try {
+      // The toggle only renders for inactive accounts, so no status patch is
+      // needed first: a dry-run test refreshes last_tested_at, then the
+      // activation patch triggers the backend readiness guard, which
+      // atomically validates test freshness, mock config, credential
+      // completeness, and the one-active-account-per-provider rule.
+      const result = await controller.testProviderAccount(account.id, {
+        environment: account.environment,
+        dryRun: true,
+      });
+      if (!result.ok) {
+        throw new Error("Provider account readiness validation failed.", {
+          cause: result.diagnostic,
+        });
       }
+      await controller.updateProviderAccount(account.id, { status: "active" });
+      toast.success("Provider account enabled.", { id: loadingToast });
+    } catch (error) {
+      // The backend readiness guard rejects activation when another account of
+      // the same provider is already active; report that conflict precisely
+      // instead of the generic guard message when we can see the duplicate.
+      const duplicateActive = state.providerAccounts.some(
+        (other) => other.id !== account.id
+          && other.providerCode === account.providerCode
+          && other.status === "active",
+      );
+      const diagnostic = error instanceof Error
+        ? typeof error.cause === "string"
+          ? error.cause
+          : undefined
+        : undefined;
+      toast.error(
+        duplicateActive
+          ? "Another active account for this provider exists. Disable it before enabling this one."
+          : error instanceof Error
+            ? error.message
+            : "Failed to change provider account status.",
+        {
+          id: loadingToast,
+          ...(diagnostic ? { description: diagnostic } : {}),
+        },
+      );
+    }
+  }
+
+  async function handleDisable(account: PaymentProviderAccountView) {
+    const loadingToast = toast.loading("Disabling...");
+    try {
+      await controller.updateProviderAccount(account.id, { status: "inactive" });
+      toast.success("Provider account disabled.", { id: loadingToast });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to change provider account status.",
+        { id: loadingToast },
+      );
+    } finally {
+      setDisableTarget(null);
     }
   }
 
   function loadProviderAccounts() {
-    void controller.loadMoreProviderAccounts().catch(() => {
-      // The controller exposes the failure through state.lastError.
+    void controller.loadMoreProviderAccounts().catch((error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load more provider accounts.",
+      );
     });
   }
 
   function loadSubMerchants(providerAccountId?: string) {
-    void controller.loadMoreSubMerchants(providerAccountId).catch(() => {
-      // The controller exposes the failure through state.lastError.
+    void controller.loadMoreSubMerchants(providerAccountId).catch((error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load more sub-merchants.",
+      );
     });
   }
 
   return (
     <PaymentAdminI18nBoundary>
+      <Toaster />
       <PaymentAdminWorkspace
         className="flex h-full min-h-0 flex-col"
         data-slot="payment-provider-admin-workspace"
         description={props.description}
-        error={state.lastError}
         title={props.title ?? "Provider accounts & sub-merchants"}
       >
-        {state.lastTestResult ? (
-          <div
-            role="status"
-            className={
-              "border-l-2 px-3 py-2 text-sm " +
-              (state.lastTestResult.ok
-                ? "border-[var(--sdk-color-border-success)] bg-[var(--sdk-color-bg-success-subtle)] text-[var(--sdk-color-text-success)]"
-                : "border-[var(--sdk-color-border-error)] bg-[var(--sdk-color-bg-error-subtle)] text-[var(--sdk-color-text-error)]")
-            }
-          >
-            <div className="font-medium">
-              {state.lastTestResult.ok ? "Credentials verified" : "Credential test failed"}
-            </div>
-            <div className="mt-1 text-xs">
-              Provider: {state.lastTestResult.providerCode} · Environment:{" "}
-              {state.lastTestResult.environment}
-              {typeof state.lastTestResult.pspResponseTimeMs === "number"
-                ? ` · Latency: ${state.lastTestResult.pspResponseTimeMs}ms`
-                : ""}
-              {state.lastTestResult.diagnostic ? ` · ${state.lastTestResult.diagnostic}` : ""}
-            </div>
-          </div>
-        ) : null}
-
         <Tabs
           className="flex min-h-0 flex-1 flex-col"
           value={activeSection}
@@ -266,17 +358,19 @@ export function PaymentProviderAdminWorkspace(
             </div>
           ) : null}
           <PaymentAdminTabsContent className="min-h-0 flex-1 overflow-y-auto" value="accounts">
+            {/* "testing" keeps row actions disabled during the dry-run step of
+                the enable flow so the buttons do not flicker back mid-sequence. */}
             <ProviderAccountList
               accounts={state.providerAccounts}
               pageInfo={state.listPageInfo?.providerAccounts}
               selectedId={state.selectedProviderAccount?.id}
-              busy={state.status === "saving" || state.status === "loading"}
+              busy={state.status === "saving" || state.status === "loading" || state.status === "testing"}
               canCreate={props.capabilities.canCreateProviderAccount}
               canEdit={props.capabilities.canUpdateProviderAccount}
               canRotate={props.capabilities.canRotateProviderCredentials}
               canTest={props.capabilities.canTestProviderAccount}
               canDelete={props.capabilities.canDeleteProviderAccount}
-              onSelect={handleSelect}
+              onToggleStatus={(account) => void handleToggleStatus(account)}
               onEdit={(account) => setDialog({ kind: "edit", account })}
               onTest={(account) => setDialog({ kind: "test", account })}
               onRotate={(account) => setDialog({ kind: "rotate", account })}
@@ -415,7 +509,7 @@ export function PaymentProviderAdminWorkspace(
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => void handleTest().then(() => setDialog({ kind: "closed" }))}
+                  onClick={() => void handleTest()}
                   disabled={state.status === "testing"}
                 >
                   {state.status === "testing" ? "Testing..." : "Run test"}
@@ -445,6 +539,23 @@ export function PaymentProviderAdminWorkspace(
         }}
       />
 
+      <ConfirmDialog
+        open={disableTarget !== null}
+        title="Disable provider account?"
+        description="Payments routed through this account will fail until it is re-enabled."
+        confirmLabel="Disable"
+        variant="danger"
+        busy={state.status === "saving"}
+        onConfirm={() => {
+          if (disableTarget) runStatusMutation(() => handleDisable(disableTarget));
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDisableTarget(null);
+          }
+        }}
+      />
+
       <Dialog
         open={dialog.kind === "rotate"}
         onOpenChange={(open) => {
@@ -455,7 +566,7 @@ export function PaymentProviderAdminWorkspace(
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rotate provider credentials</DialogTitle>
+            <DialogTitle>Replace provider credentials</DialogTitle>
           </DialogHeader>
           {dialog.kind === "rotate" ? (
             <RotateCredentialsDialog
@@ -523,7 +634,7 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
       };
       await props.onSubmit(draft);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rotate credentials.");
+      setError(err instanceof Error ? err.message : "Failed to replace credentials.");
     } finally {
       setSubmitting(false);
     }
@@ -533,7 +644,7 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
     <form
       className="space-y-4"
       onSubmit={handleSubmit}
-      aria-label="Rotate credentials form"
+      aria-label="Replace credentials form"
     >
       <p className="text-sm text-[var(--sdk-color-text-secondary)]">
         New credential versions are encrypted in the database. Previous active versions
@@ -646,7 +757,7 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
           Cancel
         </Button>
         <Button type="submit" disabled={submitting || props.busy}>
-          {submitting || props.busy ? "Rotating..." : "Rotate credentials"}
+          {submitting || props.busy ? "Replacing..." : "Replace credentials"}
         </Button>
       </div>
     </form>

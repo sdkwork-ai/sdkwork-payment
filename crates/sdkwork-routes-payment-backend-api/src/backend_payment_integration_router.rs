@@ -10,12 +10,17 @@ use sdkwork_iam_context_service::IamAppContext;
 use sdkwork_payment_providers::{
     payment_credential_cipher, provider_registry_for_account, resolve_secret_ref,
     CredentialCipherScope, EncryptedPaymentCredential, EnvPaymentCredentialResolver,
-    PaymentProviderRegistry, PaymentVerifyWebhookRequest, ProviderAccountBinding,
-    ProviderCredentialBundle,
+    PaymentProviderRegistry, PaymentQueryPaymentIntentRequest, PaymentVerifyWebhookRequest,
+    ProviderAccountBinding, ProviderCredentialBundle,
 };
 use sdkwork_payment_repository_sqlx::{
-    enrich_owner_payment_attempt_postgres, OwnerOrderPaymentEnrichmentContext,
+    enrich_owner_payment_attempt_postgres, webhook_status::map_provider_payment_status,
+    IngestProviderWebhookCommand, OwnerOrderPaymentEnrichmentContext,
+    payment_attempt_context::PaymentWebhookAttemptIdentity,
     PostgresCommercePaymentIntentStore,
+    postgres_webhook_ingestion::{
+        apply_webhook_payment_status_postgres, ingest_provider_webhook_postgres,
+    },
 };
 use sdkwork_payment_service::{
     CreateOwnerPaymentAttemptCommand, CreateOwnerPaymentAttemptOutcome,
@@ -29,7 +34,7 @@ use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Row};
 
 use crate::api_response::{
-    accepted_async_command, conflict, map_service_error, not_found, success_created_item,
+    conflict, map_service_error, not_found, success_created_item,
     success_item, success_list, success_no_content, unauthorized, validation,
 };
 use crate::command_headers::{validate_write_payload, WriteCommandHeaderError};
@@ -192,8 +197,31 @@ struct TestPaymentResult {
     pay_url: Option<String>,
     /// Full Alipay cashier form HTML for browser render + auto submit.
     pay_form: Option<String>,
+    /// Stripe PaymentIntent client secret for Stripe.js card collection.
+    client_secret: Option<String>,
+    /// Stripe publishable key for Stripe.js (from deployment env or the
+    /// provider account metadata).
+    publishable_key: Option<String>,
     expires_at: Option<String>,
     created_at: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckAttemptStatusBody {
+    payment_intent_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckAttemptStatusResult {
+    payment_intent_id: String,
+    attempt_id: String,
+    /// Raw provider status from the PSP query (e.g. WeChat `SUCCESS`,
+    /// Alipay `TRADE_SUCCESS`), `None` when the attempt was already terminal.
+    provider_status: Option<String>,
+    local_status: String,
+    paid: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -257,6 +285,10 @@ fn build_router(state: IntegrationState) -> Router {
         .route(
             "/backend/v3/api/payments/dev/test_payments",
             post(create_test_payment),
+        )
+        .route(
+            "/backend/v3/api/payments/dev/check_attempt_status",
+            post(check_attempt_status),
         )
         .route(
             "/backend/v3/api/payments/dev/webhook_signature_test",
@@ -365,28 +397,6 @@ fn provider_account_readiness_issues(
     adapter_initialized: bool,
 ) -> Vec<String> {
     let mut issues = Vec::new();
-    let mock = |value: Option<&str>| {
-        value
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some_and(|value| value.starts_with("mock-") || value.starts_with("MOCK_"))
-    };
-    if account
-        .metadata
-        .get("configurationState")
-        .and_then(Value::as_str)
-        .is_some_and(|value| value.eq_ignore_ascii_case("mock"))
-        || mock(account.merchant_id.as_deref())
-        || mock(account.metadata.get("appId").and_then(Value::as_str))
-        || mock(
-            account
-                .metadata
-                .get("merchantSerialNo")
-                .and_then(Value::as_str),
-        )
-    {
-        issues.push("replace bootstrap mock identifiers".to_owned());
-    }
     if account.primary_secret.is_none() && resolve_secret_ref(&account.secret_ref).is_none() {
         issues.push("primary provider credential is not configured".to_owned());
     }
@@ -777,19 +787,47 @@ async fn trigger_sandbox_event(
         "outTradeNo": body.out_trade_no,
         "sandbox": true,
     });
-    match insert_sandbox_webhook_event(
-        &state.pool,
-        &subject,
-        &operation_id,
-        &event_id,
-        &account.provider_code,
+    // The sandbox callback is ingested synchronously through the same path
+    // as a real PSP webhook (out-trade-no resolution → status machine → event
+    // record), so the simulated payment takes effect immediately instead of
+    // waiting for a queue consumer that does not exist.
+    let IntegrationPool::Postgres(pool) = &state.pool else {
+        return validation(ctx, "payment dev endpoints require the postgres integration pool");
+    };
+    let ingest_command = IngestProviderWebhookCommand {
+        provider_code: account.provider_code.clone(),
+        provider_event_id: event_id.clone(),
+        event_type: Some(body.event_type.clone()),
+        out_trade_no: body.out_trade_no.clone(),
+        payment_status: Some("succeeded".to_owned()),
         payload,
+        tenant_id: Some(subject.tenant_id.clone()),
+        organization_id: subject.organization_id.clone(),
+    };
+    let outcome = match ingest_provider_webhook_postgres(pool, ingest_command).await {
+        Ok(outcome) => outcome,
+        Err(error) => return map_service_error(ctx, error),
+    };
+    success_item(
+        ctx,
+        SandboxTriggerResult {
+            operation_id,
+            event_id,
+            webhook_event_id: outcome.webhook_event_id,
+            payment_attempt_id: outcome.payment_attempt_id,
+            applied_status: outcome.applied_status,
+        },
     )
-    .await
-    {
-        Ok(()) => accepted_async_command(ctx, operation_id, "pending", None),
-        Err(error) => map_service_error(ctx, error),
-    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SandboxTriggerResult {
+    operation_id: String,
+    event_id: String,
+    webhook_event_id: String,
+    payment_attempt_id: Option<String>,
+    applied_status: Option<String>,
 }
 
 // ===========================================================================
@@ -803,11 +841,21 @@ async fn trigger_sandbox_event(
 /// `redirect_url`/`payForm`). Other products return SDK invocation payloads,
 /// require payer identifiers (openid/buyer_id), or have no checkout at all
 /// (sandbox).
-const TEST_PAYMENT_METHOD_KEYS: [&str; 4] = [
+const TEST_PAYMENT_METHOD_KEYS: [&str; 10] = [
     "wechat_native",
     "alipay_qr",
     "alipay_wap",
     "alipay_pc",
+    // Stripe card/wallet methods use the client-secret confirm flow: the
+    // admin enters card details in the dialog (Stripe.js) and pays directly.
+    "stripe_card",
+    "stripe_apple_pay",
+    "stripe_google_pay",
+    "stripe_alipay",
+    "stripe_wechat_pay",
+    // The local sandbox has no real PSP checkout; the dialog simulates the
+    // payment success via the sandbox webhook trigger (no credentials needed).
+    "sandbox_test",
 ];
 const TEST_PAYMENT_ORDER_SUBJECT: &str = "One-cent test payment";
 /// Test order lifetime in minutes. Order-expiration enforcement rejects
@@ -816,6 +864,10 @@ const TEST_PAYMENT_ORDER_SUBJECT: &str = "One-cent test payment";
 /// so the test order is created with a 15-minute future expiry that yields
 /// the full QR window.
 const TEST_PAYMENT_ORDER_TTL_MINUTES: i64 = 15;
+/// Upper bound (minor units) for one-cent test payments: the dev endpoint
+/// must not create large real PSP orders even for operators — defense in
+/// depth behind the `commerce.payments.dev.test_payments` permission.
+const TEST_PAYMENT_AMOUNT_MAX_MINOR_UNITS: i64 = 10_000;
 
 struct TestPaymentMethodRecord {
     method_key: String,
@@ -894,6 +946,16 @@ async fn create_test_payment(
     if !is_money_amount(&amount) {
         return validation(ctx, "amount must match ^[0-9]+(\\.[0-9]{1,2})?$");
     }
+    match decimal_amount_minor_units(&amount) {
+        Some(minor) if minor > TEST_PAYMENT_AMOUNT_MAX_MINOR_UNITS => {
+            return validation(
+                ctx,
+                "amount must not exceed 10000 minor units (100.00); the one-cent test payment is a small-amount verification only",
+            );
+        }
+        Some(_) => {}
+        None => return validation(ctx, "amount overflows the supported range"),
+    }
     let currency_code = normalized(body.currency_code).unwrap_or_else(|| "CNY".to_owned());
     if currency_code.len() != 3 {
         return validation(ctx, "currencyCode must be a 3-letter ISO currency code");
@@ -901,16 +963,28 @@ async fn create_test_payment(
 
     let method = match load_payment_method_for_test(&state.pool, &subject, &method_key).await {
         Ok(Some(method)) => method,
-        Ok(None) => return not_found(ctx, "payment method was not found"),
+        Ok(None) => return not_found(
+            ctx,
+            format!(
+                "payment method {method_key} was not found for this tenant/organization; create it in the payment methods workspace and enable it"
+            ),
+        ),
         Err(error) => return map_service_error(ctx, error),
     };
     if method.status != "active" {
-        return conflict(ctx, "payment method is not active");
+        return conflict(
+            ctx,
+            format!(
+                "payment method {method_key} is not active; enable it in the payment methods workspace first"
+            ),
+        );
     }
     if !TEST_PAYMENT_METHOD_KEYS.contains(&method.method_key.as_str()) {
         return validation(
             ctx,
-            "payment method does not support one-cent test payments",
+            format!(
+                "payment method {method_key} does not support one-cent test payments; only these methods can: wechat_native, alipay_qr (scan-to-pay QR), alipay_wap, alipay_pc (web cashier), stripe_* (card), sandbox_test (local simulation)"
+            ),
         );
     }
 
@@ -951,10 +1025,48 @@ async fn create_test_payment(
                 // (e.g., configure a provider account + channel, or fix the
                 // upstream call).
                 if matches!(error.code(), "provider-unavailable" | "transport") {
+                    let message = error.message();
+                    let guidance = if message.contains("is not configured") {
+                        "create an active provider account and channel for this method (or set the provider credentials), then retry"
+                    } else {
+                        "check the provider credentials, merchant configuration, network access, and the callback (notify) URL configuration, then retry"
+                    };
                     return validation(
                         ctx,
-                        format!("payment provider checkout failed: {}", error.message()),
+                        format!("payment provider checkout failed: {message}; {guidance}"),
                     );
+                }
+                // Storage failures (e.g. a missing table column in this
+                // deployment) must be visible for a dev endpoint instead of a
+                // generic 50001: report the concrete SQL problem.
+                if error.code() == "storage" {
+                    return validation(
+                        ctx,
+                        format!(
+                            "payment test order storage failed: {} (verify the payment/order schema of this deployment)",
+                            error.message()
+                        ),
+                    );
+                }
+                // Order-boundary conflicts (e.g. "order is not pending
+                // payment") get the stored order status and expiry appended;
+                // method-availability conflicts get the method/channel/account
+                // state appended — so a schema or configuration issue is
+                // visible instead of opaque.
+                if error.code() == "conflict" {
+                    let order_diagnostic =
+                        load_test_order_diagnostic(&state.pool, &subject, &order_id).await;
+                    let method_diagnostic =
+                        load_test_payment_method_diagnostic(&state.pool, &subject, &method_key)
+                            .await;
+                    let diagnostic = [order_diagnostic, method_diagnostic]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    if !diagnostic.is_empty() {
+                        return conflict(ctx, format!("{} ({diagnostic})", error.message()));
+                    }
                 }
                 return map_service_error(ctx, error);
             }
@@ -983,6 +1095,11 @@ async fn create_test_payment(
             qr_code_url,
             pay_url: attempt.payment_params.get("payUrl").cloned(),
             pay_form: attempt.payment_params.get("payForm").cloned(),
+            client_secret: attempt.payment_params.get("clientSecret").cloned(),
+            publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
             expires_at: attempt.payment_params.get("expiresAt").cloned(),
             created_at: now,
         },
@@ -1039,6 +1156,300 @@ async fn create_test_payment_checkout(
     }
 }
 
+/// Queries the PSP for the current payment state of a test-payment attempt and
+/// applies the result through the same status machine the webhook path uses.
+/// This closes the loop for sandbox/real PSP payments whose async notify did
+/// not arrive (e.g. Alipay sandbox without a configured callback): the admin
+/// scans/pays, then confirms via this endpoint instead of waiting forever.
+async fn check_attempt_status(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<CheckAttemptStatusBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    let write = match validate_command(ctx, &headers, "check-attempt-status", &body) {
+        Ok(write) => write,
+        Err(response) => return response,
+    };
+    let payment_intent_id = match required_text(&body.payment_intent_id, "paymentIntentId", ctx) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+
+    let IntegrationPool::Postgres(pool) = &state.pool else {
+        return validation(ctx, "payment dev endpoints require the postgres integration pool");
+    };
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
+    let attempt = match load_test_attempt_for_check(pool, &subject, &payment_intent_id).await {
+        Ok(Some(attempt)) => attempt,
+        Ok(None) => {
+            return not_found(ctx, "payment attempt was not found for this payment intent");
+        }
+        Err(error) => return map_service_error(ctx, error),
+    };
+
+    let terminal = matches!(
+        attempt.status.as_str(),
+        "succeeded" | "failed" | "closed" | "canceled" | "cancelled"
+    );
+    if terminal {
+        return success_item(
+            ctx,
+            CheckAttemptStatusResult {
+                payment_intent_id: payment_intent_id.clone(),
+                attempt_id: attempt.attempt_id.clone(),
+                provider_status: None,
+                local_status: attempt.status.clone(),
+                paid: attempt.status == "succeeded",
+            },
+        );
+    }
+
+    // Resolve the provider account bound to the attempt's channel so the PSP
+    // query uses the same credentials as the original checkout.
+    let account = match load_provider_account_for_attempt(pool, &subject, &attempt).await {
+        Ok(account) => account,
+        Err(error) => return map_service_error(ctx, error),
+    };
+    let registry = provider_registry_for_account(
+        &EnvPaymentCredentialResolver::load(),
+        account.as_ref().map(|account| account.binding(account.environment.clone())),
+    );
+    let Some(adapter) = registry.resolve(&attempt.provider_code) else {
+        return validation(
+            ctx,
+            format!(
+                "payment provider {} is not configured for this attempt; enable the provider account and retry",
+                attempt.provider_code
+            ),
+        );
+    };
+    // Stripe queries by the native PaymentIntent id (`pi_...`); WeChat and
+    // Alipay query by the merchant out-trade-no.
+    let query_reference = if attempt.provider_code == "stripe" {
+        attempt
+            .provider_transaction_id
+            .clone()
+            .unwrap_or_else(|| attempt.out_trade_no.clone())
+    } else {
+        attempt.out_trade_no.clone()
+    };
+    let query_outcome = match adapter
+        .query_payment_intent(PaymentQueryPaymentIntentRequest {
+            payment_intent_id: Some(query_reference),
+            metadata: json!({}),
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let message =
+                sdkwork_contract_service::CommerceServiceError::from(error).message().to_string();
+            return validation(
+                ctx,
+                format!(
+                    "payment provider query failed: {message}; check the provider credentials and merchant configuration"
+                ),
+            );
+        }
+    };
+    let raw_status = query_outcome.raw_status.clone();
+    let Some(raw_status) = raw_status
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+    else {
+        return success_item(
+            ctx,
+            CheckAttemptStatusResult {
+                payment_intent_id,
+                attempt_id: attempt.attempt_id.clone(),
+                provider_status: raw_status,
+                local_status: attempt.status.clone(),
+                paid: false,
+            },
+        );
+    };
+    let target_status = map_provider_payment_status(&attempt.provider_code, &raw_status);
+    let mut local_status = attempt.status.clone();
+    if target_status.is_some() && target_status != Some(local_status.as_str()) {
+        let identity = PaymentWebhookAttemptIdentity {
+            payment_attempt_id: attempt.attempt_id.clone(),
+            payment_intent_id: attempt.payment_intent_id.clone(),
+            provider_code: attempt.provider_code.clone(),
+            out_trade_no: attempt.out_trade_no.clone(),
+            attempt_status: attempt.status.clone(),
+            tenant_id: attempt.tenant_id.clone(),
+            organization_id: attempt.organization_id.clone(),
+            owner_user_id: attempt.owner_user_id.clone(),
+            order_id: attempt.order_id.clone(),
+        };
+        let mut tx = match pool.begin().await {
+            Ok(tx) => tx,
+            Err(error) => return map_service_error(ctx, storage(error.to_string())),
+        };
+        let applied = match apply_webhook_payment_status_postgres(
+            &mut tx,
+            &identity,
+            Some(&raw_status),
+            &now_string(),
+        )
+        .await
+        {
+            Ok(applied) => applied,
+            Err(error) => {
+                // A terminal local state (e.g. already closed) is a normal
+                // outcome, not a failure: report the current state.
+                let _ = tx.rollback().await;
+                return success_item(
+                    ctx,
+                    CheckAttemptStatusResult {
+                        payment_intent_id,
+                        attempt_id: attempt.attempt_id.clone(),
+                        provider_status: Some(raw_status),
+                        local_status: local_status.clone(),
+                        paid: local_status == "succeeded",
+                    },
+                );
+            }
+        };
+        if let Err(error) = tx.commit().await {
+            return map_service_error(ctx, storage(error.to_string()));
+        }
+        if let Some(applied) = applied {
+            local_status = applied;
+        }
+    }
+    success_item(
+        ctx,
+        CheckAttemptStatusResult {
+            payment_intent_id,
+            attempt_id: attempt.attempt_id,
+            provider_status: Some(raw_status),
+            local_status: local_status.clone(),
+            paid: local_status == "succeeded",
+        },
+    )
+}
+
+struct TestAttemptForCheck {
+    attempt_id: String,
+    payment_intent_id: String,
+    provider_code: String,
+    out_trade_no: String,
+    provider_transaction_id: Option<String>,
+    status: String,
+    channel_id: Option<String>,
+    tenant_id: String,
+    organization_id: Option<String>,
+    owner_user_id: String,
+    order_id: String,
+}
+
+async fn load_test_attempt_for_check(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+    payment_intent_id: &str,
+) -> Result<Option<TestAttemptForCheck>, sdkwork_contract_service::CommerceServiceError> {
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
+    let row = sqlx::query(
+        "SELECT id, payment_intent_id, provider_code, out_trade_no,                 COALESCE(callback_payload->>'providerTransactionId', callback_payload->>'provider_transaction_id') AS provider_transaction_id,                 status, channel_id, tenant_id, organization_id, owner_user_id, order_id \
+         FROM commerce_payment_attempt \
+         WHERE tenant_id = CAST($1 AS TEXT) \
+           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL)) \
+           AND owner_user_id = CAST($3 AS TEXT) \
+           AND payment_intent_id = CAST($4 AS TEXT) AND deleted_at IS NULL \
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(&subject.tenant_id)
+    .bind(organization_id)
+    .bind(&subject.user_id)
+    .bind(payment_intent_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage)?;
+    Ok(row.map(|row| TestAttemptForCheck {
+        attempt_id: row.try_get("id").unwrap_or_default(),
+        payment_intent_id: row.try_get("payment_intent_id").unwrap_or_default(),
+        provider_code: row.try_get("provider_code").unwrap_or_default(),
+        out_trade_no: row.try_get("out_trade_no").unwrap_or_default(),
+        provider_transaction_id: row.try_get("provider_transaction_id").ok().flatten(),
+        status: row.try_get("status").unwrap_or_default(),
+        channel_id: row.try_get("channel_id").ok().flatten(),
+        tenant_id: row.try_get("tenant_id").unwrap_or_default(),
+        organization_id: row.try_get("organization_id").ok().flatten(),
+        owner_user_id: row.try_get("owner_user_id").unwrap_or_default(),
+        order_id: row.try_get("order_id").unwrap_or_default(),
+    }))
+}
+
+async fn load_provider_account_for_attempt(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+    attempt: &TestAttemptForCheck,
+) -> Result<Option<ProviderAccountRecord>, sdkwork_contract_service::CommerceServiceError>
+{
+    let Some(channel_id) = attempt.channel_id.as_deref() else {
+        return Ok(None);
+    };
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
+    let row = sqlx::query(
+        "SELECT a.id, a.provider_code, a.merchant_id, a.environment, a.secret_ref, \
+                a.webhook_secret_ref, a.certificate_ref, a.primary_secret, a.webhook_secret, \
+                a.certificate, a.metadata, a.status \
+         FROM commerce_payment_channel c \
+         INNER JOIN commerce_payment_provider_account a ON a.id = c.provider_account_id AND a.deleted_at IS NULL \
+         WHERE c.id = CAST($1 AS TEXT) AND c.tenant_id = CAST($2 AS TEXT) AND c.deleted_at IS NULL \
+         LIMIT 1",
+    )
+    .bind(channel_id)
+    .bind(&attempt.tenant_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let status: String = row.try_get("status").unwrap_or_default();
+    if status != "active" {
+        return Ok(None);
+    }
+    Ok(Some(ProviderAccountRecord {
+        id: row.try_get("id").unwrap_or_default(),
+        provider_code: row.try_get("provider_code").unwrap_or_default(),
+        merchant_id: row.try_get("merchant_id").ok().flatten(),
+        environment: row.try_get("environment").unwrap_or_default(),
+        secret_ref: row.try_get("secret_ref").unwrap_or_default(),
+        webhook_secret_ref: row.try_get("webhook_secret_ref").ok().flatten(),
+        certificate_ref: row.try_get("certificate_ref").ok().flatten(),
+        primary_secret: row.try_get("primary_secret").ok().flatten(),
+        webhook_secret: row.try_get("webhook_secret").ok().flatten(),
+        certificate: row.try_get("certificate").ok().flatten(),
+        metadata: row.try_get("metadata").ok().flatten().unwrap_or_else(|| json!({})),
+    }))
+}
+
 async fn load_payment_method_for_test(
     pool: &IntegrationPool,
     subject: &AppRuntimeSubject,
@@ -1075,14 +1486,23 @@ async fn insert_test_order(
     expires_at: &str,
 ) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
     let breakdown_id = stable_id("test-payment-breakdown", order_id);
+    // Platform rows persist the sentinel organization scope (`"0"`) so
+    // tenant (personal) sessions never write NULL into the NOT NULL
+    // `organization_id` column.
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
     match pool {
         IntegrationPool::Postgres(pool) => {
             sqlx::query(
-                "INSERT INTO commerce_order (id, tenant_id, organization_id, owner_user_id, order_no, status, subject, currency_code, expired_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending_payment', $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING",
+                "INSERT INTO commerce_order (id, tenant_id, organization_id, owner_user_id, order_no, status, subject, currency_code, expired_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending_payment', $6, $7, CAST($8 AS TIMESTAMPTZ), CAST($9 AS TIMESTAMPTZ), CAST($10 AS TIMESTAMPTZ)) ON CONFLICT (id) DO UPDATE SET expired_at = EXCLUDED.expired_at, updated_at = EXCLUDED.updated_at",
             )
             .bind(order_id)
             .bind(&subject.tenant_id)
-            .bind(&subject.organization_id)
+            .bind(organization_id)
             .bind(&subject.user_id)
             .bind(order_no)
             .bind(TEST_PAYMENT_ORDER_SUBJECT)
@@ -1098,7 +1518,7 @@ async fn insert_test_order(
             )
             .bind(&breakdown_id)
             .bind(&subject.tenant_id)
-            .bind(&subject.organization_id)
+            .bind(organization_id)
             .bind(order_id)
             .bind(amount)
             .bind(amount)
@@ -1110,6 +1530,141 @@ async fn insert_test_order(
             Ok(())
         }
     }
+}
+
+/// Loads the stored order status and expiry for the test payment order so a
+/// boundary conflict (e.g. "order is not pending payment") can be reported
+/// with the actual stored values. Returns `None` when the order cannot be
+/// read (then the original error is returned unchanged).
+async fn load_test_order_diagnostic(
+    pool: &IntegrationPool,
+    subject: &AppRuntimeSubject,
+    order_id: &str,
+) -> Option<String> {
+    let IntegrationPool::Postgres(pool) = pool else {
+        return None;
+    };
+    let row = sqlx::query(
+        "SELECT status, to_char(CAST(expired_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expired_at FROM commerce_order WHERE tenant_id = CAST($1 AS TEXT) AND organization_id = CAST($2 AS TEXT) AND id = CAST($3 AS TEXT) LIMIT 1",
+    )
+    .bind(&subject.tenant_id)
+    .bind(subject.organization_id.as_deref().unwrap_or("0"))
+    .bind(order_id)
+    .fetch_optional(pool)
+    .await
+    .ok()?;
+    let status = row
+        .as_ref()
+        .and_then(|row| row.try_get::<String, _>("status").ok())
+        .unwrap_or_default();
+    let expired_at = row
+        .as_ref()
+        .and_then(|row| row.try_get::<Option<String>, _>("expired_at").ok())
+        .flatten()
+        .unwrap_or_else(|| "null".to_owned());
+    Some(format!("order status={status}, expires_at={expired_at}"))
+}
+
+/// Loads the payment method availability state (method/channel/account) for
+/// the test payment so an intent-creation conflict like "payment method is
+/// unavailable" can report exactly which configuration link is missing.
+async fn load_test_payment_method_diagnostic(
+    pool: &IntegrationPool,
+    subject: &AppRuntimeSubject,
+    method_key: &str,
+) -> Option<String> {
+    let IntegrationPool::Postgres(pool) = pool else {
+        return None;
+    };
+    let rows = sqlx::query(
+        "SELECT m.status AS method_status, m.organization_id AS method_org, \
+                c.id AS channel_id, c.status AS channel_status, \
+                c.provider_account_id, a.status AS account_status \
+         FROM commerce_payment_method m \
+         LEFT JOIN commerce_payment_channel c \
+           ON c.tenant_id = m.tenant_id \
+          AND (c.method_id = m.id OR (c.method_id IS NULL AND LOWER(c.provider_code) = LOWER(m.provider_code))) \
+          AND c.deleted_at IS NULL \
+         LEFT JOIN commerce_payment_provider_account a \
+           ON a.id = c.provider_account_id AND a.deleted_at IS NULL \
+         WHERE m.tenant_id = CAST($1 AS TEXT) \
+           AND (m.organization_id = CAST($2 AS TEXT) OR m.organization_id = '0') \
+           AND m.method_key = CAST($3 AS TEXT) AND m.deleted_at IS NULL \
+         ORDER BY m.id, c.id",
+    )
+    .bind(&subject.tenant_id)
+    .bind(subject.organization_id.as_deref().unwrap_or("0"))
+    .bind(method_key)
+    .fetch_all(pool)
+    .await
+    .ok()?;
+    if rows.is_empty() {
+        return Some("method not found".to_owned());
+    }
+    let method_status = rows
+        .first()
+        .and_then(|row| row.try_get::<String, _>("method_status").ok())
+        .unwrap_or_default();
+    let method_org = rows
+        .first()
+        .and_then(|row| row.try_get::<Option<String>, _>("method_org").ok())
+        .flatten()
+        .unwrap_or_else(|| "null".to_owned());
+    let channels = rows
+        .iter()
+        .filter_map(|row| {
+            let channel_id = row.try_get::<Option<String>, _>("channel_id").ok().flatten()?;
+            let channel_status = row
+                .try_get::<String, _>("channel_status")
+                .unwrap_or_default();
+            let account_status = row
+                .try_get::<Option<String>, _>("account_status")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "none".to_owned());
+            let account_id = row
+                .try_get::<Option<String>, _>("provider_account_id")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "-".to_owned());
+            let guidance = match (channel_status.as_str(), account_status.as_str()) {
+                ("active", "inactive") => format!(
+                    " account {account_id} is inactive: enable it in Provider Accounts (edit → Test → Activate) with real or PSP sandbox credentials"
+                ),
+                ("active", "none") => format!(
+                    " channel {channel_id} has no provider account bound: edit the channel and bind an active provider account"
+                ),
+                ("inactive", _) => format!(
+                    " channel {channel_id} is inactive: enable it in Payment Channels"
+                ),
+                _ => String::new(),
+            };
+            Some(format!(
+                "{channel_id}[{channel_status},account:{account_id}/{account_status}]{guidance}"
+            ))
+        })
+        .collect::<Vec<_>>();
+    let channels_text = if channels.is_empty() {
+        "no channel".to_owned()
+    } else {
+        channels.join(",")
+    };
+    Some(format!(
+        "method={method_key} status={method_status} org={method_org}; channels: {channels_text}"
+    ))
+}
+
+/// Converts a decimal amount string ("12.50", "12", "0.01") to integer
+/// smallest units (1250, 1200, 1) using string arithmetic only.
+fn decimal_amount_minor_units(value: &str) -> Option<i64> {
+    let (yuan_part, cents_part) = value.split_once('.').unwrap_or((value, ""));
+    let yuan: i64 = yuan_part.parse().ok()?;
+    let cents: i64 = match cents_part {
+        "" => 0,
+        single if single.len() == 1 => format!("{single}0").parse().ok()?,
+        two => two[..2].parse().ok()?,
+    };
+    yuan.checked_mul(100)?.checked_add(cents)
 }
 
 /// Validates a money string against `^[0-9]+(\.[0-9]{1,2})?$` without regex.
@@ -1618,10 +2173,19 @@ async fn insert_sub_merchant(
         .unwrap_or_else(|| json!({}))
         .to_string();
     let status = body.status.as_deref().unwrap_or("active");
+    // Platform rows persist the sentinel organization scope (`"0"`) so
+    // tenant (personal) sessions never write NULL into the NOT NULL
+    // `organization_id` column.
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
     match pool {
         IntegrationPool::Postgres(pool) => {
             sqlx::query("INSERT INTO commerce_payment_sub_merchant (id, tenant_id, organization_id, provider_account_id, external_sub_merchant_id, sub_appid, sub_mch_id, display_name, status, metadata, created_at, updated_at) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, CAST($10 AS JSONB), CAST($11 AS TIMESTAMPTZ), CAST($11 AS TIMESTAMPTZ)) ON CONFLICT(id) DO NOTHING")
-                .bind(id).bind(&subject.tenant_id).bind(&subject.organization_id).bind(provider_account_id).bind(external_id).bind(&body.sub_app_id).bind(&body.sub_mch_id).bind(&body.sub_merchant_name).bind(status).bind(&metadata).bind(&now)
+                .bind(id).bind(&subject.tenant_id).bind(organization_id).bind(provider_account_id).bind(external_id).bind(&body.sub_app_id).bind(&body.sub_mch_id).bind(&body.sub_merchant_name).bind(status).bind(&metadata).bind(&now)
                 .execute(pool).await.map_err(storage)?;
         }
     }
@@ -1720,10 +2284,19 @@ async fn insert_certificate(
         .unwrap_or_else(|| json!({}))
         .to_string();
     let kind = certificate_kind(&body.certificate_type);
+    // Platform rows persist the sentinel organization scope (`"0"`) so
+    // tenant (personal) sessions never write NULL into the NOT NULL
+    // `organization_id` column.
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
     match pool {
         IntegrationPool::Postgres(pool) => {
             sqlx::query("INSERT INTO commerce_payment_certificate (id, tenant_id, organization_id, certificate_no, provider_code, kind, fingerprint_sha256, content_ref, ciphertext, encryption_key_id, encryption_algorithm, status, metadata, created_at, updated_at) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), $4, $5, $6, $7, 'database:certificate_inventory', $8, $9, $10, 'active', CAST($11 AS JSONB), CAST($12 AS TIMESTAMPTZ), CAST($12 AS TIMESTAMPTZ)) ON CONFLICT(id) DO NOTHING")
-                .bind(id).bind(&subject.tenant_id).bind(&subject.organization_id).bind(certificate_no).bind(&body.provider_code).bind(kind).bind(&encrypted.fingerprint_sha256).bind(&encrypted.ciphertext).bind(&encrypted.encryption_key_id).bind(&encrypted.encryption_algorithm).bind(&metadata).bind(&now)
+                .bind(id).bind(&subject.tenant_id).bind(organization_id).bind(certificate_no).bind(&body.provider_code).bind(kind).bind(&encrypted.fingerprint_sha256).bind(&encrypted.ciphertext).bind(&encrypted.encryption_key_id).bind(&encrypted.encryption_algorithm).bind(&metadata).bind(&now)
                 .execute(pool).await.map_err(storage)?;
         }
     }
@@ -1828,50 +2401,6 @@ async fn soft_delete_resource(
     Ok(affected > 0)
 }
 
-async fn insert_sandbox_webhook_event(
-    pool: &IntegrationPool,
-    subject: &AppRuntimeSubject,
-    operation_id: &str,
-    event_id: &str,
-    provider_code: &str,
-    payload: Value,
-) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
-    let now = now_string();
-    match pool {
-        IntegrationPool::Postgres(pool) => {
-            sqlx::query("INSERT INTO commerce_payment_webhook_event (id, tenant_id, organization_id, event_id, event_type, provider_code, payload, status, received_at, created_at, updated_at) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), $4, 'sdkwork.sandbox.triggered', $5, CAST($6 AS JSONB), 'queued', CAST($7 AS TIMESTAMPTZ), CAST($7 AS TIMESTAMPTZ), CAST($7 AS TIMESTAMPTZ)) ON CONFLICT(id) DO NOTHING")
-                .bind(operation_id).bind(&subject.tenant_id).bind(&subject.organization_id).bind(event_id).bind(provider_code).bind(payload.to_string()).bind(&now)
-                .execute(pool).await.map_err(storage)?;
-        }
-    }
-    let stored_payload = match pool {
-        IntegrationPool::Postgres(pool) => {
-            sqlx::query_scalar::<_, String>(
-                "SELECT CAST(payload AS TEXT) FROM commerce_payment_webhook_event WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND organization_id = CAST($3 AS TEXT) LIMIT 1",
-            )
-            .bind(operation_id)
-            .bind(&subject.tenant_id)
-            .bind(&subject.organization_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(storage)?
-        }
-    };
-    let stored_payload = stored_payload
-        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
-        .ok_or_else(|| {
-            sdkwork_contract_service::CommerceServiceError::storage(
-                "sandbox webhook event could not be reloaded",
-            )
-        })?;
-    if stored_payload != payload {
-        return Err(sdkwork_contract_service::CommerceServiceError::conflict(
-            "Idempotency-Key was already used with a different sandbox event payload",
-        ));
-    }
-    Ok(())
-}
-
 fn pg_total(rows: &[PgRow]) -> i64 {
     rows.first()
         .and_then(|row| row.try_get("total_count").ok())
@@ -1881,10 +2410,22 @@ fn pg_total(rows: &[PgRow]) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_test_payment_checkout, insert_test_order, now_plus_minutes, now_string, stable_id,
-        AppRuntimeSubject, IntegrationPool, TEST_PAYMENT_ORDER_TTL_MINUTES,
+        create_test_payment_checkout, decimal_amount_minor_units, insert_test_order,
+        now_plus_minutes, now_string, stable_id, AppRuntimeSubject, IntegrationPool,
+        TEST_PAYMENT_ORDER_TTL_MINUTES,
     };
     use crate::command_headers::AppWriteCommandHeaders;
+
+    #[test]
+    fn decimal_amounts_convert_to_minor_units() {
+        assert_eq!(decimal_amount_minor_units("0.01"), Some(1));
+        assert_eq!(decimal_amount_minor_units("12.50"), Some(1250));
+        assert_eq!(decimal_amount_minor_units("12"), Some(1200));
+        assert_eq!(decimal_amount_minor_units("0.5"), Some(50));
+        assert_eq!(decimal_amount_minor_units("100"), Some(10_000));
+        assert_eq!(decimal_amount_minor_units("not-a-number"), None);
+        assert_eq!(decimal_amount_minor_units("999999999999999999999999"), None);
+    }
 
     #[tokio::test]
     async fn insert_test_order_accepts_rfc3339_timestamps_for_timestamptz_columns() {

@@ -4808,7 +4808,7 @@
           "payments"
         ],
         "summary": "Sandbox event trigger (dev config).",
-        "description": "Dev config: simulates a PSP webhook event for local/sandbox integration testing. Only available when the target provider account environment is development or sandbox. Aligned with Stripe CLI `trigger` semantics.",
+        "description": "Dev config: simulates a PSP webhook event for local/sandbox integration testing. Only available when the target provider account environment is development or sandbox. The simulated callback is ingested synchronously through the same status machine as a real PSP webhook (out-trade-no resolution, attempt status update, event record), so the payment takes effect immediately.",
         "operationId": "dev.sandboxTrigger",
         "parameters": [
           {
@@ -4826,12 +4826,12 @@
           }
         },
         "responses": {
-          "202": {
-            "description": "Accepted",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SandboxTriggerAsyncResponse"
+                  "$ref": "#/components/schemas/SandboxTriggerResultResponse"
                 }
               }
             }
@@ -4952,7 +4952,7 @@
           "payments"
         ],
         "summary": "Create a test payment (dev config).",
-        "description": "Dev config: creates a 0.01 (one-cent) test payment against a QR-capable or web-cashier payment method (wechat_native, alipay_qr — scan-to-pay QR; alipay_wap, alipay_pc — web cashier redirect) without requiring an existing order. The method must be active. The backend creates an internal test order and drives the provider checkout, returning the scan-to-pay QR code URL and/or the web cashier redirect URL/form. Combine with dev.sandboxTrigger to simulate a success callback in development/sandbox environments.",
+        "description": "Dev config: creates a 0.01 (one-cent) test payment against a QR-capable or web-cashier payment method (wechat_native, alipay_qr — scan-to-pay QR; alipay_wap, alipay_pc — web cashier redirect; stripe_* — client-secret card collection) without requiring an existing order. The method must be active. The backend creates an internal test order and drives the provider checkout, returning the scan-to-pay QR code URL, the web cashier redirect URL/form, or the Stripe client secret. Combine with dev.sandboxTrigger to simulate a success callback in development/sandbox environments.",
         "operationId": "dev.testPayments",
         "parameters": [
           {
@@ -5091,6 +5091,150 @@
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
         "x-sdkwork-resource": "devTestPayments",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.test_payments",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/check_attempt_status": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Check PSP payment status for a dev test payment (dev config).",
+        "description": "Queries the provider for the current payment state of a one-cent test payment attempt and applies the result through the same status machine as the webhook path. Use it after scanning/paying when the provider async notify has not arrived (e.g. Alipay sandbox without a configured callback); the attempt status is updated to succeeded when the provider reports the payment as successful.",
+        "operationId": "dev.checkAttemptStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckAttemptStatusCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckAttemptStatusResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devCheckAttemptStatus",
         "x-sdkwork-request-context": "WebRequestContext",
         "x-sdkwork-api-surface": "backend-api",
         "x-sdkwork-server-request-id": true,
@@ -6003,8 +6147,10 @@
           "expectedStatus": {
             "type": "string",
             "enum": [
-              "failed"
-            ]
+              "failed",
+              "processing"
+            ],
+            "description": "Current refund status the retry is anchored to: failed re-submits, processing reconciles against the provider first"
           }
         }
       },
@@ -8000,6 +8146,60 @@
           }
         }
       },
+      "SandboxTriggerResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "eventId",
+          "webhookEventId"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "webhookEventId": {
+            "type": "string",
+            "description": "Stored webhook event id"
+          },
+          "paymentAttemptId": {
+            "type": "string"
+          },
+          "appliedStatus": {
+            "type": "string",
+            "description": "Payment attempt status after ingesting the simulated callback (e.g. succeeded)"
+          }
+        }
+      },
+      "SandboxTriggerResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/SandboxTriggerResult"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "SandboxTriggerAsyncResponse": {
         "allOf": [
           {
@@ -8027,7 +8227,7 @@
         "properties": {
           "methodKey": {
             "type": "string",
-            "description": "Payment method key (e.g., wechat_native, alipay_qr, alipay_wap, alipay_pc); must reference an active test-payment-capable method"
+            "description": "Payment method key (e.g., wechat_native, alipay_qr, alipay_wap, alipay_pc, stripe_card); must reference an active test-payment-capable method"
           },
           "amount": {
             "type": "string",
@@ -8103,6 +8303,14 @@
             "type": "string",
             "description": "Full Alipay cashier form HTML for browser render and auto-submit (Alipay PC website pay)"
           },
+          "clientSecret": {
+            "type": "string",
+            "description": "Stripe PaymentIntent client secret for Stripe.js card collection (stripe methods)"
+          },
+          "publishableKey": {
+            "type": "string",
+            "description": "Stripe publishable key for Stripe.js (stripe methods)"
+          },
           "expiresAt": {
             "type": "string",
             "format": "date-time"
@@ -8132,6 +8340,76 @@
                 "properties": {
                   "item": {
                     "$ref": "#/components/schemas/TestPayment"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CheckAttemptStatusCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the one-cent test payment to check"
+          }
+        }
+      },
+      "CheckAttemptStatusResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId",
+          "attemptId",
+          "localStatus",
+          "paid"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "providerStatus": {
+            "type": "string",
+            "description": "Raw provider status from the PSP query (e.g. WeChat SUCCESS, Alipay TRADE_SUCCESS); null when the attempt was already terminal"
+          },
+          "localStatus": {
+            "type": "string",
+            "description": "Local attempt status after applying the provider result"
+          },
+          "paid": {
+            "type": "boolean",
+            "description": "True when the provider reports the payment as successful"
+          }
+        }
+      },
+      "CheckAttemptStatusResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/CheckAttemptStatusResult"
                   }
                 }
               }

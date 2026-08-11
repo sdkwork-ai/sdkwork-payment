@@ -110,7 +110,7 @@ WHERE tenant_id = '100001'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_method
-SET display_name_i18n = jsonb_set(display_name_i18n, '{zh-CN}', '"沙箱测试"'::jsonb, true)
+SET display_name_i18n = jsonb_set(display_name_i18n, '{zh-CN}', '"沙箱"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
   AND method_key = 'sandbox_test'
@@ -218,14 +218,14 @@ UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{zh-CN}', '"微信支付充值"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-recharge-wechat-pay'
+  AND channel_no = 'recharge-wechat-pay'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
-SET channel_name_i18n = jsonb_set(channel_name_i18n, '{zh-CN}', '"沙箱测试"'::jsonb, true)
+SET channel_name_i18n = jsonb_set(channel_name_i18n, '{zh-CN}', '"沙箱"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-sandbox-test'
+  AND channel_no = 'sandbox-channel'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_provider
@@ -271,7 +271,7 @@ WHERE tenant_id = '100001'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_provider
-SET display_name_i18n = jsonb_set(display_name_i18n, '{zh-CN}', '"沙箱测试"'::jsonb, true)
+SET display_name_i18n = jsonb_set(display_name_i18n, '{zh-CN}', '"沙箱"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
   AND provider_code = 'sandbox'
@@ -299,15 +299,45 @@ WHERE tenant_id = '100001'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_provider_account
-SET account_name_i18n = jsonb_set(
-        account_name_i18n,
-        '{zh-CN}',
-        CASE environment
-            WHEN 'sandbox' THEN '"沙箱测试账户"'::jsonb
-            ELSE '"沙箱开发账户"'::jsonb
-        END,
-        true
-    )
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"沙箱账户"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND id = 'bootstrap-payment-provider-sandbox'
+  AND deleted_at IS NULL;
+
+-- Development profile PSP template accounts.
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"Stripe 开发账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-stripe-dev'
+  AND deleted_at IS NULL;
+
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"支付宝开发账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-alipay-dev'
+  AND deleted_at IS NULL;
+
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"微信支付开发账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-wechat-pay-dev'
+  AND deleted_at IS NULL;
+
+-- Test profile PSP template accounts (sandbox environment).
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"Stripe 沙箱账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-stripe-sandbox'
+  AND deleted_at IS NULL;
+
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"支付宝沙箱账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-alipay-sandbox'
+  AND deleted_at IS NULL;
+
+UPDATE commerce_payment_provider_account
+SET account_name_i18n = jsonb_set(account_name_i18n, '{zh-CN}', '"微信支付沙箱账户"'::jsonb, true)
+WHERE tenant_id = '100001'
+  AND id = 'bootstrap-payment-provider-wechat-pay-sandbox'
   AND deleted_at IS NULL;

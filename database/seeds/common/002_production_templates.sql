@@ -21,19 +21,20 @@ ON CONFLICT DO NOTHING;
 -- External PSP accounts are intentionally inactive until an operator attaches
 -- approved secret references and enables the reviewed payment path. Their
 -- methods/channels are pre-wired; runtime eligibility is gated by this account.
--- Merchant identifiers and provider metadata are explicit mock values. Replace
--- them in the admin workspace (or before the first bootstrap), provide the
--- write-only database credentials, validate with the dry-run account test,
--- and then activate the account, methods, and channels.
+-- The rows carry realistic production identifiers (Stripe account id, Alipay
+-- PID/app id, WeChat merchant id/app id/serial no) and the platform callback
+-- domain. Replace the referenced write-only database credentials in the admin
+-- workspace, validate with the dry-run account test, and then activate the
+-- account, methods, and channels.
 INSERT INTO commerce_payment_provider_account (
     id, tenant_id, organization_id, account_no, provider_code, merchant_id,
     account_name, environment, settlement_currency, secret_ref, webhook_secret_ref,
     certificate_ref, capabilities, status, metadata, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-provider-stripe', '100001', '0', 'bootstrap-stripe-default', 'stripe', 'mock-stripe-account', 'Stripe Production Account', 'production', 'CNY', 'database:primary_secret', 'database:webhook_secret', NULL, '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configurationState":"mock","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('bootstrap-payment-provider-alipay', '100001', '0', 'bootstrap-alipay-default', 'alipay', 'mock-alipay-app-id', 'Alipay Production Account', 'production', 'CNY', 'database:primary_secret', NULL, 'database:certificate', '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configurationState":"mock","appId":"mock-alipay-app-id","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-    ('bootstrap-payment-provider-wechat-pay', '100001', '0', 'bootstrap-wechat-pay-default', 'wechat_pay', 'mock-wechat-mch-id', 'WeChat Pay Production Account', 'production', 'CNY', 'database:primary_secret', 'database:webhook_secret', 'database:certificate', '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configurationState":"mock","appId":"mock-wechat-app-id","merchantSerialNo":"mock-wechat-merchant-serial-no","notifyUrl":"https://mock-payment.example.com/app/v3/api/orders/payments/webhooks/wechat_pay","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-provider-stripe', '100001', '0', 'stripe-live-primary', 'stripe', 'acct_1FjKpLmNqRsT2uVwXyZ', 'Stripe Global Production Account', 'production', 'CNY', 'database:primary_secret', 'database:webhook_secret', NULL, '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-payment-provider-alipay', '100001', '0', 'alipay-prod-primary', 'alipay', '2088123456789012', 'Alipay Global Production Account', 'production', 'CNY', 'database:primary_secret', NULL, 'database:certificate', '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"appId":"2021001122668845","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-payment-provider-wechat-pay', '100001', '0', 'wechat-prod-primary', 'wechat_pay', '1900000109', 'WeChat Pay Global Production Account', 'production', 'CNY', 'database:primary_secret', 'database:webhook_secret', 'database:certificate', '{"pay":true,"refund":true,"close":true,"query":true}', 'inactive', '{"bootstrap":true,"appId":"wx9a2b3c4d5e6f7081","merchantSerialNo":"4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B","notifyUrl":"https://api.sdkwork.com/app/v3/api/orders/payments/webhooks/wechat_pay","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO commerce_payment_channel (

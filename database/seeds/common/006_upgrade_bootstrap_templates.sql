@@ -1,6 +1,7 @@
 -- One-time-compatible repair for databases initialized with the legacy PSP
 -- templates. Only untouched bootstrap rows are changed; administrator-owned
--- provider accounts no longer carry the mock/configure marker and are skipped.
+-- provider accounts no longer carry the bootstrap/configure marker and are
+-- skipped.
 --
 -- Organization id 0 is the default tenant-user organization scope. Keep
 -- untouched payment bootstrap templates in that scope so app users can resolve
@@ -43,8 +44,9 @@ WHERE tenant_id = '100001'
   AND CAST(metadata AS TEXT) LIKE '%bootstrap%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = 'mock-stripe-account',
-    metadata = '{"bootstrap":true,"configurationState":"mock","configureBeforeActivation":true}',
+SET merchant_id = 'acct_1FjKpLmNqRsT2uVwXyZ',
+    account_name = 'Stripe Global Production Account',
+    metadata = '{"bootstrap":true,"configureBeforeActivation":true}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-stripe'
   AND status = 'inactive'
@@ -52,8 +54,9 @@ WHERE id = 'bootstrap-payment-provider-stripe'
   AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = 'mock-alipay-app-id',
-    metadata = '{"bootstrap":true,"configurationState":"mock","appId":"mock-alipay-app-id","configureBeforeActivation":true}',
+SET merchant_id = '2088123456789012',
+    account_name = 'Alipay Global Production Account',
+    metadata = '{"bootstrap":true,"appId":"2021001122668845","configureBeforeActivation":true}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-alipay'
   AND status = 'inactive'
@@ -61,11 +64,12 @@ WHERE id = 'bootstrap-payment-provider-alipay'
   AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = 'mock-wechat-mch-id',
+SET merchant_id = '1900000109',
+    account_name = 'WeChat Pay Global Production Account',
     secret_ref = 'database:primary_secret',
     webhook_secret_ref = 'database:webhook_secret',
     certificate_ref = 'database:certificate',
-    metadata = '{"bootstrap":true,"configurationState":"mock","appId":"mock-wechat-app-id","merchantSerialNo":"mock-wechat-merchant-serial-no","notifyUrl":"https://mock-payment.example.com/app/v3/api/orders/payments/webhooks/wechat_pay","configureBeforeActivation":true}',
+    metadata = '{"bootstrap":true,"appId":"wx9a2b3c4d5e6f7081","merchantSerialNo":"4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B","notifyUrl":"https://api.sdkwork.com/app/v3/api/orders/payments/webhooks/wechat_pay","configureBeforeActivation":true}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-wechat-pay'
   AND status = 'inactive'
@@ -78,9 +82,9 @@ WHERE id = 'bootstrap-payment-provider-wechat-pay'
   AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
 
 -- Catalog and channels are pre-enabled, while the inactive provider account is
--- the fail-closed routing gate. Once real credentials replace the mock values
--- and the account is activated, no second method/channel activation pass is
--- required.
+-- the fail-closed routing gate. Once real credentials replace the template
+-- references and the account is activated, no second method/channel activation
+-- pass is required.
 UPDATE commerce_payment_method
 SET status = 'active', updated_at = CURRENT_TIMESTAMP
 WHERE id IN (
@@ -106,7 +110,7 @@ AND EXISTS (
       AND a.provider_code = commerce_payment_method.provider_code
       AND a.status = 'inactive'
       AND a.deleted_at IS NULL
-      AND CAST(a.metadata AS TEXT) LIKE '%configurationState%'
+      AND CAST(a.metadata AS TEXT) LIKE '%bootstrap%'
 );
 
 UPDATE commerce_payment_channel
@@ -134,5 +138,5 @@ AND EXISTS (
       AND a.tenant_id = commerce_payment_channel.tenant_id
       AND a.status = 'inactive'
       AND a.deleted_at IS NULL
-      AND CAST(a.metadata AS TEXT) LIKE '%configurationState%'
+      AND CAST(a.metadata AS TEXT) LIKE '%bootstrap%'
 );

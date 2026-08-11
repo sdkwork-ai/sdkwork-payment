@@ -3,7 +3,7 @@ mod owner_order_checkout;
 mod owner_order_payment_port;
 mod owner_order_provider_close;
 mod owner_payment_params;
-mod payment_attempt_context;
+pub mod payment_attempt_context;
 mod payment_channel;
 mod payment_method;
 pub mod postgres_owner_order_payment;
@@ -16,7 +16,7 @@ mod provider_credential;
 mod shared;
 mod webhook_event_payload;
 mod webhook_replay;
-mod webhook_status;
+pub mod webhook_status;
 
 pub use owner_order_checkout::{
     cancel_owner_order_payments_with_provider_postgres, enrich_owner_order_payment_postgres,

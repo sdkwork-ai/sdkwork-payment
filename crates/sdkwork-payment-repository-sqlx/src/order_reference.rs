@@ -20,8 +20,20 @@ pub(crate) async fn load_order_payment_reference_postgres(
             o.order_no AS order_sn,
             o.subject AS order_subject,
             o.status,
-            o.expired_at,
-            o.paid_at AS pay_time,
+            -- Timestamp boundaries are normalized to a UTC RFC3339 text
+            -- representation on the SQL side so the Rust reader never has to
+            -- decode the raw column type: deployments may store them as TEXT
+            -- (order baseline) or TIMESTAMPTZ, and a silent decode failure
+            -- would turn every boundary into NULL (order "not pending
+            -- payment").
+            CASE WHEN o.expired_at IS NULL OR o.expired_at = '' THEN NULL
+                 ELSE to_char(CAST(o.expired_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC',
+                              'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+            END AS expires_at,
+            CASE WHEN o.paid_at IS NULL OR o.paid_at = '' THEN NULL
+                 ELSE to_char(CAST(o.paid_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC',
+                              'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+            END AS pay_time,
             COALESCE(
                 (
                     SELECT b.payable_amount
@@ -52,7 +64,7 @@ pub(crate) async fn load_order_payment_reference_postgres(
 fn map_postgres_order_payment_reference_row(row: PgRow) -> OrderPaymentReferenceSnapshot {
     map_order_payment_reference_row(
         &row,
-        optional_postgres_string_cell(&row, "expired_at"),
+        optional_postgres_string_cell(&row, "expires_at"),
         optional_postgres_string_cell(&row, "order_subject"),
         optional_postgres_string_cell(&row, "pay_time"),
     )
@@ -120,6 +132,8 @@ pub(crate) fn order_status_is_refundable(status: &str, pay_time: Option<&str>) -
 #[cfg(test)]
 mod tests {
     use super::order_expiration_is_payable;
+    use chrono::{SecondsFormat, Utc};
+
     #[test]
     fn order_expiration_fails_closed_for_missing_expired_or_invalid_values() {
         assert!(!order_expiration_is_payable(None));
@@ -127,5 +141,19 @@ mod tests {
         assert!(order_expiration_is_payable(Some("2099-01-01T00:00:00Z")));
         assert!(!order_expiration_is_payable(Some("2020-01-01T00:00:00Z")));
         assert!(!order_expiration_is_payable(Some("not-a-timestamp")));
+    }
+
+    #[test]
+    fn millisecond_rfc3339_boundaries_from_the_test_payment_flow_are_payable() {
+        // The one-cent test payment writes its 15-minute expiry with the
+        // `sdkwork-utils-rust` default pattern (%Y-%m-%dT%H:%M:%S%.3fZ); the
+        // payable check must accept that exact shape while it is in the future.
+        let boundary = (Utc::now() + chrono::Duration::minutes(15))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        assert!(boundary.contains('.'), "expected millisecond RFC3339");
+        assert!(order_expiration_is_payable(Some(&boundary)));
+        assert!(order_expiration_is_payable(Some(
+            &(Utc::now() + chrono::Duration::minutes(15)).to_rfc3339()
+        )));
     }
 }

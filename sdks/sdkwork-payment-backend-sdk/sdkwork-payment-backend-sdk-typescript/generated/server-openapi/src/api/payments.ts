@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { Certificate, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, PageInfo, PaymentAttempt, PaymentChannel, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SdkWorkAsyncData, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, PageInfo, PaymentAttempt, PaymentChannel, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -9,6 +9,10 @@ export interface PaymentsDevSandboxTriggerParams {
 }
 
 export interface PaymentsDevTestPaymentsParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsDevCheckAttemptStatusParams {
   idempotencyKey: string;
 }
 
@@ -25,14 +29,14 @@ export class PaymentsDevApi {
 
 
 /** Sandbox event trigger (dev config). */
-  async sandboxTrigger(body: SandboxTriggerCommand, params: PaymentsDevSandboxTriggerParams, requestOptions?: ApiRequestOptions): Promise<SdkWorkAsyncData> {
+  async sandboxTrigger(body: SandboxTriggerCommand, params: PaymentsDevSandboxTriggerParams, requestOptions?: ApiRequestOptions): Promise<SandboxTriggerResult> {
     const requestHeaders = buildRequestHeaders(
       {
         'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
       },
       {}
     );
-    return this.client.request<SdkWorkAsyncData>(backendApiPath(`/payments/dev/sandbox_trigger`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'command' });
+    return this.client.request<SandboxTriggerResult>(backendApiPath(`/payments/dev/sandbox_trigger`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Create a test payment (dev config). */
@@ -44,6 +48,17 @@ export class PaymentsDevApi {
       {}
     );
     return this.client.request<TestPayment>(backendApiPath(`/payments/dev/test_payments`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+
+/** Check PSP payment status for a dev test payment (dev config). */
+  async checkAttemptStatus(body: CheckAttemptStatusCommand, params: PaymentsDevCheckAttemptStatusParams, requestOptions?: ApiRequestOptions): Promise<CheckAttemptStatusResult> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<CheckAttemptStatusResult>(backendApiPath(`/payments/dev/check_attempt_status`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Webhook signature verification test (dev config). */

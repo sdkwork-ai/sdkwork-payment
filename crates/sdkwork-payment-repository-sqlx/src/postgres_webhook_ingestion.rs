@@ -294,7 +294,7 @@ async fn load_existing_webhook_event_postgres(
     )?;
     Ok(stored)
 }
-pub(crate) async fn apply_webhook_payment_status_postgres(
+pub async fn apply_webhook_payment_status_postgres(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     identity: &PaymentWebhookAttemptIdentity,
     payment_status: Option<&str>,

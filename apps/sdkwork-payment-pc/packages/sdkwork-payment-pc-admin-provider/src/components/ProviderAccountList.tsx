@@ -1,9 +1,10 @@
 /**
  * Provider account list with status badges, environment/mode indicators, and
- * credential test/rotate action shortcuts. Designed for the admin workspace.
+ * credential test/replace (rotate) action shortcuts. Designed for the admin workspace.
  */
 
-import { Badge, Button } from "@sdkwork/ui-pc-react";
+import { Activity, CheckCircle2, CircleSlash2, Pencil, Power, PowerOff, RotateCcw, Trash2 } from "lucide-react";
+import { Badge, Button, IconButton } from "@sdkwork/ui-pc-react";
 import { useSdkworkI18n } from "@sdkwork/i18n-pc-react";
 import {
   SdkworkPaymentListPaginationControls,
@@ -27,9 +28,11 @@ export interface ProviderAccountListProps {
   canRotate: boolean;
   canTest: boolean;
   canDelete: boolean;
-  onSelect(account: PaymentProviderAccountView): void;
+  /** Toggle the account between active and inactive (Enable/Disable). */
+  onToggleStatus(account: PaymentProviderAccountView): void;
   onEdit(account: PaymentProviderAccountView): void;
   onTest(account: PaymentProviderAccountView): void;
+  /** Replace (rotate) the account's credentials with new values. */
   onRotate(account: PaymentProviderAccountView): void;
   onDelete(account: PaymentProviderAccountView): void;
   // Empty-state inline create button callback; parent component wires it to the create dialog
@@ -65,6 +68,26 @@ const TEST_STATUS_LABEL: Record<PaymentLastTestStatus, string> = {
   failure: "Failed",
   unknown: "Untested",
 };
+
+const TEST_STATUS_TONE: Record<PaymentLastTestStatus, "success" | "danger" | "warning"> = {
+  success: "success",
+  failure: "danger",
+  unknown: "warning",
+};
+
+/** Compact readiness item: green check when configured, muted slash when not. */
+function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {ready ? (
+        <CheckCircle2 className="h-3.5 w-3.5 text-[var(--sdk-color-text-success)]" />
+      ) : (
+        <CircleSlash2 className="h-3.5 w-3.5" />
+      )}
+      {label}
+    </span>
+  );
+}
 
 export function ProviderAccountList(props: ProviderAccountListProps) {
   const i18n = useSdkworkI18n();
@@ -129,88 +152,92 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
                         {resolveProviderAccountName(account, i18n?.localeTag)}
                       </span>
                       <Badge variant="outline">{ADMIN_PROVIDER_LABEL[account.providerCode]}</Badge>
-                      <Badge variant="secondary">
-                        {account.accountMode === "partner" ? "Partner / ISV" : "Direct"}
-                      </Badge>
                       <Badge variant="outline">{ENV_LABEL[account.environment]}</Badge>
                       <Badge variant={STATUS_TONE[account.status]}>{STATUS_LABEL[account.status]}</Badge>
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Credential readiness">
-                      <Badge variant={account.hasPrimarySecret ? "success" : "warning"}>Primary secret</Badge>
-                      <Badge variant={account.hasWebhookSecret ? "success" : "secondary"}>Webhook secret</Badge>
-                      <Badge variant={account.hasCertificate ? "success" : "secondary"}>Certificate</Badge>
-                      <Badge variant={account.lastTestStatus === "success" ? "success" : account.lastTestStatus === "failure" ? "danger" : "warning"}>
+                    <p className="mt-1 truncate text-xs text-[var(--sdk-color-text-secondary)]">
+                      <span>{account.accountMode === "partner" ? "Partner / ISV" : "Direct"}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span>Merchant ID:</span>{" "}
+                      <span className="font-medium text-[var(--sdk-color-text-primary)]">{account.merchantId ?? "--"}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span>Settlement:</span>{" "}
+                      <span className="font-medium text-[var(--sdk-color-text-primary)]">
+                        {account.settlementCurrency}{account.countryCode ? ` / ${account.countryCode}` : ""}
+                      </span>
+                      <span aria-hidden="true"> · </span>
+                      <span>Last test:</span>{" "}
+                      <span className="font-medium text-[var(--sdk-color-text-primary)]">
+                        {account.lastTestedAt ? formatAdminTimestamp(account.lastTestedAt) : "Run before activation"}
+                      </span>
+                    </p>
+                    <div
+                      className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)]"
+                      aria-label="Credential readiness"
+                    >
+                      <ReadinessItem ready={account.hasPrimarySecret} label="Primary secret" />
+                      <ReadinessItem ready={account.hasWebhookSecret} label="Webhook secret" />
+                      <ReadinessItem ready={account.hasCertificate} label="Certificate" />
+                      <Badge variant={TEST_STATUS_TONE[account.lastTestStatus ?? "unknown"]}>
                         {TEST_STATUS_LABEL[account.lastTestStatus ?? "unknown"]}
                       </Badge>
                     </div>
-                    <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)] md:grid-cols-3">
-                      <div>
-                        <dt className="inline">Merchant ID:</dt>{" "}
-                        <dd className="inline font-mono text-[var(--sdk-color-text-primary)]">{account.merchantId ?? "--"}</dd>
-                      </div>
-                      <div>
-                        <dt className="inline">Settlement:</dt>{" "}
-                        <dd className="inline font-medium text-[var(--sdk-color-text-primary)]">
-                          {account.settlementCurrency}{account.countryCode ? ` / ${account.countryCode}` : ""}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline">Last test:</dt>{" "}
-                        <dd className="inline">{account.lastTestedAt ? formatAdminTimestamp(account.lastTestedAt) : "Run before activation"}</dd>
-                      </div>
-                    </dl>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 sm:self-center">
-                  {props.canTest ? <Button
+                <div className="flex flex-wrap items-center justify-end gap-1 sm:self-center">
+                  {props.canTest ? <IconButton
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    aria-label="Test credentials"
                     onClick={() => props.onTest(account)}
                     disabled={props.busy}
                     title="Cannot test while another operation is in progress"
                   >
-                    Test
-                  </Button> : null}
-                  {props.canRotate ? <Button
+                    <Activity className="h-4 w-4" />
+                  </IconButton> : null}
+                  {props.canRotate ? <IconButton
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    aria-label="Replace credentials"
                     onClick={() => props.onRotate(account)}
                     disabled={props.busy}
-                    title="Cannot rotate while another operation is in progress"
+                    title="Cannot replace credentials while another operation is in progress"
                   >
-                    Rotate
-                  </Button> : null}
-                  {props.canEdit ? <Button
+                    <RotateCcw className="h-4 w-4" />
+                  </IconButton> : null}
+                  {/* Status toggle only applies to active/inactive accounts;
+                      suspended/deprecated accounts are state changes handled
+                      through the edit form. */}
+                  {(account.status === "active" || account.status === "inactive") && props.canEdit ? <IconButton
+                    type="button"
+                    variant={account.status === "active" ? "danger" : "ghost"}
+                    aria-label={account.status === "active" ? "Disable" : "Enable"}
+                    onClick={() => props.onToggleStatus(account)}
+                    disabled={props.busy}
+                    title="Cannot change status while another operation is in progress"
+                  >
+                    {account.status === "active" ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                  </IconButton> : null}
+                  {props.canEdit ? <IconButton
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    aria-label="Edit"
                     onClick={() => props.onEdit(account)}
                     disabled={props.busy}
                     title="Cannot edit while another operation is in progress"
                   >
-                    Edit
-                  </Button> : null}
-                  {props.canDelete ? <Button
+                    <Pencil className="h-4 w-4" />
+                  </IconButton> : null}
+                  {props.canDelete ? <IconButton
                     type="button"
                     variant="danger"
-                    size="sm"
+                    aria-label="Delete"
                     onClick={() => props.onDelete(account)}
                     disabled={props.busy}
                     title="Cannot delete while another operation is in progress"
                   >
-                    Delete
-                  </Button> : null}
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => props.onSelect(account)}
-                    disabled={props.busy}
-                    title="Cannot select while another operation is in progress"
-                  >
-                    {isSelected ? "Selected" : "Select"}
-                  </Button>
+                    <Trash2 className="h-4 w-4" />
+                  </IconButton> : null}
                 </div>
               </li>
             );

@@ -5,7 +5,7 @@
  * port-adapter-service pattern from APP_SDK_INTEGRATION_SPEC.md §9). It owns:
  *   - Two paged list sessions (providerAccounts, subMerchants)
  *   - CRUD mutations for provider accounts and sub-merchants
- *   - Dev-config operations: credential test + credential rotate
+ *   - Dev-config operations: credential test + credential replace (rotate)
  *   - React-friendly external store contract (subscribe/getState)
  *
  * The controller NEVER imports `@sdkwork/payment-backend-sdk` directly; the
@@ -453,11 +453,11 @@ export function createPaymentProviderAdminController(
           const item = extractSdkWorkResourceItem<unknown>(response);
           const mapped = mapProviderAccount(item);
           if (!mapped) {
-            throw new Error("Failed to parse provider account after credential rotation.");
+            throw new Error("Failed to parse provider account after credential replacement.");
           }
           return mapped;
         },
-        "Failed to rotate provider account credentials.",
+        "Failed to replace provider account credentials.",
         { reload: "providerAccounts" },
       ).then((account) => {
         state = { ...state, lastRotatedAccountId: id };

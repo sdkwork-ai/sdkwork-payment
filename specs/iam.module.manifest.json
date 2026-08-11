@@ -81,6 +81,15 @@
         "replacementCode": null
       },
       {
+        "code": "commerce.payments.providers.update",
+        "name": "Update payment providers",
+        "resource": "providers",
+        "action": "update",
+        "status": "active",
+        "since": "1.0.0",
+        "replacementCode": null
+      },
+      {
         "code": "commerce.payments.provider_accounts.read",
         "name": "Read provider accounts",
         "resource": "provider_accounts",

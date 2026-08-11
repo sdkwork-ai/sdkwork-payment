@@ -379,10 +379,19 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendPaymentMethodView> {
         Box::pin(async move {
             let now = current_timestamp_string();
+            // Platform rows persist the sentinel organization scope (`"0"`) so
+            // tenant (personal) sessions never write NULL into the NOT NULL
+            // `organization_id` column.
+            let organization_id = command
+                .organization_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("0");
             let id = stable_storage_id(&[
                 "payment-method",
                 &command.tenant_id,
-                command.organization_id.as_deref().unwrap_or("global"),
+                organization_id,
                 &command.method_key,
             ]);
             let row = sqlx::query(
@@ -390,8 +399,8 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 INSERT INTO commerce_payment_method
                     (id, tenant_id, organization_id, method_key, display_name, provider_code,
                      status, sort_order, request_no, idempotency_key, created_at, updated_at)
-                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, $11, $11)
-                ON CONFLICT (tenant_id, organization_id, method_key) DO UPDATE SET
+                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, CAST($11 AS TIMESTAMPTZ), CAST($11 AS TIMESTAMPTZ))
+                ON CONFLICT (tenant_id, (COALESCE(organization_id, '')), method_key) WHERE deleted_at IS NULL DO UPDATE SET
                     display_name = EXCLUDED.display_name,
                     provider_code = EXCLUDED.provider_code,
                     status = EXCLUDED.status,
@@ -403,7 +412,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             )
             .bind(&id)
             .bind(&command.tenant_id)
-            .bind(command.organization_id.as_deref())
+            .bind(organization_id)
             .bind(&command.method_key)
             .bind(&command.display_name)
             .bind(&command.provider_code)
@@ -501,6 +510,15 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let capabilities = payload.capabilities.as_ref().map(Value::to_string);
             let metadata = payload.metadata.as_ref().map(Value::to_string);
             let credential_write = payload.credential_write.clone();
+            // Platform rows persist the sentinel organization scope (`"0"`) so
+            // tenant (personal) sessions never write NULL into the NOT NULL
+            // `organization_id` column.
+            let organization_id = payload
+                .organization_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("0");
             let row = if payload.id.is_some() {
                 sqlx::query(
                     r#"
@@ -549,7 +567,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 .bind(&now)
                 .bind(&id)
                 .bind(&payload.tenant_id)
-                .bind(payload.organization_id.as_deref())
+                .bind(organization_id)
                 .fetch_one(&self.pool)
                 .await
             } else {
@@ -587,7 +605,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 )
                 .bind(&id)
                 .bind(&payload.tenant_id)
-                .bind(payload.organization_id.as_deref())
+                .bind(organization_id)
                 .bind(&payload.account_no)
                 .bind(payload.provider_code.as_deref())
                 .bind(payload.merchant_id.as_deref())
@@ -611,7 +629,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             sdkwork_payment_repository_sqlx::rotate_provider_credentials_postgres(
                 &self.pool,
                 &payload.tenant_id,
-                payload.organization_id.as_deref(),
+                Some(organization_id),
                 &id,
                 credential_write,
             )
@@ -636,7 +654,6 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                   AND last_tested_at IS NOT NULL
                   AND updated_at IS NOT NULL
                   AND last_tested_at >= updated_at
-                  AND metadata->>'configurationState' IS DISTINCT FROM 'mock'
                   AND COALESCE((metadata->>'configureBeforeActivation')::boolean, false) = false
                   AND NOT EXISTS (
                       SELECT 1
@@ -785,7 +802,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                         "currencyCode": pg_string(row, "currency_code"),
                         "countryCode": pg_string(row, "country_code"),
                         "status": pg_string(row, "status"),
-                        "priority": row.try_get::<i64,_>("priority").unwrap_or(0),
+                        "priority": row.try_get::<i32,_>("priority").map(i64::from).unwrap_or(0),
                     })
                 })
                 .collect();
@@ -801,12 +818,42 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 stable_storage_id(&["payment-channel", &payload.tenant_id, &payload.channel_no])
             });
             let now = current_timestamp_string();
+            // Platform rows persist the sentinel organization scope (`"0"`) so
+            // tenant (personal) sessions never write NULL into the NOT NULL
+            // `organization_id` column.
+            let organization_id = payload
+                .organization_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("0");
+            // `commerce_payment_channel.provider_code` is NOT NULL and the
+            // channel API does not carry it; the channel inherits the code of
+            // its bound provider account.
+            let provider_code = sqlx::query_scalar::<_, String>(
+                "SELECT provider_code FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND deleted_at IS NULL",
+            )
+            .bind(&payload.provider_account_id)
+            .bind(&payload.tenant_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to resolve provider code for payment channel: {error}"
+                ))
+            })?
+            .ok_or_else(|| {
+                CommerceServiceError::not_found(
+                    "payment provider account was not found for payment channel",
+                )
+            })?;
             let row = sqlx::query(
                 r#"
                 INSERT INTO commerce_payment_channel
-                    (id, tenant_id, organization_id, channel_no, provider_account_id, method_id, scene_code, currency_code, country_code, status, priority, created_at, updated_at)
-                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), CAST($5 AS TEXT), CAST($6 AS TEXT), $7, $8, $9, $10, $11, $12, $12)
-                ON CONFLICT (tenant_id, channel_no) DO UPDATE SET
+                    (id, tenant_id, organization_id, channel_no, provider_code, provider_account_id, method_id, scene_code, currency_code, country_code, status, priority, created_at, updated_at)
+                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, CAST($6 AS TEXT), CAST($7 AS TEXT), $8, $9, $10, $11, $12, CAST($13 AS TIMESTAMPTZ), CAST($13 AS TIMESTAMPTZ))
+                ON CONFLICT (tenant_id, (COALESCE(organization_id, '')), channel_no) WHERE deleted_at IS NULL DO UPDATE SET
+                    provider_code = EXCLUDED.provider_code,
                     provider_account_id = EXCLUDED.provider_account_id,
                     method_id = EXCLUDED.method_id,
                     scene_code = EXCLUDED.scene_code,
@@ -815,13 +862,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                     status = EXCLUDED.status,
                     priority = EXCLUDED.priority,
                     updated_at = EXCLUDED.updated_at
-                RETURNING id, channel_no, provider_account_id, method_id, scene_code, currency_code, country_code, status, priority
+                RETURNING id, channel_no, provider_code, provider_account_id, method_id, scene_code, currency_code, country_code, status, priority
                 "#,
             )
             .bind(&id)
             .bind(&payload.tenant_id)
-            .bind(payload.organization_id.as_deref())
+            .bind(organization_id)
             .bind(&payload.channel_no)
+            .bind(&provider_code)
             .bind(&payload.provider_account_id)
             .bind(&payload.method_id)
             .bind(&payload.scene_code)
@@ -842,7 +890,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 "currencyCode": pg_string(&row, "currency_code"),
                 "countryCode": pg_string(&row, "country_code"),
                 "status": pg_string(&row, "status"),
-                "priority": row.try_get::<i64,_>("priority").unwrap_or(0),
+                "priority": row.try_get::<i32,_>("priority").map(i64::from).unwrap_or(0),
             }))
         })
     }
@@ -885,12 +933,21 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 stable_storage_id(&["payment-route-rule", &payload.tenant_id, &payload.rule_no])
             });
             let now = current_timestamp_string();
+            // Platform rows persist the sentinel organization scope (`"0"`) so
+            // tenant (personal) sessions never write NULL into the NOT NULL
+            // `organization_id` column.
+            let organization_id = payload
+                .organization_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("0");
             let row = sqlx::query(
                 r#"
                 INSERT INTO commerce_payment_route_rule
                     (id, tenant_id, organization_id, rule_no, priority, purchase_type, country_code, currency_code, client_platform, amount_min, amount_max, user_segment, risk_level, channel_id, status, starts_at, ends_at, created_at, updated_at)
-                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, $11, $12, $13, CAST($14 AS TEXT), $15, $16, $17, $18, $18)
-                ON CONFLICT (tenant_id, rule_no) DO UPDATE SET
+                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, $11, $12, $13, CAST($14 AS TEXT), $15, $16, $17, CAST($18 AS TIMESTAMPTZ), CAST($18 AS TIMESTAMPTZ))
+                ON CONFLICT (tenant_id, (COALESCE(organization_id, '')), rule_no) WHERE deleted_at IS NULL DO UPDATE SET
                     priority = EXCLUDED.priority,
                     purchase_type = EXCLUDED.purchase_type,
                     country_code = EXCLUDED.country_code,
@@ -910,7 +967,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             )
             .bind(&id)
             .bind(&payload.tenant_id)
-            .bind(payload.organization_id.as_deref())
+            .bind(organization_id)
             .bind(&payload.rule_no)
             .bind(payload.priority)
             .bind(payload.purchase_type.as_deref())
@@ -1080,7 +1137,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let run_no =
                 stable_storage_id(&["recon", &payload.provider_code, &payload.period_start]);
             let row = sqlx::query(
-                "INSERT INTO commerce_payment_reconciliation_run (id, tenant_id, organization_id, run_no, provider_code, provider_account_id, reconciliation_type, period_start, period_end, status, matched_count, mismatched_count, unmatched_count, total_difference_amount, currency_code, request_no, idempotency_key, created_at, updated_at) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, CAST($6 AS TEXT), $7, $8, $9, 'queued', 0, 0, 0, '0', $10, $11, $12, $13, $13) RETURNING id, run_no, provider_code, provider_account_id, reconciliation_type, period_start, period_end, status, matched_count, mismatched_count, currency_code, created_at",
+                "INSERT INTO commerce_payment_reconciliation_run (id, tenant_id, organization_id, run_no, provider_code, provider_account_id, reconciliation_type, period_start, period_end, status, matched_count, mismatched_count, unmatched_count, total_difference_amount, currency_code, request_no, idempotency_key, created_at, updated_at) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, CAST($6 AS TEXT), $7, CAST($8 AS TIMESTAMPTZ), CAST($9 AS TIMESTAMPTZ), 'queued', 0, 0, 0, '0', $10, $11, $12, CAST($13 AS TIMESTAMPTZ), CAST($13 AS TIMESTAMPTZ)) RETURNING id, run_no, provider_code, provider_account_id, reconciliation_type, period_start, period_end, status, matched_count, mismatched_count, currency_code, created_at",
             )
             .bind(&id)
             .bind(&payload.tenant_id)
@@ -2091,7 +2148,7 @@ fn map_method_row_pg(row: &PgRow) -> BackendPaymentMethodView {
         display_name: pg_string(row, "display_name"),
         provider_code: pg_string(row, "provider_code"),
         status: pg_string(row, "status"),
-        sort_order: row.try_get::<i64, _>("sort_order").unwrap_or(0),
+        sort_order: row.try_get::<i32, _>("sort_order").map(i64::from).unwrap_or(0),
         created_at: pg_string(row, "created_at"),
         updated_at: pg_string(row, "updated_at"),
     }
@@ -2100,7 +2157,7 @@ fn map_route_rule_pg(row: &PgRow) -> serde_json::Value {
     serde_json::json!({
         "id": pg_string(row, "id"),
         "ruleNo": pg_string(row, "rule_no"),
-        "priority": row.try_get::<i64,_>("priority").unwrap_or(0),
+        "priority": row.try_get::<i32,_>("priority").map(i64::from).unwrap_or(0),
         "purchaseType": pg_optional_string(row, "purchase_type"),
         "countryCode": pg_optional_string(row, "country_code"),
         "currencyCode": pg_optional_string(row, "currency_code"),
@@ -2151,8 +2208,8 @@ fn map_reconciliation_run_pg(row: &PgRow) -> serde_json::Value {
         "periodStart": pg_string(row, "period_start"),
         "periodEnd": pg_string(row, "period_end"),
         "status": pg_string(row, "status"),
-        "matchedCount": row.try_get::<i64,_>("matched_count").unwrap_or(0),
-        "mismatchedCount": row.try_get::<i64,_>("mismatched_count").unwrap_or(0),
+        "matchedCount": row.try_get::<i32,_>("matched_count").map(i64::from).unwrap_or(0),
+        "mismatchedCount": row.try_get::<i32,_>("mismatched_count").map(i64::from).unwrap_or(0),
         "currencyCode": pg_string(row, "currency_code"),
         "createdAt": pg_string(row, "created_at"),
     })

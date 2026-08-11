@@ -38,12 +38,15 @@ static STRIPE_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabil
 pub struct StripePaymentProviderConfig {
     pub secret_key: String,
     pub webhook_secret: Option<String>,
+    /// Publishable key for client-side Stripe.js card collection.
+    pub publishable_key: Option<String>,
 }
 
 impl fmt::Debug for StripePaymentProviderConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("StripePaymentProviderConfig")
+            .field("publishable_key", &"[REDACTED]")
             .field("secret_key", &"<redacted>")
             .field(
                 "webhook_secret",

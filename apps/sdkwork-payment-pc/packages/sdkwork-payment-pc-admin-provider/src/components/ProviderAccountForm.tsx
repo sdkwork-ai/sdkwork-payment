@@ -51,6 +51,7 @@ import type {
   PaymentProviderEnvironment,
   PaymentProviderAccountStatus,
 } from "../types/provider-admin-types";
+import { generateCredentials } from "../services/credential-mock";
 
 const ACCOUNT_MODE_OPTIONS: readonly { label: string; value: PaymentProviderAccountMode }[] = [
   { label: "Direct (merchant self-connection)", value: "direct" },
@@ -156,6 +157,10 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
   );
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
+  /** Which credential field is currently generating (or "all"); disables the
+   *  other generator buttons so concurrent Web Crypto key generation cannot
+   *  race each other. */
+  const [generating, setGenerating] = React.useState<"primarySecret" | "webhookSecret" | "certificate" | "all" | null>(null);
 
   const isCreate = props.mode === "create";
 
@@ -196,6 +201,39 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
       capabilities[key] = state.capabilities[key] ?? false;
     }
     return capabilities;
+  }
+
+  function handleGenerateField(field: "primarySecret" | "webhookSecret" | "certificate") {
+    setGenerating(field);
+    void generateCredentials(state.providerCode)
+      .then((values) => {
+        setState((prev) => ({
+          ...prev,
+          [field]: values[field] ?? "",
+        }));
+      })
+      .finally(() => setGenerating(null));
+  }
+
+  function handleGenerateAll() {
+    setGenerating("all");
+    void generateCredentials(state.providerCode)
+      .then((values) => {
+        setState((prev) => ({
+          ...prev,
+          primarySecret: values.primarySecret,
+          webhookSecret: values.webhookSecret ?? "",
+          certificate: values.certificate ?? "",
+        }));
+      })
+      .finally(() => setGenerating(null));
+  }
+
+  function generateButtonLabel(
+    field: "primarySecret" | "webhookSecret" | "certificate",
+    label: string,
+  ) {
+    return generating === field ? "Generating..." : label;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -514,8 +552,26 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
         <div className="space-y-4">
 
       <div className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">
-        <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Database Credentials
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
+            Database Credentials
+          </div>
+          {/* One-click credential generation for quick debug-account setup.
+              Hidden for production so real credentials are never accidentally
+              replaced. Generates real RSA keys via Web Crypto so the dry-run
+              test can reach the provider adapter. */}
+          {isCreate && state.environment !== "production" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleGenerateAll}
+              disabled={submitting || generating !== null}
+              title="Fill all credential fields with generated values for debugging"
+            >
+              {generating === "all" ? "Generating..." : "Generate all credentials"}
+            </Button>
+          ) : null}
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <AdminFieldLabel
@@ -534,11 +590,24 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
               className="resize-y font-mono"
               autoComplete="new-password"
             />
-            <PemFilePicker
-              maxBytes={MAX_SECRET_FILE_BYTES}
-              disabled={submitting}
-              onContent={(content) => update("primarySecret", content)}
-            />
+            <div className="flex items-center justify-between gap-2">
+              <PemFilePicker
+                maxBytes={MAX_SECRET_FILE_BYTES}
+                disabled={submitting || generating !== null}
+                onContent={(content) => update("primarySecret", content)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-xs underline underline-offset-2"
+                onClick={() => handleGenerateField("primarySecret")}
+                disabled={submitting || generating !== null}
+                title="Generate a key for this field for debugging"
+              >
+                {generateButtonLabel("primarySecret", "Generate key")}
+              </Button>
+            </div>
           </AdminFieldLabel>
           {showStripeFields || showWeChatFields ? (
             <AdminFieldLabel
@@ -555,11 +624,24 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
                 className="resize-y font-mono"
                 autoComplete="new-password"
               />
-              <PemFilePicker
-                maxBytes={MAX_SECRET_FILE_BYTES}
-                disabled={submitting}
-                onContent={(content) => update("webhookSecret", content)}
-              />
+              <div className="flex items-center justify-between gap-2">
+                <PemFilePicker
+                  maxBytes={MAX_SECRET_FILE_BYTES}
+                  disabled={submitting || generating !== null}
+                  onContent={(content) => update("webhookSecret", content)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs underline underline-offset-2"
+                  onClick={() => handleGenerateField("webhookSecret")}
+                  disabled={submitting || generating !== null}
+                  title="Generate a secret for this field for debugging"
+                >
+                  {generateButtonLabel("webhookSecret", "Generate secret")}
+                </Button>
+              </div>
             </AdminFieldLabel>
           ) : null}
           {showAlipayFields || showWeChatFields ? (
@@ -577,11 +659,24 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
                 className="resize-y font-mono"
                 autoComplete="new-password"
               />
-              <PemFilePicker
-                maxBytes={MAX_CERTIFICATE_FILE_BYTES}
-                disabled={submitting}
-                onContent={(content) => update("certificate", content)}
-              />
+              <div className="flex items-center justify-between gap-2">
+                <PemFilePicker
+                  maxBytes={MAX_CERTIFICATE_FILE_BYTES}
+                  disabled={submitting || generating !== null}
+                  onContent={(content) => update("certificate", content)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs underline underline-offset-2"
+                  onClick={() => handleGenerateField("certificate")}
+                  disabled={submitting || generating !== null}
+                  title="Generate a certificate for this field for debugging"
+                >
+                  {generateButtonLabel("certificate", "Generate certificate")}
+                </Button>
+              </div>
             </AdminFieldLabel>
           ) : null}
         </div>
@@ -590,6 +685,11 @@ export function ProviderAccountForm(props: ProviderAccountFormProps) {
             ? "Legacy credential reference detected. Saving a replacement migrates it to encrypted database storage."
             : "Credential values are write-only and encrypted before database persistence."}
         </p>
+        {isCreate && state.environment !== "production" ? (
+          <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
+            Generated credentials are for sandbox and development debugging. Use PSP-issued credentials before production.
+          </p>
+        ) : null}
       </div>
 
       <div className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">

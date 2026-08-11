@@ -83,7 +83,7 @@ export const ADMIN_PAYMENT_METHOD_KEYS: ReadonlyArray<AdminPaymentMethodKeyOptio
   { methodKey: "wechat_h5", label: "WeChat Pay H5", providerCode: "wechat_pay", description: "/v3/pay/transactions/h5 — mobile browser (requires client_ip)" },
   { methodKey: "wechat_app", label: "WeChat Pay App", providerCode: "wechat_pay", description: "/v3/pay/transactions/app — native App SDK" },
   // Sandbox
-  { methodKey: "sandbox_test", label: "Sandbox Test", providerCode: "sandbox", description: "Local cashier URL — no external HTTP" },
+  { methodKey: "sandbox_test", label: "Sandbox", providerCode: "sandbox", description: "Local cashier URL — no external HTTP" },
 ];
 
 /** Filter payment method keys by provider code. */

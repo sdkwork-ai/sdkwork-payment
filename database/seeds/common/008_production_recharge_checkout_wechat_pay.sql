@@ -17,5 +17,5 @@ INSERT INTO commerce_payment_channel (
     priority, sort_order, metadata, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-channel-recharge-wechat-pay', '100001', '0', 'bootstrap-recharge-wechat-pay', 'WeChat Pay Recharge', 'bootstrap-payment-provider-wechat-pay', 'bootstrap-payment-method-recharge-wechat-pay', 'wechat_pay', 'api', 'CNY', 'CN', 'active', 305, 305, '{"bootstrap":true,"checkoutAliasFor":"wechat_native","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-channel-recharge-wechat-pay', '100001', '0', 'recharge-wechat-pay', 'WeChat Pay Recharge', 'bootstrap-payment-provider-wechat-pay', 'bootstrap-payment-method-recharge-wechat-pay', 'wechat_pay', 'api', 'CNY', 'CN', 'active', 305, 305, '{"bootstrap":true,"checkoutAliasFor":"wechat_native","configureBeforeActivation":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;

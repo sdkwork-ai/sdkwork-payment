@@ -340,27 +340,29 @@ pub(crate) fn money_to_minor_units(value: &str) -> Result<i64, CommerceServiceEr
         .parse::<i64>()
         .map_err(|_| CommerceServiceError::validation("money amount overflows i64 minor units"))
 }
-/// Resolve the refund amount string from the command or default to the order total.
+/// Resolve the refund amount string from the command or default to the paid
+/// amount (the succeeded payment attempt amount).
 pub(crate) fn resolve_refund_amount(
     command: &CreateOwnerRefundCommand,
-    total_amount: &CommerceMoney,
+    paid_amount: &CommerceMoney,
 ) -> Result<String, CommerceServiceError> {
     Ok(command
         .amount
         .clone()
-        .unwrap_or_else(|| total_amount.as_str().to_owned()))
+        .unwrap_or_else(|| paid_amount.as_str().to_owned()))
 }
-/// Validate that the refund amount is positive and does not exceed the original payment.
+/// Validate that the refund amount is positive and does not exceed the paid
+/// amount the refund is anchored to.
 pub(crate) fn validate_refund_bounds(
     refund_minor: i64,
-    total_minor: i64,
+    paid_minor: i64,
 ) -> Result<(), CommerceServiceError> {
     if refund_minor <= 0 {
         return Err(CommerceServiceError::validation(
             "refund amount must be greater than zero",
         ));
     }
-    if refund_minor > total_minor {
+    if refund_minor > paid_minor {
         return Err(CommerceServiceError::conflict(
             "refund amount exceeds original payment amount",
         ));
