@@ -7,7 +7,7 @@ INSERT INTO commerce_payment_method (
     idempotency_key, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-method-recharge-wechat-pay', '100001', '0', 'wechat_pay', 'WeChat Pay Recharge', 'sandbox', 'active', 305, 'organization', 'CNY', NULL, '{"bootstrap":true,"checkoutAliasFor":"wechat_native","environment":"development"}', 'bootstrap-payment-method-recharge-wechat-pay', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-method-recharge-wechat-pay', '100001', '0', 'wechat_pay', 'WeChat Pay Recharge', 'sandbox', 'active', 305, 'organization', 'CNY', 'CN', '{"bootstrap":true,"checkoutAliasFor":"wechat_native","environment":"development"}', 'bootstrap-payment-method-recharge-wechat-pay', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO commerce_payment_channel (
@@ -16,5 +16,5 @@ INSERT INTO commerce_payment_channel (
     priority, sort_order, metadata, created_at, updated_at
 )
 VALUES
-    ('bootstrap-payment-channel-recharge-wechat-pay', '100001', '0', 'recharge-wechat-pay', 'WeChat Pay Recharge', 'bootstrap-payment-provider-sandbox', 'bootstrap-payment-method-recharge-wechat-pay', 'sandbox', 'api', 'CNY', NULL, 'active', 305, 305, '{"bootstrap":true,"checkoutAliasFor":"wechat_native","environment":"development"}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ('bootstrap-payment-channel-recharge-wechat-pay', '100001', '0', 'recharge-wechat-pay', 'WeChat Pay Recharge', 'bootstrap-payment-provider-sandbox', 'bootstrap-payment-method-recharge-wechat-pay', 'sandbox', 'api', 'CNY', 'CN', 'active', 305, 305, '{"bootstrap":true,"checkoutAliasFor":"wechat_native","environment":"development"}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;

@@ -15,15 +15,21 @@ export interface AdminFieldLabelProps {
   htmlFor: string;
   label: string;
   required?: boolean;
+  /** Optional one-line explanation rendered under the label to help operators
+   *  understand the field's purpose and where the value comes from. */
+  hint?: React.ReactNode;
 }
 
-export function AdminFieldLabel({ children, className, htmlFor, label, required }: AdminFieldLabelProps) {
+export function AdminFieldLabel({ children, className, htmlFor, label, required, hint }: AdminFieldLabelProps) {
   return (
     <div className={["space-y-1.5", className].filter(Boolean).join(" ")}>
       <Label htmlFor={htmlFor}>
         {label}
         {required ? <span className="text-[var(--sdk-color-text-error)]">*</span> : null}
       </Label>
+      {hint ? (
+        <p className="text-xs leading-relaxed text-[var(--sdk-color-text-muted)]">{hint}</p>
+      ) : null}
       {children}
     </div>
   );

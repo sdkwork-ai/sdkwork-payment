@@ -422,9 +422,16 @@ export function createPaymentProviderAdminController(
     async testProviderAccount(id, options) {
       setStatus("testing", undefined);
       try {
-        const response = await service.providerAccounts.test(id, options ?? {}, {
-          idempotencyKey: paymentCommandIdempotencyKey("provider-account-test"),
-        });
+        // SDK 签名: test(id, params, body?, requestOptions?) — idempotencyKey
+        // 走 params（生成 Idempotency-Key 请求头），测试选项走 body。
+        // 此前把 options 误传给 params 导致 dryRun 丢失，后端走了非 dry-run
+        // 分支并报出 "does not expose a non-mutating remote connectivity
+        // probe" 的诊断。
+        const response = await service.providerAccounts.test(
+          id,
+          { idempotencyKey: paymentCommandIdempotencyKey("provider-account-test") },
+          options ?? {},
+        );
         const item = extractSdkWorkResourceItem<unknown>(response);
         const mapped = mapTestResult(item);
         if (!mapped) {
@@ -464,6 +471,18 @@ export function createPaymentProviderAdminController(
         emit();
         return account;
       });
+    },
+
+    /** Decrypts and returns the account's active credentials for display,
+     *  copy, and download in the admin workspace. */
+    async readProviderAccountCredentials(id) {
+      const response = await service.providerAccounts.credentials.read(id);
+      return {
+        providerAccountId: String(response.providerAccountId ?? id),
+        primarySecret: response.primarySecret ?? "",
+        webhookSecret: response.webhookSecret ?? "",
+        certificate: response.certificate ?? "",
+      };
     },
 
     async createSubMerchant(draft) {

@@ -102,6 +102,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
     ON commerce_payment_attempt (tenant_id, provider_code, out_trade_no)
     WHERE out_trade_no IS NOT NULL AND deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_claim
+    ON commerce_payment_attempt (tenant_id, status, created_at)
+    WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS commerce_refund (
     id TEXT NOT NULL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -125,6 +129,10 @@ CREATE TABLE IF NOT EXISTS commerce_refund (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_refund_idempotency
     ON commerce_refund (tenant_id, order_id, idempotency_key)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_commerce_refund_claim
+    ON commerce_refund (tenant_id, status, created_at)
     WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS commerce_refund_event (

@@ -38,7 +38,12 @@ pub async fn enrich_pay_owner_order_outcome(
     })?;
 
     let amount_minor = money_to_minor(&outcome.amount)?;
-    let _notify_url = context
+    // The notify URL the PSP will call back on is resolved at checkout:
+    // explicit order context wins, then the deployment standard order
+    // webhook URL (ORDER_PAYMENT_WEBHOOK_BASE_URL + provider path), then the
+    // per-provider env/account config inside the adapter. Passing it here
+    // guarantees the PSP registers exactly the URL the order gateway serves.
+    let notify_url = context
         .notify_url
         .clone()
         .or_else(|| registry.default_notify_url(&provider_code));
@@ -49,6 +54,7 @@ pub async fn enrich_pay_owner_order_outcome(
         merchant_order_no: Some(outcome.out_trade_no.clone()),
         amount_minor: Some(amount_minor),
         currency: Some(context.currency_code.clone()),
+        notify_url,
         expires_at: context.expires_at.clone(),
         payment_scene: Some(provider_method_key),
         metadata,
@@ -272,8 +278,14 @@ mod tests {
             params.get("payUrl").map(String::as_str),
             Some("https://cashier.alipay.com/gateway.do?biz=1")
         );
-        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
-        assert!(params.get("payForm").map(String::as_str).is_some_and(|form| form.starts_with("<form")));
+        assert_eq!(
+            params.get("nextAction").map(String::as_str),
+            Some("redirect")
+        );
+        assert!(params
+            .get("payForm")
+            .map(String::as_str)
+            .is_some_and(|form| form.starts_with("<form")));
     }
 
     #[test]
@@ -291,7 +303,10 @@ mod tests {
             params.get("payUrl").map(String::as_str),
             Some("https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=abc")
         );
-        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
+        assert_eq!(
+            params.get("nextAction").map(String::as_str),
+            Some("redirect")
+        );
         assert!(!params.contains_key("qrCodeUrl"));
     }
 
@@ -305,7 +320,7 @@ mod tests {
                 "prepay_id": "prepay-1",
                 "app_invoke_params": {
                     "appid": "wxappid",
-                    "partnerid": "1900000109",
+                    "partnerid": "1900977762",
                     "prepayid": "prepay-1",
                     "package": "Sign=WXPay",
                     "noncestr": "n",
@@ -320,7 +335,7 @@ mod tests {
             .get("appPayload")
             .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
             .expect("app payload must be serialized json");
-        assert_eq!(parsed["partnerid"], "1900000109");
+        assert_eq!(parsed["partnerid"], "1900977762");
         assert_eq!(parsed["package"], "Sign=WXPay");
         assert!(!params.contains_key("jsapiPayload"));
         assert!(!params.contains_key("qrCodeUrl"));
@@ -360,7 +375,10 @@ mod tests {
             params.get("payUrl").map(String::as_str),
             Some("https://cashier.alipay.com/example?biz=1")
         );
-        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
+        assert_eq!(
+            params.get("nextAction").map(String::as_str),
+            Some("redirect")
+        );
         assert!(!params.contains_key("qrCodeUrl"));
     }
 
@@ -377,7 +395,10 @@ mod tests {
             params.get("qrCodeUrl").map(String::as_str),
             Some("https://qr.alipay.com/example")
         );
-        assert_eq!(params.get("nextAction").map(String::as_str), Some("qr_code"));
+        assert_eq!(
+            params.get("nextAction").map(String::as_str),
+            Some("qr_code")
+        );
         assert!(!params.contains_key("payUrl"));
     }
 
@@ -423,7 +444,10 @@ mod tests {
             params.get("qrCodeUrl").map(String::as_str),
             Some("weixin://wxpay/bizpayurl?pr=abc")
         );
-        assert_eq!(params.get("nextAction").map(String::as_str), Some("qr_code"));
+        assert_eq!(
+            params.get("nextAction").map(String::as_str),
+            Some("qr_code")
+        );
         assert!(!params.contains_key("jsapiPayload"));
     }
 }

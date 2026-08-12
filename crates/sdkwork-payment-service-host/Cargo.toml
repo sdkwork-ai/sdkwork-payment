@@ -15,3 +15,4 @@ sdkwork-web-bootstrap.workspace = true
 sdkwork-web-core.workspace = true
 sdkwork_payment_database_host.workspace = true
 sdkwork_payment_providers.workspace = true
+sdkwork_payment_repository_sqlx.workspace = true

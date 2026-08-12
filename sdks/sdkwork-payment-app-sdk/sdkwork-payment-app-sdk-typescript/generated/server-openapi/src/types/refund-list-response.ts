@@ -3,6 +3,6 @@ import type { Refund } from './refund';
 
 export interface RefundListResponse {
   code: 0;
-  data: Record<string, unknown>;
+  data: { items: Refund[]; pageInfo: PageInfo; };
   traceId: string;
 }

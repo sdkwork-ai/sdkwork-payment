@@ -177,6 +177,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
     ON commerce_payment_attempt (tenant_id, provider_code, out_trade_no)
     WHERE out_trade_no IS NOT NULL AND deleted_at IS NULL;
 
+-- Compensation worker claim scan: status window + created_at age window with
+-- ORDER BY created_at LIMIT (run_payment_compensation_pass claims). The
+-- owner-scoped indexes cannot serve a tenant-wide scan; this one can.
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_claim
+    ON commerce_payment_attempt (tenant_id, status, created_at)
+    WHERE deleted_at IS NULL;
+
 -- =============================================================================
 -- 4. commerce_refund
 -- =============================================================================
@@ -220,6 +227,11 @@ CREATE INDEX IF NOT EXISTS idx_commerce_refund_owner
 
 CREATE INDEX IF NOT EXISTS idx_commerce_refund_attempt
     ON commerce_refund (tenant_id, payment_attempt_id, status)
+    WHERE deleted_at IS NULL;
+
+-- Compensation worker refund claim scan (same window semantics as attempts).
+CREATE INDEX IF NOT EXISTS idx_commerce_refund_claim
+    ON commerce_refund (tenant_id, status, created_at)
     WHERE deleted_at IS NULL;
 
 -- =============================================================================
@@ -797,3 +809,42 @@ SET account_name = 'Sandbox Partner Demo Account',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-sandbox-partner'
   AND account_name IS NULL;
+
+
+-- =============================================================================
+-- 16. commerce_payment_notify_domain
+-- =============================================================================
+-- Admin-configured notify domains for the order payment/refund webhook URLs.
+-- Multiple domains per tenant scope are allowed; exactly one active domain is
+-- the default. Resolution: exact organization row -> organization '0'
+-- (platform) row -> ORDER_PAYMENT_WEBHOOK_BASE_URL env.
+CREATE TABLE IF NOT EXISTS commerce_payment_notify_domain (
+    id                TEXT PRIMARY KEY,
+    tenant_id         TEXT NOT NULL,
+    organization_id   TEXT NOT NULL DEFAULT '0',
+    protocol          TEXT NOT NULL DEFAULT 'https'
+                      CHECK (protocol IN ('https', 'http')),
+    hostname          TEXT NOT NULL,
+    port              INTEGER,
+    is_default        BOOLEAN NOT NULL DEFAULT FALSE,
+    status            TEXT NOT NULL DEFAULT 'active'
+                      CHECK (status IN ('active', 'inactive')),
+    sort_order        INTEGER NOT NULL DEFAULT 0,
+    version           BIGINT NOT NULL DEFAULT 0,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at        TIMESTAMPTZ NULL,
+    CHECK (port IS NULL OR (port >= 1 AND port <= 65535))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_notify_domain_identity
+    ON commerce_payment_notify_domain (tenant_id, COALESCE(organization_id, '0'), protocol, hostname)
+    WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_notify_domain_default
+    ON commerce_payment_notify_domain (tenant_id, COALESCE(organization_id, '0'))
+    WHERE is_default AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_notify_domain_scope
+    ON commerce_payment_notify_domain (tenant_id, organization_id, status, sort_order, id)
+    WHERE deleted_at IS NULL;

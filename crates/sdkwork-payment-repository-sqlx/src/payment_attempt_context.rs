@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use crate::shared::{current_timestamp_string, store_error, string_cell};
 use sdkwork_contract_service::CommerceServiceError;
 use serde_json::json;
-use sqlx::{Pool, Postgres, Row, };
-use crate::shared::{current_timestamp_string, store_error, string_cell};
+use sqlx::{Pool, Postgres, Row};
+use std::collections::BTreeMap;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentAttemptProviderContext {
     pub attempt_id: String,
@@ -11,6 +11,7 @@ pub struct PaymentAttemptProviderContext {
     pub provider_code: String,
     pub out_trade_no: String,
     pub amount: String,
+    pub currency_code: Option<String>,
     pub tenant_id: String,
     pub idempotency_key: String,
     pub provider_transaction_id: Option<String>,
@@ -112,7 +113,7 @@ pub async fn load_payment_attempt_provider_context_postgres(
     let row = sqlx::query(
         r#"
         SELECT pa.id, pa.channel_id, c.provider_account_id, pa.provider_code, pa.out_trade_no,
-               pa.amount, pa.tenant_id, pa.callback_payload, pa.idempotency_key
+               pa.amount, pa.currency_code, pa.tenant_id, pa.callback_payload, pa.idempotency_key
         FROM commerce_payment_attempt pa
         LEFT JOIN commerce_payment_channel c ON c.id = pa.channel_id
         WHERE pa.tenant_id = CAST($1 AS TEXT)
@@ -137,6 +138,7 @@ pub async fn load_payment_attempt_provider_context_postgres(
             provider_code: string_cell(&row, "provider_code"),
             out_trade_no: string_cell(&row, "out_trade_no"),
             amount: string_cell(&row, "amount"),
+            currency_code: row.try_get("currency_code").ok().flatten(),
             tenant_id: string_cell(&row, "tenant_id"),
             idempotency_key: string_cell(&row, "idempotency_key"),
             provider_transaction_id: provider_transaction_id_from_callback_payload(
@@ -153,7 +155,7 @@ pub async fn load_payment_attempt_provider_context_by_id_postgres(
     let row = sqlx::query(
         r#"
         SELECT pa.id, pa.channel_id, c.provider_account_id, pa.provider_code, pa.out_trade_no,
-               pa.amount, pa.tenant_id, pa.callback_payload, pa.idempotency_key
+               pa.amount, pa.currency_code, pa.tenant_id, pa.callback_payload, pa.idempotency_key
         FROM commerce_payment_attempt pa
         LEFT JOIN commerce_payment_channel c ON c.id = pa.channel_id
         WHERE pa.id = CAST($1 AS TEXT)
@@ -179,6 +181,7 @@ pub async fn load_payment_attempt_provider_context_by_id_postgres(
             provider_code: string_cell(&row, "provider_code"),
             out_trade_no: string_cell(&row, "out_trade_no"),
             amount: string_cell(&row, "amount"),
+            currency_code: row.try_get("currency_code").ok().flatten(),
             tenant_id: string_cell(&row, "tenant_id"),
             idempotency_key: string_cell(&row, "idempotency_key"),
             provider_transaction_id: provider_transaction_id_from_callback_payload(

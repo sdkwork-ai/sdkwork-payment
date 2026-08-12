@@ -1,5 +1,3 @@
-use sdkwork_contract_service::CommerceServiceError;
-use sqlx::{Pool, Postgres, Row};
 use crate::payment_attempt_context::{
     load_attempt_by_out_trade_no_postgres, load_payment_webhook_attempt_context_by_id_postgres,
     PaymentWebhookAttemptContext, PaymentWebhookAttemptIdentity,
@@ -12,7 +10,8 @@ use crate::webhook_event_payload::{
     WEBHOOK_EVENT_STATUS_PROCESSED, WEBHOOK_EVENT_STATUS_QUEUED,
 };
 use crate::webhook_status::map_provider_payment_status;
-
+use sdkwork_contract_service::CommerceServiceError;
+use sqlx::{Pool, Postgres, Row};
 
 #[derive(Clone, Debug)]
 pub struct IngestProviderWebhookCommand {
@@ -32,8 +31,63 @@ pub struct IngestProviderWebhookOutcome {
     pub webhook_event_id: String,
     pub replayed: bool,
     pub payment_attempt_id: Option<String>,
+    /// Status the webhook carried/current status. `applied=false` means the
+    /// webhook CONFLICTED with a terminal state (e.g. stale failed after
+    /// success) and nothing was transitioned — the orchestrator must ack
+    /// without re-entering settlement.
     pub applied_status: Option<String>,
+    pub applied: bool,
     pub payment_attempt_context: Option<PaymentWebhookAttemptContext>,
+}
+
+/// Persists a rejected provider webhook (signature or normalization
+/// failure) for forensics. Rejected events land under the system tenant `'0'`
+/// because the tenant scope cannot be trusted before verification; the event
+/// id is a stable fingerprint of the provider code and raw body so identical
+/// replay attempts deduplicate.
+pub async fn record_rejected_provider_webhook_postgres(
+    pool: &Pool<Postgres>,
+    provider_code: &str,
+    body: &[u8],
+    reason: &str,
+) -> Result<(), CommerceServiceError> {
+    let provider_code = provider_code.trim().to_ascii_lowercase();
+    let now = current_timestamp_string();
+    let event_id = format!(
+        "rejected:{provider_code}:{}",
+        crate::shared::stable_storage_id(&[
+            "rejected-webhook",
+            provider_code.as_str(),
+            &sha256_hex(body)
+        ])
+    );
+    sqlx::query(
+        r#"
+        INSERT INTO commerce_payment_webhook_event
+            (id, tenant_id, organization_id, event_id, event_type, provider_code, payload, status,
+             last_error, received_at, created_at, updated_at)
+        VALUES ($1, '0', '0', $2, 'rejected', $3, '{}'::jsonb, 'rejected', $4,
+                $5::timestamptz, $5::timestamptz, $5::timestamptz)
+        ON CONFLICT (tenant_id, event_id) DO NOTHING
+        "#,
+    )
+    .bind(&event_id)
+    .bind(&event_id)
+    .bind(&provider_code)
+    .bind(truncate_reason(reason))
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(|error| store_error("failed to record rejected provider webhook", error))?;
+    Ok(())
+}
+
+fn sha256_hex(body: &[u8]) -> String {
+    sdkwork_utils_rust::sha256_hash(body)
+}
+
+fn truncate_reason(reason: &str) -> String {
+    reason.chars().take(500).collect()
 }
 
 pub fn empty_ingest_outcome(
@@ -45,11 +99,12 @@ pub fn empty_ingest_outcome(
         replayed,
         payment_attempt_id: None,
         applied_status: None,
+        applied: false,
         payment_attempt_context: None,
     }
 }
 
-async fn persist_webhook_event_postgres(
+pub(crate) async fn persist_webhook_event_postgres(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     insert: &WebhookEventInsert<'_>,
 ) -> Result<bool, CommerceServiceError> {
@@ -65,7 +120,7 @@ async fn persist_webhook_event_postgres(
     )
     .bind(insert.internal_id)
     .bind(insert.tenant_id)
-    .bind(insert.organization_id)
+    .bind(insert.organization_id.or_else(|| Some("0")))
     .bind(insert.provider_scoped_event_id)
     .bind(insert.event_type)
     .bind(insert.provider_code)
@@ -137,7 +192,7 @@ pub async fn ingest_provider_webhook_postgres(
         .map(|identity| identity.tenant_id.clone())
         .or_else(|| command_tenant_id.map(str::to_owned))
         .ok_or_else(|| {
-            CommerceServiceError::conflict(
+            CommerceServiceError::validation(
                 "payment webhook tenant scope could not be resolved safely",
             )
         })?;
@@ -204,15 +259,21 @@ pub async fn ingest_provider_webhook_postgres(
             .map_err(|error| store_error("failed to commit unmatched webhook event", error))?;
         return Ok(empty_ingest_outcome(internal_id, !inserted));
     };
-    let applied_status = apply_webhook_payment_status_postgres(
+    let applied_payment_status = apply_webhook_payment_status_postgres(
         &mut tx,
         &attempt_identity,
         payment_status.as_deref(),
         &now,
     )
     .await?;
+    let applied_status = applied_payment_status.status.clone();
+    let applied = applied_payment_status.applied;
     let payment_attempt_id = Some(attempt_identity.payment_attempt_id.clone());
-    let payment_attempt_context = if applied_status.as_deref() == Some("succeeded") {
+    // The attempt context is loaded for every applied status (succeeded,
+    // failed, canceled, closed) so the order side can react to payment
+    // failures too — not only successes. It is None only when the webhook
+    // did not resolve to an exact attempt.
+    let payment_attempt_context = if applied_payment_status.applied {
         load_payment_webhook_attempt_context_by_id_postgres(
             &mut tx,
             &attempt_identity.payment_attempt_id,
@@ -250,10 +311,11 @@ pub async fn ingest_provider_webhook_postgres(
         replayed: !inserted,
         payment_attempt_id,
         applied_status,
+        applied,
         payment_attempt_context,
     })
 }
-async fn load_existing_webhook_event_postgres(
+pub(crate) async fn load_existing_webhook_event_postgres(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     tenant_id: &str,
     organization_id: Option<&str>,
@@ -294,12 +356,44 @@ async fn load_existing_webhook_event_postgres(
     )?;
     Ok(stored)
 }
+/// Result of applying a webhook payment status: the resulting status and
+/// whether the webhook actually transitioned the payment. `applied=false`
+/// marks a terminal-conflict ack (the webhook status conflicts with an
+/// already-terminal state and nothing changed).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct AppliedPaymentStatus {
+    pub status: Option<String>,
+    pub applied: bool,
+}
+
+/// Whether a webhook status may transition the current payment state.
+/// Same-state replays are allowed (at-least-once re-entry). Provider success
+/// notifications may recover a payment previously recorded terminal
+/// failed/canceled — money can still arrive on slow rails, and the order-side
+/// late-payment machinery decides the order state (preserved terminal +
+/// audit + suppressed fulfillment). All other transitions follow the
+/// canonical payment state machine.
+fn webhook_transition_allowed(current: &str, target: &str) -> bool {
+    if current.eq_ignore_ascii_case(target) {
+        return true;
+    }
+    if target.eq_ignore_ascii_case("succeeded")
+        && matches!(
+            current.trim().to_ascii_lowercase().as_str(),
+            "failed" | "canceled" | "cancelled" | "closed"
+        )
+    {
+        return true;
+    }
+    crate::shared::ensure_payment_status_transition(current, target).is_ok()
+}
+
 pub async fn apply_webhook_payment_status_postgres(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     identity: &PaymentWebhookAttemptIdentity,
     payment_status: Option<&str>,
     now: &str,
-) -> Result<Option<String>, CommerceServiceError> {
+) -> Result<AppliedPaymentStatus, CommerceServiceError> {
     let row = sqlx::query(
         r#"
         SELECT id, payment_intent_id, tenant_id, organization_id, owner_user_id, order_id, status
@@ -339,11 +433,17 @@ pub async fn apply_webhook_payment_status_postgres(
     let owner_user_id = string_cell(&row, "owner_user_id");
     let order_id = string_cell(&row, "order_id");
     let Some(raw_status) = payment_status.filter(|value| !value.trim().is_empty()) else {
-        return Ok(None);
+        return Ok(AppliedPaymentStatus {
+            status: None,
+            applied: false,
+        });
     };
     let Some(target_status) = map_provider_payment_status(&identity.provider_code, raw_status)
     else {
-        return Ok(None);
+        return Ok(AppliedPaymentStatus {
+            status: None,
+            applied: false,
+        });
     };
     let order_row = sqlx::query(
         r#"
@@ -365,7 +465,7 @@ pub async fn apply_webhook_payment_status_postgres(
     .await
     .map_err(|error| store_error("failed to lock webhook owner order", error))?;
     if order_row.is_none() {
-        return Err(CommerceServiceError::storage(
+        return Err(CommerceServiceError::conflict(
             "payment webhook attempt references a missing or deleted order",
         ));
     }
@@ -395,7 +495,7 @@ pub async fn apply_webhook_payment_status_postgres(
             if string_cell(identity, "id") == attempt_id
                 && string_cell(identity, "payment_intent_id") == payment_intent_id => {}
         [] => {
-            return Err(CommerceServiceError::storage(
+            return Err(CommerceServiceError::conflict(
                 "payment webhook attempt disappeared during settlement",
             ));
         }
@@ -428,7 +528,7 @@ pub async fn apply_webhook_payment_status_postgres(
     .await
     .map_err(|error| store_error("failed to lock webhook payment intent", error))?
     .ok_or_else(|| {
-        CommerceServiceError::storage(
+        CommerceServiceError::conflict(
             "payment webhook attempt references a missing or deleted payment intent",
         )
     })?;
@@ -462,11 +562,21 @@ pub async fn apply_webhook_payment_status_postgres(
     .await
     .map_err(|error| store_error("failed to lock webhook payment attempt", error))?
     .ok_or_else(|| {
-        CommerceServiceError::storage("payment webhook attempt changed identity during settlement")
+        CommerceServiceError::conflict(
+            "payment webhook attempt changed identity during settlement",
+        )
     })?;
     let attempt_status = string_cell(&attempt_row, "status");
     if !intent_status.eq_ignore_ascii_case(target_status) {
-        crate::shared::ensure_payment_status_transition(&intent_status, target_status)?;
+        // A webhook that conflicts with a terminal intent state (e.g. a stale
+        // failed notification after success) must be acked idempotently with
+        // the current state instead of erroring into a PSP retry loop.
+        if !webhook_transition_allowed(&intent_status, target_status) {
+            return Ok(AppliedPaymentStatus {
+                status: Some(intent_status),
+                applied: false,
+            });
+        }
         let updated = sqlx::query(
             r#"
             UPDATE commerce_payment_intent
@@ -490,7 +600,12 @@ pub async fn apply_webhook_payment_status_postgres(
         }
     }
     if !attempt_status.eq_ignore_ascii_case(target_status) {
-        crate::shared::ensure_payment_status_transition(&attempt_status, target_status)?;
+        if !webhook_transition_allowed(&attempt_status, target_status) {
+            return Ok(AppliedPaymentStatus {
+                status: Some(attempt_status),
+                applied: false,
+            });
+        }
         let updated = sqlx::query(
             r#"
             UPDATE commerce_payment_attempt
@@ -520,5 +635,57 @@ pub async fn apply_webhook_payment_status_postgres(
             ));
         }
     }
-    Ok(Some(target_status.to_owned()))
+    Ok(AppliedPaymentStatus {
+        status: Some(target_status.to_owned()),
+        applied: true,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::webhook_transition_allowed;
+
+    #[test]
+    fn recovery_allows_terminal_failed_canceled_to_succeeded() {
+        for current in [
+            "failed",
+            "canceled",
+            "cancelled",
+            "closed",
+            "FAILED",
+            "Canceled",
+        ] {
+            assert!(
+                webhook_transition_allowed(current, "succeeded"),
+                "{current} -> succeeded must be allowed for webhook recovery"
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_does_not_relax_other_directions() {
+        // Stale failure/closure after success stays terminal-conflicted.
+        assert!(!webhook_transition_allowed("succeeded", "failed"));
+        assert!(!webhook_transition_allowed("succeeded", "canceled"));
+        assert!(!webhook_transition_allowed("succeeded", "closed"));
+        // Canonical transitions keep working (pending -> closed is legal).
+        assert!(webhook_transition_allowed("pending", "closed"));
+    }
+
+    #[test]
+    fn same_status_replays_are_allowed() {
+        for status in ["succeeded", "failed", "pending", "canceled", "closed"] {
+            assert!(
+                webhook_transition_allowed(status, status),
+                "{status} -> {status} must replay"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_transitions_remain_allowed() {
+        assert!(webhook_transition_allowed("pending", "succeeded"));
+        assert!(webhook_transition_allowed("pending", "failed"));
+        assert!(webhook_transition_allowed("created", "pending"));
+    }
 }

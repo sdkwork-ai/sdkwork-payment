@@ -1,10 +1,8 @@
+use crate::provider_credential::load_provider_credentials_postgres;
+use crate::shared::{store_error, string_cell};
 use sdkwork_contract_service::CommerceServiceError;
 use serde_json::Value;
-use sqlx::{Pool, Postgres, Row, };
-use crate::provider_credential::{
-    load_provider_credentials_postgres,
-};
-use crate::shared::{store_error, string_cell};
+use sqlx::{Pool, Postgres, Row};
 #[derive(Clone, Eq, PartialEq)]
 pub struct PaymentProviderAccountRecord {
     pub id: String,

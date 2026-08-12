@@ -2,13 +2,13 @@
 //!
 //! Payment must not depend on `sdkwork-order` crates. These queries are foreign-key
 //! lookups only; order lifecycle mutations remain in the order capability.
+use crate::shared::{normalize_stored_money_amount, store_error, string_cell, StringCellRow};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use sdkwork_contract_service::{CommerceMoney, CommerceServiceError};
 use sdkwork_payment_service::OrderPaymentReferenceQuery;
 use sdkwork_payment_service::OrderPaymentReferenceSnapshot;
 use sqlx::postgres::PgRow;
 use sqlx::{Postgres, Row, Transaction};
-use crate::shared::{store_error, string_cell, StringCellRow};
 pub(crate) async fn load_order_payment_reference_postgres(
     tx: &mut Transaction<'_, Postgres>,
     query: &OrderPaymentReferenceQuery,
@@ -34,9 +34,10 @@ pub(crate) async fn load_order_payment_reference_postgres(
                  ELSE to_char(CAST(o.paid_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC',
                               'YYYY-MM-DD"T"HH24:MI:SS"Z"')
             END AS pay_time,
+            o.currency_code,
             COALESCE(
                 (
-                    SELECT b.payable_amount
+                    SELECT CAST(b.payable_amount AS TEXT)
                     FROM commerce_order_amount_breakdown b
                     WHERE b.tenant_id = o.tenant_id
                       AND b.order_id = o.id
@@ -59,14 +60,20 @@ pub(crate) async fn load_order_payment_reference_postgres(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|error| store_error("failed to load order payment reference", error))?;
-    Ok(row.map(map_postgres_order_payment_reference_row))
+    match row {
+        Some(row) => Ok(Some(map_postgres_order_payment_reference_row(row)?)),
+        None => Ok(None),
+    }
 }
-fn map_postgres_order_payment_reference_row(row: PgRow) -> OrderPaymentReferenceSnapshot {
+fn map_postgres_order_payment_reference_row(
+    row: PgRow,
+) -> Result<OrderPaymentReferenceSnapshot, CommerceServiceError> {
     map_order_payment_reference_row(
         &row,
         optional_postgres_string_cell(&row, "expires_at"),
         optional_postgres_string_cell(&row, "order_subject"),
         optional_postgres_string_cell(&row, "pay_time"),
+        optional_postgres_string_cell(&row, "currency_code"),
     )
 }
 fn map_order_payment_reference_row<R: StringCellRow>(
@@ -74,17 +81,19 @@ fn map_order_payment_reference_row<R: StringCellRow>(
     expires_at: Option<String>,
     order_subject: Option<String>,
     pay_time: Option<String>,
-) -> OrderPaymentReferenceSnapshot {
-    OrderPaymentReferenceSnapshot {
+    currency_code: Option<String>,
+) -> Result<OrderPaymentReferenceSnapshot, CommerceServiceError> {
+    let total_amount = normalize_stored_money_amount(&string_cell(row, "total_amount"))?;
+    Ok(OrderPaymentReferenceSnapshot {
         expires_at,
         order_id: string_cell(row, "order_id"),
         order_sn: string_cell(row, "order_sn"),
         order_subject,
         status: string_cell(row, "status"),
-        total_amount: CommerceMoney::new(&string_cell(row, "total_amount"))
-            .unwrap_or_else(|_| CommerceMoney::new("0").expect("zero amount")),
+        total_amount: CommerceMoney::new(&total_amount).map_err(CommerceServiceError::storage)?,
+        currency_code,
         pay_time,
-    }
+    })
 }
 fn optional_postgres_string_cell(row: &PgRow, column: &str) -> Option<String> {
     row.try_get::<Option<String>, _>(column).ok().flatten()

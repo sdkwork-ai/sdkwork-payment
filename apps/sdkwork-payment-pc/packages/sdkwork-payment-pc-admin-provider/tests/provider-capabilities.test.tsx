@@ -46,6 +46,35 @@ describe("payment provider capabilities", () => {
     }
   });
 
+  it("shows the accountName field verbatim instead of a localized override", () => {
+    render(
+      <ProviderAccountList
+        accounts={[{
+          ...providerAccount,
+          accountName: "Stripe Main",
+          accountNameI18n: { "zh-CN": "本地化旧名", "en-US": "Localized Old Name" },
+        } as never]}
+        canCreate={false}
+        canEdit={false}
+        canRotate={false}
+        canTest={false}
+        canDelete={false}
+        onCreate={vi.fn()}
+        onEdit={vi.fn()}
+        onLoadMore={vi.fn()}
+        onRotate={vi.fn()}
+        onToggleStatus={vi.fn()}
+        onTest={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    // Operator-edited accountName always wins; i18n overrides are not applied.
+    expect(screen.getByText("Stripe Main")).toBeInTheDocument();
+    expect(screen.queryByText("本地化旧名")).not.toBeInTheDocument();
+    expect(screen.queryByText("Localized Old Name")).not.toBeInTheDocument();
+  });
+
   it("shows an enable/disable status toggle and forwards it to the workspace", () => {
     const onToggleStatus = vi.fn();
     render(

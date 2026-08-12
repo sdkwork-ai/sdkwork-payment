@@ -3,9 +3,10 @@
  * credential test/replace (rotate) action shortcuts. Designed for the admin workspace.
  */
 
+import type { ReactNode } from "react";
 import { Activity, CheckCircle2, CircleSlash2, Pencil, Power, PowerOff, RotateCcw, Trash2 } from "lucide-react";
-import { Badge, Button, IconButton } from "@sdkwork/ui-pc-react";
-import { useSdkworkI18n } from "@sdkwork/i18n-pc-react";
+import { Badge, Button, IconButton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@sdkwork/ui-pc-react";
+import { usePaymentAdminMessages } from "@sdkwork/payment-pc-admin-core";
 import {
   SdkworkPaymentListPaginationControls,
   ADMIN_PROVIDER_LABEL,
@@ -89,8 +90,35 @@ function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
   );
 }
 
+/** Icon-only row action with a hover tooltip. The trigger is wrapped in a span
+ *  so the tooltip still opens while the underlying button is disabled (native
+ *  disabled buttons swallow pointer events). Disabled state explains itself. */
+function ActionTooltip({
+  label,
+  disabled,
+  disabledLabel,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  disabledLabel?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {disabled && disabledLabel ? disabledLabel : label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function ProviderAccountList(props: ProviderAccountListProps) {
-  const i18n = useSdkworkI18n();
+  const phrases = usePaymentAdminMessages().legacy.phrases;
+  const t = (key: string) => phrases[key] ?? key;
   return (
     <div className="space-y-3" data-slot="provider-account-list">
       {props.accounts.length === 0 ? (
@@ -149,7 +177,7 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-[var(--sdk-color-text-primary)]">
-                        {resolveProviderAccountName(account, i18n?.localeTag)}
+                        {resolveProviderAccountName(account)}
                       </span>
                       <Badge variant="outline">{ADMIN_PROVIDER_LABEL[account.providerCode]}</Badge>
                       <Badge variant="outline">{ENV_LABEL[account.environment]}</Badge>
@@ -168,77 +196,104 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
                       <span aria-hidden="true"> · </span>
                       <span>Last test:</span>{" "}
                       <span className="font-medium text-[var(--sdk-color-text-primary)]">
-                        {account.lastTestedAt ? formatAdminTimestamp(account.lastTestedAt) : "Run before activation"}
+                        {account.lastTestedAt ? formatAdminTimestamp(account.lastTestedAt) : t("Run before activation")}
                       </span>
                     </p>
                     <div
                       className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)]"
                       aria-label="Credential readiness"
                     >
-                      <ReadinessItem ready={account.hasPrimarySecret} label="Primary secret" />
-                      <ReadinessItem ready={account.hasWebhookSecret} label="Webhook secret" />
-                      <ReadinessItem ready={account.hasCertificate} label="Certificate" />
+                      <ReadinessItem ready={account.hasPrimarySecret} label={t("Primary secret")} />
+                      <ReadinessItem ready={account.hasWebhookSecret} label={t("Webhook secret")} />
+                      <ReadinessItem ready={account.hasCertificate} label={t("Certificate")} />
                       <Badge variant={TEST_STATUS_TONE[account.lastTestStatus ?? "unknown"]}>
                         {TEST_STATUS_LABEL[account.lastTestStatus ?? "unknown"]}
                       </Badge>
                     </div>
                   </div>
                 </div>
+                <TooltipProvider delayDuration={300}>
                 <div className="flex flex-wrap items-center justify-end gap-1 sm:self-center">
-                  {props.canTest ? <IconButton
-                    type="button"
-                    variant="ghost"
-                    aria-label="Test credentials"
-                    onClick={() => props.onTest(account)}
+                  {props.canTest ? <ActionTooltip
+                    label={t("Test credentials")}
                     disabled={props.busy}
-                    title="Cannot test while another operation is in progress"
+                    disabledLabel={t("Cannot test while another operation is in progress")}
                   >
-                    <Activity className="h-4 w-4" />
-                  </IconButton> : null}
-                  {props.canRotate ? <IconButton
-                    type="button"
-                    variant="ghost"
-                    aria-label="Replace credentials"
-                    onClick={() => props.onRotate(account)}
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      aria-label={t("Test credentials")}
+                      onClick={() => props.onTest(account)}
+                      disabled={props.busy}
+                    >
+                      <Activity className="h-4 w-4" />
+                    </IconButton>
+                  </ActionTooltip> : null}
+                  {props.canRotate ? <ActionTooltip
+                    label={t("Replace credentials")}
                     disabled={props.busy}
-                    title="Cannot replace credentials while another operation is in progress"
+                    disabledLabel={t("Cannot replace credentials while another operation is in progress")}
                   >
-                    <RotateCcw className="h-4 w-4" />
-                  </IconButton> : null}
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      aria-label={t("Replace credentials")}
+                      onClick={() => props.onRotate(account)}
+                      disabled={props.busy}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </IconButton>
+                  </ActionTooltip> : null}
                   {/* Status toggle only applies to active/inactive accounts;
                       suspended/deprecated accounts are state changes handled
                       through the edit form. */}
-                  {(account.status === "active" || account.status === "inactive") && props.canEdit ? <IconButton
-                    type="button"
-                    variant={account.status === "active" ? "danger" : "ghost"}
-                    aria-label={account.status === "active" ? "Disable" : "Enable"}
-                    onClick={() => props.onToggleStatus(account)}
+                  {(account.status === "active" || account.status === "inactive") && props.canEdit ? <ActionTooltip
+                    label={account.status === "active" ? "Disable" : "Enable"}
                     disabled={props.busy}
-                    title="Cannot change status while another operation is in progress"
+                    disabledLabel={t("Cannot change status while another operation is in progress")}
                   >
-                    {account.status === "active" ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                  </IconButton> : null}
-                  {props.canEdit ? <IconButton
-                    type="button"
-                    variant="ghost"
-                    aria-label="Edit"
-                    onClick={() => props.onEdit(account)}
+                    <IconButton
+                      type="button"
+                      variant={account.status === "active" ? "danger" : "ghost"}
+                      aria-label={account.status === "active" ? "Disable" : "Enable"}
+                      onClick={() => props.onToggleStatus(account)}
+                      disabled={props.busy}
+                    >
+                      {account.status === "active" ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                    </IconButton>
+                  </ActionTooltip> : null}
+                  {props.canEdit ? <ActionTooltip
+                    label="Edit"
                     disabled={props.busy}
-                    title="Cannot edit while another operation is in progress"
+                    disabledLabel={t("Cannot edit while another operation is in progress")}
                   >
-                    <Pencil className="h-4 w-4" />
-                  </IconButton> : null}
-                  {props.canDelete ? <IconButton
-                    type="button"
-                    variant="danger"
-                    aria-label="Delete"
-                    onClick={() => props.onDelete(account)}
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      aria-label="Edit"
+                      onClick={() => props.onEdit(account)}
+                      disabled={props.busy}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </IconButton>
+                  </ActionTooltip> : null}
+                  {props.canDelete ? <ActionTooltip
+                    label="Delete"
                     disabled={props.busy}
-                    title="Cannot delete while another operation is in progress"
+                    disabledLabel={t("Cannot delete while another operation is in progress")}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </IconButton> : null}
+                    <IconButton
+                      type="button"
+                      variant="danger"
+                      aria-label="Delete"
+                      onClick={() => props.onDelete(account)}
+                      disabled={props.busy}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </IconButton>
+                  </ActionTooltip> : null}
                 </div>
+                </TooltipProvider>
               </li>
             );
           })}

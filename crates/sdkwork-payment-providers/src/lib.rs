@@ -5,6 +5,7 @@ mod alipay;
 mod checkout;
 mod credential_cipher;
 mod credentials;
+mod dev_credentials;
 mod error;
 mod http;
 mod money;
@@ -29,9 +30,12 @@ pub use credentials::{
     build_order_payment_webhook_url, resolve_secret_ref, EnvPaymentCredentialResolver,
     ProviderAccountBinding, ProviderCredentialBundle, ORDER_PAYMENT_WEBHOOK_PATH,
 };
+pub use dev_credentials::{
+    generate_development_credentials, has_environment_provider_credentials, DevelopmentCredentials,
+};
 pub use operations::{
-    cancel_provider_payment, create_provider_refund, query_provider_refund,
-    ProviderRefundSubmissionState,
+    cancel_provider_payment, create_provider_refund, query_provider_payment_intent,
+    query_provider_refund, ProviderPaymentQueryState, ProviderRefundSubmissionState,
 };
 pub use registry::{provider_registry_for_account, PaymentProviderRegistry};
 pub use sandbox_webhook::SandboxWebhookPaymentProviderAdapter;

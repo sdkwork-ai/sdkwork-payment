@@ -1,4 +1,9 @@
 export * from './common';
+export type { NotifyDomain } from './notify-domain';
+export type { NotifyDomainCreateRequest } from './notify-domain-create-request';
+export type { NotifyDomainUpdateRequest } from './notify-domain-update-request';
+export type { NotifyDomainItemResponse } from './notify-domain-item-response';
+export type { NotifyDomainListResponse } from './notify-domain-list-response';
 export type { SdkWorkApiResponse } from './sdk-work-api-response';
 export type { SdkWorkResourceData } from './sdk-work-resource-data';
 export type { SdkWorkPageData } from './sdk-work-page-data';
@@ -36,6 +41,8 @@ export type { ProviderAccountTestResultResponse } from './provider-account-test-
 export type { CredentialRotateCommand } from './credential-rotate-command';
 export type { PaymentChannel } from './payment-channel';
 export type { CreatePaymentChannelCommand } from './create-payment-channel-command';
+export type { UpdatePaymentChannelCommand } from './update-payment-channel-command';
+export type { ProviderAccountCredentialsResponse } from './provider-account-credentials-response';
 export type { PaymentChannelResponse } from './payment-channel-response';
 export type { PaymentChannelListResponse } from './payment-channel-list-response';
 export type { RouteRule } from './route-rule';

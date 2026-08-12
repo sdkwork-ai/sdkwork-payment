@@ -1,8 +1,9 @@
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_payment_providers::{
+    generate_development_credentials, has_environment_provider_credentials,
     payment_credential_cipher, CredentialCipherScope, EncryptedPaymentCredential,
 };
-use sqlx::{PgPool, Row, };
+use sqlx::{PgPool, Row};
 const PRIMARY_SECRET: &str = "primary_secret";
 const WEBHOOK_SECRET: &str = "webhook_secret";
 const CERTIFICATE: &str = "certificate";
@@ -87,6 +88,87 @@ pub async fn rotate_provider_credentials_postgres(
         update_legacy_marker_postgres(&mut transaction, provider_account_id, kind).await?;
     }
     transaction.commit().await.map_err(store_error)
+}
+/// Idempotently fills bootstrap provider accounts with real-format test
+/// credentials.
+///
+/// Bootstrap accounts (`metadata.bootstrap=true`) are seeded active so every
+/// checkout path runs end to end against the real provider adapters. This
+/// host-side bootstrap generates real-format test credentials (parseable RSA
+/// key pairs, Stripe `sk_test_` keys, a 32-char WeChat API v3 key), encrypts
+/// them through the same credential cipher as admin writes, and marks the
+/// account tested. Accounts that already carry active credentials
+/// (operator-configured) or whose provider credentials are fully provided
+/// through environment variables are skipped untouched.
+pub async fn ensure_development_provider_credentials_postgres(
+    pool: &PgPool,
+) -> Result<(), CommerceServiceError> {
+    let accounts = sqlx::query(
+        "SELECT id, tenant_id, organization_id, provider_code FROM commerce_payment_provider_account WHERE deleted_at IS NULL AND status = 'active' AND LOWER(provider_code) IN ('stripe', 'alipay', 'wechat_pay') AND CAST(metadata AS TEXT) LIKE '%bootstrap%' ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(store_error)?;
+    for row in accounts {
+        let provider_account_id: String = row.try_get("id").unwrap_or_default();
+        let tenant_id: String = row.try_get("tenant_id").unwrap_or_default();
+        let organization_id: Option<String> = row.try_get("organization_id").ok().flatten();
+        let provider_code: String = row.try_get("provider_code").unwrap_or_default();
+        if provider_account_id.is_empty() || tenant_id.is_empty() {
+            continue;
+        }
+        let has_active_credentials = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM commerce_payment_provider_credential WHERE provider_account_id = CAST($1 AS TEXT) AND status = 'active' AND deleted_at IS NULL",
+        )
+        .bind(&provider_account_id)
+        .fetch_one(pool)
+        .await
+        .map_err(store_error)?;
+        if has_active_credentials > 0 {
+            continue;
+        }
+        if has_environment_provider_credentials(&provider_code) {
+            continue;
+        }
+        let generated = generate_development_credentials(&provider_code).map_err(|message| {
+            CommerceServiceError::storage(format!(
+                "payment provider development credential generation failed: {message}"
+            ))
+        })?;
+        rotate_provider_credentials_postgres(
+            pool,
+            &tenant_id,
+            organization_id.as_deref(),
+            &provider_account_id,
+            ProviderCredentialWrite {
+                primary_secret: Some(generated.primary_secret),
+                webhook_secret: generated.webhook_secret,
+                certificate: generated.certificate,
+            },
+        )
+        .await?;
+        // WeChat Pay bootstrap accounts use the official recommended public key
+        // mode: patch the verification mode and the generated public key ID
+        // (`Wechatpay-Serial` matching) into the account metadata.
+        if provider_code.eq_ignore_ascii_case("wechat_pay") {
+            if let Some(public_key_id) = generated.wechatpay_public_key_id.as_deref() {
+                sqlx::query(
+                    "UPDATE commerce_payment_provider_account SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('signVerifyMode', 'wechatpay_public_key', 'wechatpayPublicKeyId', $2), updated_at = CURRENT_TIMESTAMP WHERE id = CAST($1 AS TEXT)",
+                )
+                .bind(&provider_account_id)
+                .bind(public_key_id)
+                .execute(pool)
+                .await
+                .map_err(store_error)?;
+            }
+        }
+        sqlx::query("UPDATE commerce_payment_provider_account SET last_test_status = 'success', last_tested_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = CAST($1 AS TEXT)")
+            .bind(&provider_account_id)
+            .execute(pool)
+            .await
+            .map_err(store_error)?;
+    }
+    Ok(())
 }
 pub async fn load_provider_credentials_postgres(
     pool: &PgPool,
@@ -173,8 +255,12 @@ async fn ensure_account_postgres(
     provider_account_id: &str,
 ) -> Result<(), CommerceServiceError> {
     let found = sqlx::query_scalar::<_, i64>(ENSURE_ACCOUNT_POSTGRES_SQL)
-        .bind(provider_account_id).bind(tenant_id).bind(organization_id)
-        .fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        .bind(provider_account_id)
+        .bind(tenant_id)
+        .bind(organization_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(store_error)?;
     if found.is_none() {
         return Err(CommerceServiceError::not_found(
             "payment provider account was not found",

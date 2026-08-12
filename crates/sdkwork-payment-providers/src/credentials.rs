@@ -1,5 +1,6 @@
 use crate::registry::{AlipayRegistryConfig, WeChatPayRegistryConfig};
 use crate::stripe::StripePaymentProviderConfig;
+use crate::wechat_pay::WeChatPaySignVerifyMode;
 
 /// Canonical PSP notify path (HTTP owned by sdkwork-order).
 pub const ORDER_PAYMENT_WEBHOOK_PATH: &str = "/app/v3/api/orders/payments/webhooks/{providerCode}";
@@ -99,6 +100,16 @@ fn load_alipay() -> Option<AlipayRegistryConfig> {
 }
 
 fn load_wechat_pay() -> Option<WeChatPayRegistryConfig> {
+    let sign_verify_mode = std::env::var("WECHAT_PAY_SIGN_VERIFY_MODE")
+        .ok()
+        .and_then(|mode| WeChatPaySignVerifyMode::parse(&mode))
+        .unwrap_or_default();
+    let verification_serial_no = match sign_verify_mode {
+        WeChatPaySignVerifyMode::WeChatPayPublicKey => env_optional("WECHAT_PAY_PUBLIC_KEY_ID"),
+        WeChatPaySignVerifyMode::PlatformCertificate => {
+            env_optional("WECHAT_PAY_PLATFORM_CERT_SERIAL_NO")
+        }
+    };
     Some(WeChatPayRegistryConfig {
         app_id: env_required("WECHAT_PAY_APP_ID")?,
         mch_id: env_required("WECHAT_PAY_MCH_ID")?,
@@ -106,7 +117,9 @@ fn load_wechat_pay() -> Option<WeChatPayRegistryConfig> {
         merchant_private_key_pem: env_required("WECHAT_PAY_PRIVATE_KEY_PEM")?,
         api_v3_key: env_required("WECHAT_PAY_API_V3_KEY")?,
         notify_url: env_optional("WECHAT_PAY_NOTIFY_URL"),
-        platform_public_key_pem: env_optional("WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM"),
+        sign_verify_mode,
+        verification_key_pem: env_optional("WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM"),
+        verification_serial_no,
     })
 }
 
@@ -215,13 +228,28 @@ fn merge_wechat_account(bundle: &mut ProviderCredentialBundle, account: &Provide
     }) else {
         return;
     };
-    let Some(platform_public_key_pem) = account.certificate.clone().or_else(|| {
+    let verification_key_pem = account.certificate.clone().or_else(|| {
         account
             .certificate_ref
             .as_ref()
             .and_then(|value| resolve_secret_ref(value))
-    }) else {
-        return;
+    });
+    // 验签模式：显式配置时严格解析（非法值跳过该账户注册），未配置按官方
+    // 推荐默认微信支付公钥模式（与既有"证书槽即验签公钥"行为兼容）。
+    let sign_verify_mode = match metadata_string(&account.metadata, "signVerifyMode") {
+        Some(raw) => match WeChatPaySignVerifyMode::parse(&raw) {
+            Some(mode) => mode,
+            None => return,
+        },
+        None => WeChatPaySignVerifyMode::WeChatPayPublicKey,
+    };
+    let verification_serial_no = match sign_verify_mode {
+        WeChatPaySignVerifyMode::WeChatPayPublicKey => {
+            metadata_string(&account.metadata, "wechatpayPublicKeyId")
+        }
+        WeChatPaySignVerifyMode::PlatformCertificate => {
+            metadata_string(&account.metadata, "platformCertificateSerialNo")
+        }
     };
     bundle.wechat_pay = Some(WeChatPayRegistryConfig {
         app_id,
@@ -230,7 +258,9 @@ fn merge_wechat_account(bundle: &mut ProviderCredentialBundle, account: &Provide
         merchant_private_key_pem,
         api_v3_key,
         notify_url: metadata_string(&account.metadata, "notifyUrl"),
-        platform_public_key_pem: Some(platform_public_key_pem),
+        sign_verify_mode,
+        verification_key_pem,
+        verification_serial_no,
     });
 }
 
@@ -257,7 +287,7 @@ mod tests {
         };
         let account = ProviderAccountBinding {
             provider_code: "wechat_pay".to_owned(),
-            merchant_id: Some("1900000109".to_owned()),
+            merchant_id: Some("1900977762".to_owned()),
             environment: "production".to_owned(),
             secret_ref: "database:primary_secret".to_owned(),
             webhook_secret_ref: Some("database:webhook_secret".to_owned()),
@@ -274,7 +304,7 @@ mod tests {
 
         let resolved = bundle.with_provider_account(&account);
         let wechat = resolved.wechat_pay.expect("WeChat database credentials");
-        assert_eq!(wechat.mch_id, "1900000109");
+        assert_eq!(wechat.mch_id, "1900977762");
         assert_eq!(
             wechat.notify_url.as_deref(),
             Some("https://pay.example.com/app/v3/api/orders/payments/webhooks/wechat_pay")

@@ -90,6 +90,42 @@
     },
     {
       "method": "GET",
+      "path": "/backend/v3/api/payments/notify_domains",
+      "operationId": "notifyDomains.list",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/notify_domains",
+      "operationId": "notifyDomains.create",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/backend/v3/api/payments/notify_domains/{domainId}",
+      "operationId": "notifyDomains.update",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/backend/v3/api/payments/notify_domains/{domainId}",
+      "operationId": "notifyDomains.delete",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/backend/v3/api/payments/provider_accounts",
       "operationId": "providerAccounts.list",
       "source": {
@@ -134,6 +170,15 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials",
+      "operationId": "providerAccounts.credentials.read",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
       "method": "POST",
       "path": "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials/rotate",
       "operationId": "providerAccounts.credentials.rotate",
@@ -155,6 +200,24 @@
       "method": "POST",
       "path": "/backend/v3/api/payments/channels",
       "operationId": "channels.create",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/backend/v3/api/payments/channels/{channelId}",
+      "operationId": "channels.update",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/backend/v3/api/payments/channels/{channelId}",
+      "operationId": "channels.delete",
       "source": {
         "routeCrate": "sdkwork-routes-payment-backend-api",
         "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"

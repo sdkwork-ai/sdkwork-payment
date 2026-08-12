@@ -4,6 +4,7 @@ use sdkwork_payment_providers::{
     install_payment_credential_cipher, payment_credential_cipher_is_installed,
     LocalFilePaymentCredentialCipher, PaymentCredentialCipher,
 };
+use sdkwork_payment_repository_sqlx::ensure_development_provider_credentials_postgres;
 use sdkwork_web_core::WebEnvironment;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,6 +31,7 @@ impl PaymentServiceHost {
     pub async fn from_env() -> Result<Self, String> {
         ensure_payment_credential_cipher_from_env()?;
         let database = bootstrap_payment_database_from_env().await?;
+        ensure_bootstrap_provider_credentials(&database).await?;
         Ok(Self { database })
     }
 
@@ -38,6 +40,7 @@ impl PaymentServiceHost {
     pub async fn from_pool(pool: DatabasePool) -> Result<Self, String> {
         ensure_payment_credential_cipher_from_env()?;
         let database = sdkwork_payment_database_host::bootstrap_payment_database(pool).await?;
+        ensure_bootstrap_provider_credentials(&database).await?;
         Ok(Self { database })
     }
 
@@ -50,8 +53,21 @@ impl PaymentServiceHost {
     }
 }
 
-fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {
-    if payment_credential_cipher_is_installed() {
+/// Fills bootstrap provider accounts with real-format test credentials so the
+/// one-cent test payment (and any checkout) drives the real provider adapters
+/// end to end without an activation gate. No-op on non-PostgreSQL pools; the
+/// repository function is idempotent and skips accounts that already carry
+/// operator-configured credentials or complete environment credentials.
+async fn ensure_bootstrap_provider_credentials(database: &PaymentDatabaseHost) -> Result<(), String> {
+    let Some(pool) = database.pool().as_postgres() else {
+        return Ok(());
+    };
+    ensure_development_provider_credentials_postgres(pool)
+        .await
+        .map_err(|error| format!("payment bootstrap credential fill failed: {}", error.message()))
+}
+
+fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {    if payment_credential_cipher_is_installed() {
         return Ok(());
     }
 

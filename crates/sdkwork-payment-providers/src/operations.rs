@@ -126,6 +126,104 @@ pub async fn create_provider_refund(
     ))
 }
 
+/// Normalized provider payment-intent query outcome used by the compensation
+/// worker and reconciliation paths.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ProviderPaymentQueryState {
+    Pending,
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+/// Queries the PSP for the current payment-intent state. Returns `None` when
+/// the trade does not exist at the provider (order never reached the PSP or
+/// was closed before submission).
+pub async fn query_provider_payment_intent(
+    registry: &PaymentProviderRegistry,
+    provider_code: &str,
+    out_trade_no: &str,
+    provider_transaction_id: Option<&str>,
+) -> Result<Option<ProviderPaymentQueryState>, CommerceServiceError> {
+    let provider_code = normalize_provider_code(provider_code);
+    if provider_code == "sandbox" || provider_code.is_empty() {
+        return Ok(Some(ProviderPaymentQueryState::Succeeded));
+    }
+    let adapter = registry.resolve(&provider_code).ok_or_else(|| {
+        CommerceServiceError::provider_unavailable(format!(
+            "payment provider {provider_code} is not configured"
+        ))
+    })?;
+    let query_reference = match provider_code.as_str() {
+        // Stripe requires the native `pi_` resource id; the merchant order no
+        // is only a fallback for pre-submission diagnostics.
+        "stripe" => provider_transaction_id
+            .filter(|value| value.starts_with("pi_"))
+            .unwrap_or(out_trade_no),
+        _ => out_trade_no,
+    };
+    let result = adapter
+        .query_payment_intent(crate::adapter::PaymentQueryPaymentIntentRequest {
+            payment_intent_id: Some(query_reference.to_owned()),
+            metadata: json!({ "out_trade_no": out_trade_no }),
+        })
+        .await;
+    match result {
+        Ok(outcome) => Ok(Some(provider_payment_query_state(
+            &provider_code,
+            outcome.raw_status.as_deref(),
+        ))),
+        Err(error) if payment_query_error_means_not_found(&provider_code, &error) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn provider_payment_query_state(
+    provider_code: &str,
+    raw_status: Option<&str>,
+) -> ProviderPaymentQueryState {
+    let status = raw_status
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match provider_code {
+        "stripe" => match status.as_str() {
+            "succeeded" => ProviderPaymentQueryState::Succeeded,
+            "canceled" | "cancelled" => ProviderPaymentQueryState::Canceled,
+            "payment_failed" => ProviderPaymentQueryState::Failed,
+            _ => ProviderPaymentQueryState::Pending,
+        },
+        "wechat_pay" => match status.as_str() {
+            "success" => ProviderPaymentQueryState::Succeeded,
+            "closed" | "revoked" | "payerror" => ProviderPaymentQueryState::Canceled,
+            _ => ProviderPaymentQueryState::Pending,
+        },
+        "alipay" => match status.as_str() {
+            "trade_success" | "trade_finished" => ProviderPaymentQueryState::Succeeded,
+            "trade_closed" => ProviderPaymentQueryState::Canceled,
+            _ => ProviderPaymentQueryState::Pending,
+        },
+        _ => ProviderPaymentQueryState::Pending,
+    }
+}
+
+fn payment_query_error_means_not_found(provider_code: &str, error: &ProviderError) -> bool {
+    let message = match error {
+        ProviderError::InvalidResponse { message, .. }
+        | ProviderError::Transport { message, .. } => message.to_ascii_uppercase(),
+        _ => return false,
+    };
+    match provider_code {
+        "stripe" => message.contains("NO SUCH PAYMENT_INTENT"),
+        "wechat_pay" => {
+            message.contains("HTTP 404")
+                && (message.contains("ORDER_NOT_EXIST") || message.contains("RESOURCE_NOT_EXISTS"))
+        }
+        "alipay" => message.contains("ACQ.TRADE_NOT_EXIST"),
+        _ => false,
+    }
+}
+
 pub async fn query_provider_refund(
     registry: &PaymentProviderRegistry,
     provider_code: &str,

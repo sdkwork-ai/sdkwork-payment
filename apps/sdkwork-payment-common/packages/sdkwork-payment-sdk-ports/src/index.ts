@@ -60,11 +60,13 @@ export const BACKEND_PAYMENT_METHOD_TREE = {
     update: true,
     test: true,
     delete: true,
-    credentials: { rotate: true },
+    credentials: { rotate: true, read: true },
   },
   channels: {
     list: true,
     create: true,
+    update: true,
+    delete: true,
   },
   routeRules: {
     list: true,
@@ -83,6 +85,12 @@ export const BACKEND_PAYMENT_METHOD_TREE = {
     list: true,
     create: true,
     retrieve: true,
+    delete: true,
+  },
+  notifyDomains: {
+    list: true,
+    create: true,
+    update: true,
     delete: true,
   },
   attempts: {

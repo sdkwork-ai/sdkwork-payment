@@ -1,6 +1,6 @@
+use crate::shared::{store_error, string_cell};
 use sdkwork_contract_service::CommerceServiceError;
 use sqlx::{Postgres, Row, Transaction};
-use crate::shared::{store_error, string_cell};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PaymentChannelSelection {
     pub channel_id: Option<String>,

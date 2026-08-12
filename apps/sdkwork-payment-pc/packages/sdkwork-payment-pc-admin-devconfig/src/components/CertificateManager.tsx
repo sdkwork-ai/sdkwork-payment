@@ -61,14 +61,16 @@ const CERTIFICATE_TYPE_LABEL: Record<PaymentCertificateKind, string> = {
   merchant_private_key: "Merchant private key",
   provider_public_key: "Provider public key",
   platform_certificate: "Platform certificate",
-  webhook_secret: "Webhook secret",
+  // The webhook_secret certificate kind carries the WeChat API v3 decryption
+  // key (callback resource decryption), so it is labeled "API v3 Key".
+  webhook_secret: "API v3 Key",
 };
 
 const CERTIFICATE_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: PaymentCertificateKind }> = [
   { label: "Merchant private key", value: "merchant_private_key" },
   { label: "Provider public key", value: "provider_public_key" },
   { label: "Platform certificate", value: "platform_certificate" },
-  { label: "Webhook secret", value: "webhook_secret" },
+  { label: "API v3 Key", value: "webhook_secret" },
 ];
 
 const STATUS_VARIANT: Record<PaymentCertificateView["status"], "success" | "warning" | "danger" | "secondary"> = {

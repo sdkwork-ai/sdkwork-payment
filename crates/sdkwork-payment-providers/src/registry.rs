@@ -7,7 +7,9 @@ use crate::credentials::{
     build_order_payment_webhook_url, ProviderAccountBinding, ProviderCredentialBundle,
 };
 use crate::stripe::{StripePaymentProviderAdapter, StripePaymentProviderConfig};
-use crate::wechat_pay::{WeChatPayProviderAdapter, WeChatPayProviderConfig};
+use crate::wechat_pay::{
+    WeChatPayProviderAdapter, WeChatPayProviderConfig, WeChatPaySignVerifyMode,
+};
 use crate::SandboxWebhookPaymentProviderAdapter;
 
 #[derive(Clone)]
@@ -30,14 +32,18 @@ impl PaymentProviderRegistry {
         registry.register_stripe(bundle.stripe);
         registry.register_alipay(bundle.alipay, webhook_base.as_deref());
         registry.register_wechat_pay(bundle.wechat_pay, webhook_base.as_deref());
-        // The sandbox webhook adapter is always available so local development
-        // can simulate a PSP payment-success callback through the order
-        // webhook route (`/app/v3/api/orders/payments/webhooks/sandbox`).
-        // Its create/cancel/refund operations are unsupported; those are
-        // handled as no-ops by `operations.rs` before any adapter lookup.
-        registry
-            .adapters
-            .insert("sandbox".to_owned(), Arc::new(SandboxWebhookPaymentProviderAdapter::new()));
+        // The sandbox webhook adapter accepts UNSIGNED bodies, so it must
+        // never be reachable from the public webhook route outside local
+        // development: an attacker who knows an `out_trade_no` could settle
+        // an order as paid without payment. Registration is therefore gated —
+        // on by default only in dev/test environments, overridable with
+        // `SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED` (0/1) in either direction.
+        if sandbox_webhook_enabled() {
+            registry.adapters.insert(
+                "sandbox".to_owned(),
+                Arc::new(SandboxWebhookPaymentProviderAdapter::new()),
+            );
+        }
         registry
     }
 
@@ -117,14 +123,36 @@ impl PaymentProviderRegistry {
             merchant_private_key_pem: config.merchant_private_key_pem,
             api_v3_key: config.api_v3_key,
             notify_url: config.notify_url,
+            sign_verify_mode: config.sign_verify_mode,
+            verification_key_pem: config.verification_key_pem,
+            verification_serial_no: config.verification_serial_no,
         };
-        if let Ok(adapter) =
-            WeChatPayProviderAdapter::new(provider_config, config.platform_public_key_pem)
-        {
+        if let Ok(adapter) = WeChatPayProviderAdapter::new(provider_config) {
             self.adapters
                 .insert("wechat_pay".to_owned(), Arc::new(adapter));
         }
     }
+}
+
+/// Whether the unsigned sandbox webhook adapter may be registered.
+///
+/// Default: dev/test environments only. `SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED`
+/// overrides in either direction (production deployments that insist on the
+/// sandbox simulate route must set it explicitly and accept the forgery risk).
+fn sandbox_webhook_enabled() -> bool {
+    if let Ok(value) = std::env::var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED") {
+        return matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+    }
+    matches!(
+        std::env::var("SDKWORK_ENVIRONMENT")
+            .ok()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("dev" | "development" | "test" | "testing" | "local")
+    )
 }
 
 /// Builds a tenant-scoped registry when a provider account binding is present.
@@ -158,5 +186,70 @@ pub struct WeChatPayRegistryConfig {
     pub merchant_private_key_pem: String,
     pub api_v3_key: String,
     pub notify_url: Option<String>,
-    pub platform_public_key_pem: Option<String>,
+    /// 验签模式：微信支付公钥（默认、官方推荐）或平台证书。
+    pub sign_verify_mode: WeChatPaySignVerifyMode,
+    /// 验签密钥 PEM（公钥 `pub_key.pem` 或平台证书 `wechatpay_cert.pem`）。
+    pub verification_key_pem: Option<String>,
+    /// 微信支付公钥 ID（`PUB_KEY_ID_` 前缀）或平台证书序列号。
+    pub verification_serial_no: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// The env read is process-global; all env-touching tests share one lock
+    /// so parallel tests can never race each other's env state.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn sandbox_webhook_adapter_is_gated_by_environment() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED");
+        std::env::set_var("SDKWORK_ENVIRONMENT", "prod");
+        assert!(!sandbox_webhook_enabled());
+
+        std::env::set_var("SDKWORK_ENVIRONMENT", "dev");
+        assert!(sandbox_webhook_enabled());
+
+        // Explicit flag overrides in either direction.
+        std::env::set_var("SDKWORK_ENVIRONMENT", "dev");
+        std::env::set_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED", "0");
+        assert!(!sandbox_webhook_enabled());
+
+        std::env::set_var("SDKWORK_ENVIRONMENT", "prod");
+        std::env::set_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED", "1");
+        assert!(sandbox_webhook_enabled());
+
+        std::env::remove_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED");
+        std::env::remove_var("SDKWORK_ENVIRONMENT");
+    }
+
+    #[test]
+    fn registry_exposes_the_unsigned_sandbox_adapter_only_when_enabled() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        let bundle = ProviderCredentialBundle {
+            stripe: None,
+            alipay: None,
+            wechat_pay: None,
+            webhook_base_url: None,
+        };
+        std::env::set_var("SDKWORK_ENVIRONMENT", "prod");
+        let registry = PaymentProviderRegistry::from_credentials(bundle.clone());
+        assert!(
+            registry.resolve("sandbox").is_none(),
+            "production registry must not expose the unsigned sandbox webhook adapter"
+        );
+
+        std::env::set_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED", "1");
+        let registry = PaymentProviderRegistry::from_credentials(bundle);
+        assert!(
+            registry.resolve("sandbox").is_some(),
+            "explicit enablement must register the sandbox webhook adapter"
+        );
+
+        std::env::remove_var("SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED");
+        std::env::remove_var("SDKWORK_ENVIRONMENT");
+    }
 }

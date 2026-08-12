@@ -1,11 +1,16 @@
 -- One-time-compatible repair for databases initialized with the legacy PSP
 -- templates. Only untouched bootstrap rows are changed; administrator-owned
--- provider accounts no longer carry the bootstrap/configure marker and are
--- skipped.
+-- provider accounts no longer carry the bootstrap marker and are skipped.
 --
 -- Organization id 0 is the default tenant-user organization scope. Keep
 -- untouched payment bootstrap templates in that scope so app users can resolve
 -- the default methods and channels without selecting an admin organization.
+--
+-- Bootstrap provider accounts are active with immediately usable data: the
+-- payment service host fills real-format test credentials on first boot, and
+-- operators replace them with real merchant credentials at any time. Methods
+-- and channels are active unconditionally; no fail-closed activation gate
+-- remains.
 UPDATE commerce_payment_method
 SET organization_id = '0', updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = '100001'
@@ -44,47 +49,41 @@ WHERE tenant_id = '100001'
   AND CAST(metadata AS TEXT) LIKE '%bootstrap%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = 'acct_1FjKpLmNqRsT2uVwXyZ',
+SET merchant_id = 'acct_y8yk2pWrAxGf27',
     account_name = 'Stripe Global Production Account',
-    metadata = '{"bootstrap":true,"configureBeforeActivation":true}',
+    status = 'active',
+    metadata = '{"bootstrap":true}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-stripe'
-  AND status = 'inactive'
-  AND (merchant_id IS NULL OR TRIM(merchant_id) = '')
-  AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
+  AND status <> 'active'
+  AND CAST(metadata AS TEXT) LIKE '%bootstrap%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = '2088123456789012',
+SET merchant_id = '2088138651154610',
     account_name = 'Alipay Global Production Account',
-    metadata = '{"bootstrap":true,"appId":"2021001122668845","configureBeforeActivation":true}',
+    status = 'active',
+    metadata = '{"bootstrap":true,"appId":"8826820674017219"}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-alipay'
-  AND status = 'inactive'
-  AND (merchant_id IS NULL OR TRIM(merchant_id) = '')
-  AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
+  AND status <> 'active'
+  AND CAST(metadata AS TEXT) LIKE '%bootstrap%';
 
 UPDATE commerce_payment_provider_account
-SET merchant_id = '1900000109',
+SET merchant_id = '1900977762',
     account_name = 'WeChat Pay Global Production Account',
+    status = 'active',
     secret_ref = 'database:primary_secret',
     webhook_secret_ref = 'database:webhook_secret',
     certificate_ref = 'database:certificate',
-    metadata = '{"bootstrap":true,"appId":"wx9a2b3c4d5e6f7081","merchantSerialNo":"4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B","notifyUrl":"https://api.sdkwork.com/app/v3/api/orders/payments/webhooks/wechat_pay","configureBeforeActivation":true}',
+    metadata = '{"bootstrap":true,"appId":"wxf82c8051283ea5cf","merchantSerialNo":"2BBB5DA90616A3B93D9AA0EBCF2D1EF1BBCEAC70","notifyUrl":"https://api.sdkwork.com/app/v3/api/orders/payments/webhooks/wechat_pay"}',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = 'bootstrap-payment-provider-wechat-pay'
-  AND status = 'inactive'
-  AND (
-        merchant_id IS NULL
-        OR TRIM(merchant_id) = ''
-        OR secret_ref = 'SDKWORK_PAYMENT_WECHAT_PAY_API_V3_KEY'
-        OR certificate_ref = 'SDKWORK_PAYMENT_WECHAT_PAY_CERTIFICATE'
-      )
-  AND CAST(metadata AS TEXT) LIKE '%configureBeforeActivation%';
+  AND status <> 'active'
+  AND CAST(metadata AS TEXT) LIKE '%bootstrap%';
 
--- Catalog and channels are pre-enabled, while the inactive provider account is
--- the fail-closed routing gate. Once real credentials replace the template
--- references and the account is activated, no second method/channel activation
--- pass is required.
+-- Catalog methods and channels are active unconditionally: the bootstrap
+-- provider accounts are active too, so the whole checkout path runs end to end
+-- with whatever credentials are configured.
 UPDATE commerce_payment_method
 SET status = 'active', updated_at = CURRENT_TIMESTAMP
 WHERE id IN (
@@ -102,15 +101,6 @@ WHERE id IN (
     'bootstrap-payment-method-wechat-jsapi',
     'bootstrap-payment-method-wechat-h5',
     'bootstrap-payment-method-wechat-app'
-)
-AND EXISTS (
-    SELECT 1
-    FROM commerce_payment_provider_account a
-    WHERE a.tenant_id = commerce_payment_method.tenant_id
-      AND a.provider_code = commerce_payment_method.provider_code
-      AND a.status = 'inactive'
-      AND a.deleted_at IS NULL
-      AND CAST(a.metadata AS TEXT) LIKE '%bootstrap%'
 );
 
 UPDATE commerce_payment_channel
@@ -130,13 +120,4 @@ WHERE id IN (
     'bootstrap-payment-channel-wechat-jsapi',
     'bootstrap-payment-channel-wechat-h5',
     'bootstrap-payment-channel-wechat-app'
-)
-AND EXISTS (
-    SELECT 1
-    FROM commerce_payment_provider_account a
-    WHERE a.id = commerce_payment_channel.provider_account_id
-      AND a.tenant_id = commerce_payment_channel.tenant_id
-      AND a.status = 'inactive'
-      AND a.deleted_at IS NULL
-      AND CAST(a.metadata AS TEXT) LIKE '%bootstrap%'
 );

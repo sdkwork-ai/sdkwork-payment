@@ -137,6 +137,7 @@ The authoritative Payment database has one DDL baseline at `database/ddl/baselin
 | `WECHAT_PAY_MERCHANT_SERIAL_NO` | wechat_pay | Merchant certificate serial |
 | `WECHAT_PAY_PRIVATE_KEY_PEM` | wechat_pay | Merchant RSA private key (PEM) |
 | `WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM` | wechat_pay | WeChat platform certificate (PEM) |
+| `SDKWORK_PAYMENT_SANDBOX_WEBHOOK_ENABLED` | sandbox | Register the **unsigned** sandbox webhook adapter (accepts any body). Default: only in dev/test environments (`SDKWORK_ENVIRONMENT`). Production must never enable it — with the webhook route public, a forged sandbox webhook could settle an order as paid |
 
 ### Tenant provider accounts (`commerce_payment_provider_account`)
 

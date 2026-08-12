@@ -221,7 +221,13 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
                 amount_minor,
                 &subject,
                 request.tenant_id.as_deref(),
-                normalized_optional(self.config.notify_url.clone()).as_deref(),
+                normalized_optional(
+                    request
+                        .notify_url
+                        .clone()
+                        .or_else(|| self.config.notify_url.clone()),
+                )
+                .as_deref(),
                 method_key,
                 &request.metadata,
                 request.expires_at.as_deref(),
@@ -770,9 +776,42 @@ mod tests {
             "https://mclient.alipay.com/cashier/wapPay.htm?biz=1&sign=abc"
         );
 
-        let unquoted = r#"<form action=https://cashier.alipay.com/gateway.do method="post"></form>"#;
+        let unquoted =
+            r#"<form action=https://cashier.alipay.com/gateway.do method="post"></form>"#;
         let (_, action) = extract_alipay_pay_form(unquoted).expect("unquoted action must parse");
         assert_eq!(action, "https://cashier.alipay.com/gateway.do");
+    }
+
+    #[test]
+    fn alipay_biz_content_carries_the_resolved_notify_url() {
+        let biz_content = build_alipay_biz_content(
+            "trade-1",
+            100,
+            "order",
+            None,
+            Some("https://router.example.com/app/v3/api/orders/payments/webhooks/alipay"),
+            "alipay_qr",
+            &serde_json::json!({}),
+            None,
+        )
+        .expect("biz content");
+        assert_eq!(
+            biz_content["notify_url"],
+            "https://router.example.com/app/v3/api/orders/payments/webhooks/alipay"
+        );
+
+        let without = build_alipay_biz_content(
+            "trade-2",
+            100,
+            "order",
+            None,
+            None,
+            "alipay_qr",
+            &serde_json::json!({}),
+            None,
+        )
+        .expect("biz content");
+        assert!(without.get("notify_url").is_none());
     }
 
     #[test]

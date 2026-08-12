@@ -16,6 +16,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  OperationDrawer,
   Switch,
   Tabs,
   TabsContent,
@@ -34,10 +35,12 @@ import {
   PaymentAdminTabsTrigger,
   PaymentAdminWorkspace,
   PemFilePicker,
+  usePaymentAdminMessages,
 } from "@sdkwork/payment-pc-admin-core";
 import {
   ProviderAccountForm,
   certificateLabel,
+  credentialFieldHint,
   primarySecretLabel,
   webhookSecretLabel,
 } from "../components/ProviderAccountForm";
@@ -47,7 +50,7 @@ import {
 } from "../components/ProviderAccountFillInGuide";
 import { ProviderAccountList } from "../components/ProviderAccountList";
 import { SubMerchantManager } from "../components/SubMerchantManager";
-import { useSdkworkI18n } from "@sdkwork/i18n-pc-react";
+import { generateCredentials } from "../services/credential-generator";
 import type {
   PaymentBaseDataOption,
   PaymentCredentialRotateDraft,
@@ -56,6 +59,7 @@ import type {
   PaymentProviderAdminController,
   PaymentProviderAdminState,
   PaymentProviderAccountView,
+  ProviderAccountCredentialsView,
 } from "../types/provider-admin-types";
 import { resolveProviderAccountName } from "../types/provider-admin-types";
 
@@ -100,8 +104,9 @@ type DialogState =
 export function PaymentProviderAdminWorkspace(
   props: PaymentProviderAdminWorkspaceProps,
 ) {
+  const phrases = usePaymentAdminMessages().legacy.phrases;
+  const t = (key: string) => phrases[key] ?? key;
   const { controller } = props;
-  const i18n = useSdkworkI18n();
   const [state, setState] = React.useState<PaymentProviderAdminState>(() => controller.getState());
   const [tab, setTab] = React.useState<PaymentProviderAdminSection>("accounts");
   const activeSection = props.section ?? tab;
@@ -134,7 +139,7 @@ export function PaymentProviderAdminWorkspace(
   React.useEffect(() => {
     void controller.load().then(setState).catch((error) => {
       toast.error(
-        error instanceof Error ? error.message : "Failed to load provider admin data.",
+        error instanceof Error ? error.message : t("Failed to load provider admin data."),
       );
     });
   }, [controller]);
@@ -160,31 +165,18 @@ export function PaymentProviderAdminWorkspace(
   async function handleCreate(draft: PaymentProviderAccountDraft) {
     await controller.createProviderAccount(draft);
     setDialog({ kind: "closed" });
-    toast.success("Provider account created.");
+    toast.success(t("Provider account created."));
   }
 
   async function handleUpdate(draft: PaymentProviderAccountUpdateDraft) {
     if (dialog.kind !== "edit") {
       return;
     }
-    if (draft.status === "active") {
-      await controller.updateProviderAccount(dialog.account.id, {
-        ...draft,
-        status: "inactive",
-      });
-      const result = await controller.testProviderAccount(dialog.account.id, {
-        environment: draft.environment ?? dialog.account.environment,
-        dryRun: true,
-      });
-      if (!result.ok) {
-        throw new Error(result.diagnostic ?? "Provider account readiness validation failed.");
-      }
-      await controller.updateProviderAccount(dialog.account.id, { status: "active" });
-    } else {
-      await controller.updateProviderAccount(dialog.account.id, draft);
-    }
+    // Saving an account takes effect immediately: credentials are encrypted on
+    // write, and the status saved is applied as-is (no Test → Activate gate).
+    await controller.updateProviderAccount(dialog.account.id, draft);
     setDialog({ kind: "closed" });
-    toast.success("Provider account updated.");
+    toast.success(t("Provider account updated."));
   }
 
   async function handleTest() {
@@ -200,9 +192,9 @@ export function PaymentProviderAdminWorkspace(
         dryRun: true,
       });
       if (result.ok) {
-        toast.success("Credentials verified", { id: loadingToast });
+        toast.success(t("Credentials verified"), { id: loadingToast });
       } else {
-        toast.error("Credential test failed", {
+        toast.error(t("Credential test failed"), {
           id: loadingToast,
           description: result.diagnostic,
         });
@@ -252,20 +244,23 @@ export function PaymentProviderAdminWorkspace(
 
   async function handleEnable(account: PaymentProviderAccountView) {
     const loadingToast = toast.loading("Enabling...");
+    // Carried out of the try block so the failure toast can attach the raw
+    // provider diagnostic as its description (ErrorOptions cause is not
+    // available under every TypeScript lib target).
+    let diagnostic: string | undefined;
     try {
       // The toggle only renders for inactive accounts, so no status patch is
       // needed first: a dry-run test refreshes last_tested_at, then the
       // activation patch triggers the backend readiness guard, which
-      // atomically validates test freshness, mock config, credential
-      // completeness, and the one-active-account-per-provider rule.
+      // atomically validates test freshness, credential completeness, and the
+      // one-active-account-per-provider rule.
       const result = await controller.testProviderAccount(account.id, {
         environment: account.environment,
         dryRun: true,
       });
+      diagnostic = result.diagnostic;
       if (!result.ok) {
-        throw new Error("Provider account readiness validation failed.", {
-          cause: result.diagnostic,
-        });
+        throw new Error("Provider account readiness validation failed.");
       }
       await controller.updateProviderAccount(account.id, { status: "active" });
       toast.success("Provider account enabled.", { id: loadingToast });
@@ -278,11 +273,6 @@ export function PaymentProviderAdminWorkspace(
           && other.providerCode === account.providerCode
           && other.status === "active",
       );
-      const diagnostic = error instanceof Error
-        ? typeof error.cause === "string"
-          ? error.cause
-          : undefined
-        : undefined;
       toast.error(
         duplicateActive
           ? "Another active account for this provider exists. Disable it before enabling this one."
@@ -408,7 +398,7 @@ export function PaymentProviderAdminWorkspace(
                   >
                     {partnerAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
-                        {resolveProviderAccountName(account, i18n?.localeTag)} ({account.providerCode})
+                        {resolveProviderAccountName(account)} ({account.providerCode})
                       </option>
                     ))}
                   </select>
@@ -431,7 +421,10 @@ export function PaymentProviderAdminWorkspace(
           </PaymentAdminTabsContent>
         </Tabs>
 
-      <Dialog
+      {/* Create/edit the provider account in a left-side operation drawer: the
+          account list stays visible beside it, the drawer is full-height with
+          a fixed width so section switching never resizes the surface. */}
+      <OperationDrawer
         open={dialog.kind === "create" || dialog.kind === "edit"}
         onOpenChange={(open) => {
           if (!open) {
@@ -439,24 +432,38 @@ export function PaymentProviderAdminWorkspace(
             setGuideOpen(false);
           }
         }}
-      >
-        <DialogContent
-          className="max-h-[calc(100dvh-3rem)] overflow-y-auto"
-          style={{ width: "60vw" }}
-        >
-          <DialogHeader>
-            <div className="flex items-center justify-between gap-2">
-              <DialogTitle>
-                {dialog.kind === "create" ? "Create provider account" : "Edit provider account"}
-              </DialogTitle>
-              <ProviderAccountFillInGuideLink onClick={() => setGuideOpen(true)} />
+        side="left"
+        size="xl"
+        title={dialog.kind === "create" ? t("Create provider account") : t("Edit provider account")}
+        actions={<ProviderAccountFillInGuideLink onClick={() => setGuideOpen(true)} />}
+        footer={
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-[var(--sdk-color-text-secondary)]">
+              {t("Fields marked with * are required.")}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDialog({ kind: "closed" })}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" form="provider-account-form">
+                {dialog.kind === "create" ? t("Create Account") : t("Update Account")}
+              </Button>
             </div>
-          </DialogHeader>
+          </div>
+        }
+      >
           {dialog.kind === "create" || dialog.kind === "edit" ? (
             <ProviderAccountForm
               mode={dialog.kind === "create" ? "create" : "update"}
               initial={dialog.kind === "edit" ? dialog.account : undefined}
               partnerAccountOptions={partnerAccounts}
+              readCredentials={dialog.kind === "edit"
+                ? () => controller.readProviderAccountCredentials(dialog.account.id)
+                : undefined}
               countryOptions={props.countryOptions}
               currencyOptions={props.currencyOptions}
               onCancel={() => setDialog({ kind: "closed" })}
@@ -467,8 +474,7 @@ export function PaymentProviderAdminWorkspace(
               }
             />
           ) : null}
-        </DialogContent>
-      </Dialog>
+      </OperationDrawer>
 
       <ProviderAccountFillInGuide open={guideOpen} onOpenChange={setGuideOpen} />
 
@@ -488,7 +494,7 @@ export function PaymentProviderAdminWorkspace(
             <div className="space-y-3">
               <p className="text-sm text-[var(--sdk-color-text-secondary)]">
                 Validate the saved credentials and provider adapter for{" "}
-                <strong>{resolveProviderAccountName(dialog.account, i18n?.localeTag)}</strong> ({dialog.account.providerCode} /{" "}
+                <strong>{resolveProviderAccountName(dialog.account)}</strong> ({dialog.account.providerCode} /{" "}
                 {dialog.account.environment}). The result updates the provider account's
                 <code className="mx-1 rounded bg-[var(--sdk-color-bg-subtle)] px-1 text-xs">
                   last_tested_at
@@ -525,7 +531,7 @@ export function PaymentProviderAdminWorkspace(
         title="Delete provider account?"
         description={
           dialog.kind === "delete"
-            ? `Delete provider account ${resolveProviderAccountName(dialog.account, i18n?.localeTag)} (${dialog.account.providerCode} / ${dialog.account.environment})? The account is soft-deleted and no longer listed. Accounts still referenced by payment channels or sub-merchants cannot be deleted.`
+            ? `Delete provider account ${resolveProviderAccountName(dialog.account)} (${dialog.account.providerCode} / ${dialog.account.environment})? The account is soft-deleted and no longer listed. Accounts still referenced by payment channels or sub-merchants cannot be deleted.`
             : ""
         }
         confirmLabel="Delete"
@@ -572,6 +578,7 @@ export function PaymentProviderAdminWorkspace(
             <RotateCredentialsDialog
               account={dialog.account}
               busy={state.status === "saving"}
+              readCredentials={() => controller.readProviderAccountCredentials(dialog.account.id)}
               onCancel={() => setDialog({ kind: "closed" })}
               onSubmit={handleRotate}
             />
@@ -583,11 +590,13 @@ export function PaymentProviderAdminWorkspace(
   );
 }
 
-// Credential rotation form: replaces the legacy window.prompt anti-pattern with a structured
-// Dialog + write-only credential fields. Existing values are never loaded into browser state.
+// Credential rotation form: structured Dialog with write-only credential
+// fields. The currently saved values are loaded (decrypted server-side) so
+// the operator sees what is configured before replacing it.
 interface RotateCredentialsDialogProps {
   account: PaymentProviderAccountView;
   busy: boolean;
+  readCredentials?(): Promise<ProviderAccountCredentialsView>;
   onCancel(): void;
   onSubmit(draft: PaymentCredentialRotateDraft): Promise<void> | void;
 }
@@ -604,7 +613,16 @@ interface RotateFormState {
   invalidatePrevious: boolean;
 }
 
+/** Resolves the account's WeChat Pay verification mode for label consistency
+ *  (defaults to the official recommended public key mode). */
+function wechatSignVerifyMode(account: PaymentProviderAccountView): string {
+  const mode = account.metadata?.signVerifyMode;
+  return typeof mode === "string" && mode ? mode : "wechatpay_public_key";
+}
+
 function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
+  const phrases = usePaymentAdminMessages().legacy.phrases;
+  const t = (key: string) => phrases[key] ?? key;
   const [state, setState] = React.useState<RotateFormState>(() => ({
     primarySecret: "",
     webhookSecret: "",
@@ -613,9 +631,81 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
   }));
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
+  /** Which credential field is currently generating; disables the other
+   *  generator buttons so concurrent Web Crypto key generation cannot race
+   *  each other (mirrors the edit form). */
+  const [generating, setGenerating] = React.useState<"primarySecret" | "webhookSecret" | "certificate" | null>(null);
+  /** Which field was last copied (drives the transient "Copied!" label). */
+  const [copiedField, setCopiedField] = React.useState<"primarySecret" | "webhookSecret" | "certificate" | null>(null);
+
+  // Show the currently saved credential values so the operator can compare
+  // before replacing them.
+  React.useEffect(() => {
+    if (!props.readCredentials) {
+      return;
+    }
+    let cancelled = false;
+    void props.readCredentials()
+      .then((credentials) => {
+        if (cancelled) return;
+        setState((prev) => ({
+          ...prev,
+          primarySecret: credentials.primarySecret ?? "",
+          webhookSecret: credentials.webhookSecret ?? "",
+          certificate: credentials.certificate ?? "",
+        }));
+      })
+      .catch(() => {
+        // Load failures surface through the workspace error toast.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.readCredentials]);
 
   const showPemFields =
     props.account.providerCode === "alipay" || props.account.providerCode === "wechat_pay";
+
+  function copyToClipboard(field: "primarySecret" | "webhookSecret" | "certificate", value: string) {
+    if (!value) return;
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    }).catch(() => {
+      // Clipboard access can be denied in non-secure contexts; the value
+      // remains visible in the textarea for manual copying.
+    });
+  }
+
+  function handleGenerateField(field: "primarySecret" | "webhookSecret" | "certificate") {
+    setGenerating(field);
+    void generateCredentials(props.account.providerCode)
+      .then((values) => {
+        setState((prev) => ({
+          ...prev,
+          [field]: values[field] ?? "",
+        }));
+      })
+      .finally(() => setGenerating(null));
+  }
+
+  function generateButtonLabel(
+    field: "primarySecret" | "webhookSecret" | "certificate",
+    label: string,
+  ) {
+    return generating === field ? "Generating..." : label;
+  }
+
+  function downloadCertificate(value: string, fileName: string) {
+    if (!value) return;
+    const blob = new Blob([value], { type: "application/x-pem-file" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -634,7 +724,7 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
       };
       await props.onSubmit(draft);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to replace credentials.");
+      setError(err instanceof Error ? err.message : t("Failed to replace credentials."));
     } finally {
       setSubmitting(false);
     }
@@ -644,18 +734,26 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
     <form
       className="space-y-4"
       onSubmit={handleSubmit}
-      aria-label="Replace credentials form"
+      aria-label={t("Replace credentials form")}
     >
       <p className="text-sm text-[var(--sdk-color-text-secondary)]">
-        New credential versions are encrypted in the database. Previous active versions
-        are superseded after this operation succeeds.
+        {t(
+          "New credential versions are encrypted in the database. Previous active versions are superseded after this operation succeeds.",
+        )}
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <AdminFieldLabel
-          label={primarySecretLabel(props.account.providerCode)}
+          label={t(primarySecretLabel(props.account.providerCode))}
           htmlFor="rotate-primary-secret"
           required
           className="sm:col-span-2"
+          hint={t(
+            credentialFieldHint(
+              props.account.providerCode,
+              "primarySecret",
+              wechatSignVerifyMode(props.account),
+            ) ?? "",
+          )}
         >
           <Textarea
             id="rotate-primary-secret"
@@ -663,24 +761,53 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
             onChange={(event) =>
               setState((prev) => ({ ...prev, primarySecret: event.target.value }))
             }
-            placeholder="Enter new credential value"
+            placeholder={t("Enter new credential value")}
             required
             rows={showPemFields ? 5 : 3}
             className="resize-y font-mono"
             autoComplete="new-password"
           />
-          <PemFilePicker
-            maxBytes={MAX_SECRET_FILE_BYTES}
-            disabled={submitting || props.busy}
-            onContent={(content) =>
-              setState((prev) => ({ ...prev, primarySecret: content }))
-            }
-          />
+          <div className="flex items-center justify-between gap-2">
+            <PemFilePicker
+              maxBytes={MAX_SECRET_FILE_BYTES}
+              disabled={submitting || props.busy || generating !== null}
+              onContent={(content) =>
+                setState((prev) => ({ ...prev, primarySecret: content }))
+              }
+            />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => copyToClipboard("primarySecret", state.primarySecret)}
+                disabled={!state.primarySecret || submitting || props.busy || generating !== null}
+                title="Copy the current credential value"
+              >
+                {copiedField === "primarySecret" ? t("Copied!") : t("Copy")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => handleGenerateField("primarySecret")}
+                disabled={submitting || props.busy || generating !== null}
+                title="Generate a key for this field for debugging"
+              >
+                {generateButtonLabel("primarySecret", t("Generate key"))}
+              </Button>
+            </div>
+          </div>
         </AdminFieldLabel>
         <AdminFieldLabel
-          label={webhookSecretLabel(props.account.providerCode)}
+          label={t(webhookSecretLabel(props.account.providerCode))}
           htmlFor="rotate-webhook-secret"
           className="sm:col-span-2"
+          hint={t(
+            credentialFieldHint(props.account.providerCode, "webhookSecret") ?? "",
+          )}
         >
           <Textarea
             id="rotate-webhook-secret"
@@ -688,23 +815,56 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
             onChange={(event) =>
               setState((prev) => ({ ...prev, webhookSecret: event.target.value }))
             }
-            placeholder="Enter new secret value"
+            placeholder={t("Enter new secret value")}
             rows={2}
             className="resize-y font-mono"
             autoComplete="new-password"
           />
-          <PemFilePicker
-            maxBytes={MAX_SECRET_FILE_BYTES}
-            disabled={submitting || props.busy}
-            onContent={(content) =>
-              setState((prev) => ({ ...prev, webhookSecret: content }))
-            }
-          />
+          <div className="flex items-center justify-between gap-2">
+            <PemFilePicker
+              maxBytes={MAX_SECRET_FILE_BYTES}
+              disabled={submitting || props.busy || generating !== null}
+              onContent={(content) =>
+                setState((prev) => ({ ...prev, webhookSecret: content }))
+              }
+            />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => copyToClipboard("webhookSecret", state.webhookSecret)}
+                disabled={!state.webhookSecret || submitting || props.busy || generating !== null}
+                title="Copy the current secret value"
+              >
+                {copiedField === "webhookSecret" ? t("Copied!") : t("Copy")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => handleGenerateField("webhookSecret")}
+                disabled={submitting || props.busy || generating !== null}
+                title="Generate a secret for this field for debugging"
+              >
+                {generateButtonLabel("webhookSecret", t("Generate secret"))}
+              </Button>
+            </div>
+          </div>
         </AdminFieldLabel>
         <AdminFieldLabel
-          label={certificateLabel(props.account.providerCode)}
+          label={t(certificateLabel(props.account.providerCode, wechatSignVerifyMode(props.account)))}
           htmlFor="rotate-certificate"
           className="sm:col-span-2"
+          hint={t(
+            credentialFieldHint(
+              props.account.providerCode,
+              "certificate",
+              wechatSignVerifyMode(props.account),
+            ) ?? "",
+          )}
         >
           <Textarea
             id="rotate-certificate"
@@ -712,21 +872,72 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
             onChange={(event) =>
               setState((prev) => ({ ...prev, certificate: event.target.value }))
             }
-            placeholder="Enter new PEM value"
+            placeholder={t("Enter new PEM value")}
             rows={5}
             className="resize-y font-mono"
             autoComplete="new-password"
           />
-          <PemFilePicker
-            maxBytes={MAX_CERTIFICATE_FILE_BYTES}
-            disabled={submitting || props.busy}
-            onContent={(content) =>
-              setState((prev) => ({ ...prev, certificate: content }))
-            }
-          />
+          <div className="flex items-center justify-between gap-2">
+            <PemFilePicker
+              maxBytes={MAX_CERTIFICATE_FILE_BYTES}
+              disabled={submitting || props.busy || generating !== null}
+              onContent={(content) =>
+                setState((prev) => ({ ...prev, certificate: content }))
+              }
+            />
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => copyToClipboard("certificate", state.certificate)}
+                disabled={!state.certificate || submitting || props.busy || generating !== null}
+                title="Copy the current certificate value"
+              >
+                {copiedField === "certificate" ? t("Copied!") : t("Copy")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => downloadCertificate(
+                  state.certificate,
+                  `${props.account.accountNo || props.account.providerCode}-certificate.pem`,
+                )}
+                disabled={!state.certificate || submitting || props.busy || generating !== null}
+                title="Download the certificate as a PEM file"
+              >
+                Download
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs underline underline-offset-2"
+                onClick={() => handleGenerateField("certificate")}
+                disabled={submitting || props.busy || generating !== null}
+                title="Generate a certificate for this field for debugging"
+              >
+                {generateButtonLabel("certificate", t("Generate certificate"))}
+              </Button>
+            </div>
+          </div>
         </AdminFieldLabel>
+        {props.account.providerCode === "wechat_pay" ? (
+          <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)] sm:col-span-2">
+            {wechatSignVerifyMode(props.account) === "platform_certificate"
+              ? t(
+                  "This account verifies WeChat Pay signatures with the Platform Certificate (wechatpay_cert.pem, serial must match the Wechatpay-Serial header). Switching modes or updating the public key ID / certificate serial number is done in the account editor (Provider Metadata).",
+                )
+              : t(
+                  "This account verifies WeChat Pay signatures with the WeChat Pay Public Key (pub_key.pem, ID must match the Wechatpay-Serial header). Switching modes or updating the public key ID / certificate serial number is done in the account editor (Provider Metadata).",
+                )}
+          </p>
+        ) : null}
         <AdminFieldLabel
-          label="Invalidate previous credentials"
+          label={t("Invalidate previous credentials")}
           htmlFor="rotate-invalidate-previous"
           className="sm:col-span-2"
         >
@@ -757,7 +968,7 @@ function RotateCredentialsDialog(props: RotateCredentialsDialogProps) {
           Cancel
         </Button>
         <Button type="submit" disabled={submitting || props.busy}>
-          {submitting || props.busy ? "Replacing..." : "Replace credentials"}
+          {submitting || props.busy ? t("Replacing...") : t("Replace credentials")}
         </Button>
       </div>
     </form>

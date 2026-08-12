@@ -2,17 +2,16 @@
 //!
 //! Payment-side only: updates attempt/intent status from persisted normalized fields.
 //! Order settlement after success remains on the order gateway (`payment_confirmations`).
-use sdkwork_contract_service::CommerceServiceError;
-use sqlx::{Pool, Postgres, Row, };
 use crate::payment_attempt_context::{
-    load_payment_webhook_attempt_context_by_id_postgres,
-    PaymentWebhookAttemptContext,
+    load_payment_webhook_attempt_context_by_id_postgres, PaymentWebhookAttemptContext,
 };
 use crate::shared::{current_timestamp_string, store_error, string_cell, StringCellRow};
 use crate::webhook_event_payload::{
     parse_stored_webhook_payload, validate_stored_webhook_scope, WEBHOOK_EVENT_STATUS_PROCESSED,
     WEBHOOK_MATCH_STATE_UNMATCHED,
 };
+use sdkwork_contract_service::CommerceServiceError;
+use sqlx::{Pool, Postgres, Row};
 pub const WEBHOOK_STORED_REPLAY_MAX_RETRIES: i64 = 5;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WebhookStoredReplayScope {
@@ -110,19 +109,20 @@ pub async fn replay_stored_webhook_event_postgres(
         &now,
     )
     .await?;
-    ensure_replay_target_applied(&stored.payment_status, &applied_status)?;
-    let payment_attempt_context = if applied_status.as_deref() == Some("succeeded") {
-        load_payment_webhook_attempt_context_by_id_postgres(
-            &mut tx,
-            &identity.payment_attempt_id,
-            &identity.provider_code,
-            Some(&identity.tenant_id),
-            identity.organization_id.as_deref(),
-        )
-        .await?
-    } else {
-        None
-    };
+    ensure_replay_target_applied(&stored.payment_status, &applied_status.status)?;
+    let payment_attempt_context =
+        if applied_status.applied && applied_status.status.as_deref() == Some("succeeded") {
+            load_payment_webhook_attempt_context_by_id_postgres(
+                &mut tx,
+                &identity.payment_attempt_id,
+                &identity.provider_code,
+                Some(&identity.tenant_id),
+                identity.organization_id.as_deref(),
+            )
+            .await?
+        } else {
+            None
+        };
     let next_retries = retries + 1;
     sqlx::query(
         r#"

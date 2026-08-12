@@ -10,6 +10,7 @@
  */
 
 import * as React from "react";
+import { usePaymentAdminMessages } from "@sdkwork/payment-pc-admin-core";
 import {
   Badge,
   Button,
@@ -109,6 +110,8 @@ function fromSubMerchant(view: PaymentSubMerchantView): FormState {
 }
 
 export function SubMerchantManager(props: SubMerchantManagerProps) {
+  const phrases = usePaymentAdminMessages().legacy.phrases;
+  const t = (key: string) => phrases[key] ?? key;
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<PaymentSubMerchantView | undefined>();
   const [formState, setFormState] = React.useState<FormState>(emptyFormState);
@@ -142,7 +145,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!partnerAccount) {
-      setError("Select a partner provider account first.");
+      setError(t("Select a partner provider account first."));
       return;
     }
     if (!formState.subMerchantNo.trim()) {
@@ -208,12 +211,12 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
   }
 
   const providerHint = providerCode === "alipay"
-    ? "Alipay sub_appid (offline merchant expansion)"
+    ? t("Alipay sub_appid (offline merchant expansion)")
     : providerCode === "wechat_pay"
       ? "WeChat sub_mch_id (sub-merchant under service provider)"
       : providerCode === "stripe"
         ? "Stripe Connected Account id"
-        : "Sandbox sub-merchant id";
+        : t("Sandbox sub-merchant id");
 
   return (
     <div className="space-y-3" data-slot="sub-merchant-manager">
@@ -309,7 +312,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editing ? "Edit sub-merchant" : "Create sub-merchant"}
+              {editing ? t("Edit sub-merchant") : t("Create sub-merchant")}
             </DialogTitle>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleSubmit}>
@@ -345,10 +348,10 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
                   }
                   placeholder={
                     providerCode === "alipay"
-                      ? "Alipay sub_appid"
+                      ? t("Alipay sub_appid")
                       : providerCode === "wechat_pay"
                         ? "WeChat sub appid"
-                        : "Optional sub app id"
+                        : t("Optional sub app id")
                   }
                 />
               </AdminFieldLabel>
@@ -360,7 +363,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
                     setFormState((prev) => ({ ...prev, subMchId: event.target.value }))
                   }
                   placeholder={
-                    providerCode === "wechat_pay" ? "WeChat sub_mch_id" : "Optional sub merchant id"
+                    providerCode === "wechat_pay" ? t("WeChat sub_mch_id") : t("Optional sub merchant id")
                   }
                 />
               </AdminFieldLabel>
@@ -424,7 +427,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
                 Cancel
               </Button>
               <Button type="submit" disabled={submitting} title="Saving in progress...">
-                {submitting ? "Saving..." : editing ? "Save changes" : "Create sub-merchant"}
+                {submitting ? t("Saving...") : editing ? t("Save changes") : t("Create sub-merchant")}
               </Button>
             </div>
           </form>

@@ -1,5 +1,5 @@
 export interface SdkWorkCommandResponse {
   code: 0;
-  data: Record<string, unknown>;
+  data: { accepted: true; resourceId?: string; status?: string; };
   traceId: string;
 }

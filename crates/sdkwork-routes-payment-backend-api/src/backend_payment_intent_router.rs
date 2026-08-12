@@ -123,7 +123,7 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
             let rows = sqlx::query(
                 r#"
                 SELECT id, tenant_id, organization_id, owner_user_id, order_id, payment_intent_no,
-                       payment_method, provider_code, CAST(amount AS TEXT) AS amount,
+                       payment_method, provider_code, CAST(amount AS BIGINT)::TEXT AS amount,
                        currency_code, status, created_at, updated_at,
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_intent
@@ -162,7 +162,7 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
             let row = sqlx::query(
                 r#"
                 SELECT id, tenant_id, organization_id, owner_user_id, order_id, payment_intent_no,
-                       payment_method, provider_code, CAST(amount AS TEXT) AS amount,
+                       payment_method, provider_code, CAST(amount AS BIGINT)::TEXT AS amount,
                        currency_code, status, created_at, updated_at
                 FROM commerce_payment_intent
                 WHERE id = CAST($1 AS TEXT)

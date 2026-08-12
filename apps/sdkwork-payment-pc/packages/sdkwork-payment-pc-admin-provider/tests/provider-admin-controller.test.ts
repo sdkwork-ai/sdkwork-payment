@@ -152,9 +152,11 @@ describe("payment provider admin controller", () => {
     expect(calls.providerAccountsUpdate.mock.calls[0]?.[2]).toEqual({
       idempotencyKey: expect.stringMatching(/^provider-account-update-/),
     });
-    expect(calls.providerAccountsTest.mock.calls[0]?.[2]).toEqual({
+    expect(calls.providerAccountsTest.mock.calls[0]?.[1]).toEqual({
       idempotencyKey: expect.stringMatching(/^provider-account-test-/),
     });
+    // 测试选项（含 dryRun）必须走 SDK body（第 3 参数），而不是被当作查询参数。
+    expect(calls.providerAccountsTest.mock.calls[0]?.[2]).toEqual({ dryRun: true });
     expect(calls.providerAccountsRotate.mock.calls[0]?.[2]).toEqual({
       idempotencyKey: expect.stringMatching(/^provider-account-rotate-/),
     });
@@ -169,7 +171,7 @@ describe("payment provider admin controller", () => {
     const idempotencyKeys = [
       idempotencyKeyOf(calls.providerAccountsCreate.mock.calls[0]?.[1]),
       idempotencyKeyOf(calls.providerAccountsUpdate.mock.calls[0]?.[2]),
-      idempotencyKeyOf(calls.providerAccountsTest.mock.calls[0]?.[2]),
+      idempotencyKeyOf(calls.providerAccountsTest.mock.calls[0]?.[1]),
       idempotencyKeyOf(calls.providerAccountsRotate.mock.calls[0]?.[2]),
       idempotencyKeyOf(calls.subMerchantsCreate.mock.calls[0]?.[1]),
       idempotencyKeyOf(calls.subMerchantsUpdate.mock.calls[0]?.[2]),

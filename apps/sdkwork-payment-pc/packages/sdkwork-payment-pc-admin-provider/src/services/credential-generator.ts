@@ -1,5 +1,5 @@
 /**
- * Credential generator for quick test-account creation.
+ * Credential generator for quick debug-account setup.
  *
  * Two tiers:
  *   - `generateCredentials` (async, preferred): generates a REAL RSA-2048
@@ -8,9 +8,10 @@
  *     backend provider adapters parse these PEMs during initialization, the
  *     dry-run account test resolves the credentials and reports the adapter as
  *     initialized — the request chain reaches the provider adapter.
- *   - `generateMockCredentials` (sync fallback): structurally realistic values
- *     (provider-style key prefixes, well-formed PEM fences) for non-secure
- *     contexts and test environments where `crypto.subtle` is unavailable.
+ *   - `generateFallbackCredentials` (sync fallback): structurally realistic
+ *     values (provider-style key prefixes, well-formed PEM fences) for
+ *     non-secure contexts and test environments where `crypto.subtle` is
+ *     unavailable.
  *
  * Real providers require credentials issued by the PSP itself; generated keys
  * are for sandbox/development debugging only. The backend activation guard
@@ -20,10 +21,13 @@
 
 import type { PaymentProviderCode } from "../types/provider-admin-types";
 
-export interface MockCredentialValues {
+export interface GeneratedCredentialValues {
   primarySecret: string;
   webhookSecret?: string;
   certificate?: string;
+  /** WeChat Pay public key ID (`PUB_KEY_ID_` prefix) for the official
+   *  recommended WeChat Pay public key verification mode. */
+  wechatpayPublicKeyId?: string;
 }
 
 const ALPHANUMERIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -80,12 +84,12 @@ async function generateRealKeyPair(): Promise<{ privatePem: string; publicPem: s
 
 /**
  * Preferred entry point: real cryptographic keys when Web Crypto is available,
- * falling back to structurally realistic mock values otherwise. Always fills
- * every credential field appropriate for the provider.
+ * falling back to structurally realistic values otherwise. Always fills every
+ * credential field appropriate for the provider.
  */
 export async function generateCredentials(
   providerCode: PaymentProviderCode,
-): Promise<MockCredentialValues> {
+): Promise<GeneratedCredentialValues> {
   if (typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.generateKey === "function") {
     try {
       const { privatePem, publicPem } = await generateRealKeyPair();
@@ -109,22 +113,25 @@ export async function generateCredentials(
             // WeChat Pay API v3 key is exactly 32 alphanumeric characters.
             webhookSecret: randomChars(32, ALPHANUMERIC),
             certificate: publicPem,
+            // WeChat Pay public key ID (PUB_KEY_ID_ prefix) matched against
+            // the Wechatpay-Serial header in the official public key mode.
+            wechatpayPublicKeyId: `PUB_KEY_ID_${randomChars(32, "0123456789abcdef")}`,
           };
         default:
           // Sandbox requires only the primary credential and accepts any value.
-          return { primarySecret: `mock_secret_${randomChars(24, ALPHANUMERIC)}` };
+          return { primarySecret: `sk_sandbox_${randomChars(24, ALPHANUMERIC)}` };
       }
     } catch {
-      // Fall through to the structural mock path (non-secure context etc.).
+      // Fall through to the structural fallback path (non-secure context etc.).
     }
   }
-  return generateMockCredentials(providerCode);
+  return generateFallbackCredentials(providerCode);
 }
 
 /** Sync fallback: structurally plausible values without Web Crypto. */
-export function generateMockCredentials(
+export function generateFallbackCredentials(
   providerCode: PaymentProviderCode,
-): MockCredentialValues {
+): GeneratedCredentialValues {
   switch (providerCode) {
     case "stripe":
       return {
@@ -135,26 +142,27 @@ export function generateMockCredentials(
     case "alipay":
       return {
         // Alipay signs with an RSA2 merchant private key; the certificate
-        // field holds the (here simulated) Alipay public key.
-        primarySecret: mockPem("RSA PRIVATE KEY", 16),
-        certificate: mockPem("PUBLIC KEY", 8),
+        // field holds the matching public key.
+        primarySecret: syntheticPem("RSA PRIVATE KEY", 16),
+        certificate: syntheticPem("PUBLIC KEY", 8),
       };
     case "wechat_pay":
       return {
-        primarySecret: mockPem("PRIVATE KEY", 16),
+        primarySecret: syntheticPem("PRIVATE KEY", 16),
         // WeChat Pay API v3 key is exactly 32 alphanumeric characters.
         webhookSecret: randomChars(32, ALPHANUMERIC),
-        certificate: mockPem("CERTIFICATE", 12),
+        certificate: syntheticPem("PUBLIC KEY", 8),
+        wechatpayPublicKeyId: `PUB_KEY_ID_${randomChars(32, "0123456789abcdef")}`,
       };
     default:
       // Sandbox requires only the primary credential and accepts any value.
-      return { primarySecret: `mock_secret_${randomChars(24, ALPHANUMERIC)}` };
+      return { primarySecret: `sk_sandbox_${randomChars(24, ALPHANUMERIC)}` };
   }
 }
 
 /** A structurally plausible PEM block: correct BEGIN/END fences with a
  *  base64-looking body wrapped at 64 characters per line. */
-function mockPem(fence: string, lines: number): string {
+function syntheticPem(fence: string, lines: number): string {
   const body = Array.from(
     { length: lines },
     () => randomChars(64, BASE64_CHARS),

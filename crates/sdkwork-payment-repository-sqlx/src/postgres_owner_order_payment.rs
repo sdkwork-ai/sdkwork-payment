@@ -10,9 +10,10 @@ use crate::owner_payment_params::owner_order_payment_params;
 use crate::payment_channel::select_payment_channel_postgres;
 use crate::shared::{
     current_timestamp_string, ensure_confirmation_intent_update,
-    ensure_owner_payment_idempotency_replay_matches, owner_payment_callback_payload,
-    owner_payment_reuse_matches, payment_attempt_is_terminal_success, provider_out_trade_no,
-    required_persisted_paid_at, resolve_confirmation_attempt_replayed, stable_storage_id,
+    ensure_owner_payment_idempotency_replay_matches, normalize_stored_money_amount,
+    organization_scope_bind, owner_payment_callback_payload, owner_payment_reuse_matches,
+    payment_attempt_is_terminal_success, provider_out_trade_no, required_persisted_paid_at,
+    resolve_confirmation_attempt_replayed, stable_storage_id,
 };
 
 const LOAD_OWNER_ORDER_FOR_CONFIRMATION: &str = r#"
@@ -267,20 +268,19 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                 o.order_no AS order_sn,
                 o.subject AS order_subject,
                 o.status,
+                o.currency_code,
                 o.expired_at,
-                CAST(
-                    COALESCE(
-                        (
-                            SELECT b.payable_amount
-                            FROM commerce_order_amount_breakdown b
-                            WHERE b.tenant_id = o.tenant_id
-                              AND b.order_id = o.id
-                              AND COALESCE(to_jsonb(b) ->> 'allocation_type', 'order_total') = 'order_total'
-                            LIMIT 1
-                        ),
-                        '0'
-                    ) AS BIGINT
-                )::TEXT AS total_amount
+                COALESCE(
+                    (
+                        SELECT CAST(b.payable_amount AS TEXT)
+                        FROM commerce_order_amount_breakdown b
+                        WHERE b.tenant_id = o.tenant_id
+                          AND b.order_id = o.id
+                          AND COALESCE(to_jsonb(b) ->> 'allocation_type', 'order_total') = 'order_total'
+                        LIMIT 1
+                    ),
+                    '0'
+                ) AS total_amount
             FROM commerce_order o
             WHERE o.id = CAST($1 AS TEXT)
               AND o.tenant_id = CAST($2 AS TEXT)
@@ -305,8 +305,10 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         let order_sn = string_cell(&order_row, "order_sn");
         let order_subject = optional_string_cell(&order_row, "order_subject");
         let order_expires_at = optional_string_cell(&order_row, "expired_at");
-        let total_amount = CommerceMoney::new(&string_cell(&order_row, "total_amount"))
-            .map_err(CommerceServiceError::storage)?;
+        let order_currency = optional_string_cell(&order_row, "currency_code");
+        let total_amount = normalize_stored_money_amount(&string_cell(&order_row, "total_amount"))?;
+        let total_amount =
+            CommerceMoney::new(&total_amount).map_err(CommerceServiceError::storage)?;
         if !order_status_is_payable(&order_status)
             || !order_expiration_is_payable(order_expires_at.as_deref())
         {
@@ -379,19 +381,20 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                  payment_method, provider_code, amount, currency_code, status, request_no,
                  idempotency_key, created_at, updated_at)
             VALUES
-                ($1, CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9::numeric, 'CNY', $10, $11, $12, $13::timestamptz, $14::timestamptz)
+                ($1, CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9::numeric, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz)
             ON CONFLICT (id) DO NOTHING
             "#,
         )
         .bind(&payment_intent_id)
         .bind(&command.tenant_id)
-        .bind(command.organization_id.as_deref())
+        .bind(organization_scope_bind(&command.organization_id))
         .bind(&command.owner_user_id)
         .bind(&command.order_id)
         .bind(format!("PAY-{}", order_sn))
         .bind(&command.payment_method)
         .bind(&channel.provider_code)
         .bind(total_amount.as_str())
+        .bind(order_currency.as_deref().unwrap_or("CNY"))
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&command.request_no)
         .bind(&command.idempotency_key)
@@ -425,13 +428,13 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                  payment_method, provider_code, channel_id, out_trade_no, amount, currency_code, status,
                  callback_payload, request_no, idempotency_key, expires_at, created_at, paid_at, updated_at)
             VALUES
-                ($1, CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, $11::numeric, 'CNY', $12, $13::jsonb, $14, $15, $16::timestamptz, $17::timestamptz, NULL, $18::timestamptz)
+                ($1, CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14::jsonb, $15, $16, $17::timestamptz, $18::timestamptz, NULL, $19::timestamptz)
             ON CONFLICT (id) DO NOTHING
             "#,
         )
         .bind(&payment_attempt_id)
         .bind(&command.tenant_id)
-        .bind(command.organization_id.as_deref())
+        .bind(organization_scope_bind(&command.organization_id))
         .bind(&command.owner_user_id)
         .bind(&payment_intent_id)
         .bind(&command.order_id)
@@ -440,6 +443,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         .bind(channel.channel_id.as_deref())
         .bind(&out_trade_no)
         .bind(total_amount.as_str())
+        .bind(order_currency.as_deref().unwrap_or("CNY"))
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&callback_payload)
         .bind(&command.request_no)
@@ -773,8 +777,8 @@ async fn load_owner_payment_outcome_by_idempotency_in_tx(
         return Ok(None);
     };
 
-    let amount =
-        CommerceMoney::new(&string_cell(&row, "amount")).map_err(CommerceServiceError::storage)?;
+    let amount = normalize_stored_money_amount(&string_cell(&row, "amount"))?;
+    let amount = CommerceMoney::new(&amount).map_err(CommerceServiceError::storage)?;
     let out_trade_no = string_cell(&row, "out_trade_no");
     let mut payment_params = owner_order_payment_params(
         &string_cell(&row, "provider_code"),
@@ -850,8 +854,8 @@ async fn load_reusable_owner_payment_in_tx(
         return Ok(None);
     };
 
-    let amount =
-        CommerceMoney::new(&string_cell(&row, "amount")).map_err(CommerceServiceError::storage)?;
+    let amount = normalize_stored_money_amount(&string_cell(&row, "amount"))?;
+    let amount = CommerceMoney::new(&amount).map_err(CommerceServiceError::storage)?;
     let out_trade_no = string_cell(&row, "out_trade_no");
     let mut payment_params = owner_order_payment_params(
         &string_cell(&row, "provider_code"),
@@ -930,7 +934,10 @@ mod tests {
         let source = include_str!("postgres_owner_order_payment.rs").replace("\r\n", "\n");
 
         assert!(source.contains("CAST(pa.amount AS BIGINT)::TEXT AS amount"));
-        assert!(source.contains(") AS BIGINT\n                )::TEXT AS total_amount"));
+        // Breakdown amounts are projected as text so the Rust reader can
+        // normalize both canonical minor-unit integers and legacy major-unit
+        // decimals instead of truncating via `CAST(... AS BIGINT)`.
+        assert!(source.contains("SELECT CAST(b.payable_amount AS TEXT)"));
     }
 
     #[test]

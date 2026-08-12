@@ -11,6 +11,7 @@ use rsa::signature::{SignatureEncoding, Signer, Verifier};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::{json, Value};
 use sha2::Sha256;
+use x509_parser::parse_x509_certificate;
 
 use crate::adapter::{
     metadata_string, normalized_optional, require_non_empty, require_positive_amount,
@@ -40,6 +41,34 @@ static WECHAT_PAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCap
     ],
 };
 
+/// 微信支付 API v3 验签凭据模式（官方"证书密钥概览"二选一）：
+/// - `WeChatPayPublicKey`：微信支付公钥（`pub_key.pem`，SPKI 公钥，无过期时间，
+///   官方推荐且新商户默认；`Wechatpay-Serial` 头携带 `PUB_KEY_ID_` 前缀的公钥 ID）。
+/// - `PlatformCertificate`：平台证书（`wechatpay_cert.pem`，X.509，5 年有效期需轮换；
+///   `Wechatpay-Serial` 头携带平台证书序列号）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WeChatPaySignVerifyMode {
+    PlatformCertificate,
+    WeChatPayPublicKey,
+}
+
+impl WeChatPaySignVerifyMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PlatformCertificate => "platform_certificate",
+            Self::WeChatPayPublicKey => "wechatpay_public_key",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "platform_certificate" => Some(Self::PlatformCertificate),
+            "wechatpay_public_key" => Some(Self::WeChatPayPublicKey),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct WeChatPayProviderConfig {
     pub app_id: String,
@@ -48,6 +77,14 @@ pub struct WeChatPayProviderConfig {
     pub merchant_private_key_pem: String,
     pub api_v3_key: String,
     pub notify_url: Option<String>,
+    /// 验签凭据模式：微信支付公钥（默认、官方推荐）或平台证书。
+    pub sign_verify_mode: WeChatPaySignVerifyMode,
+    /// 验签密钥 PEM：公钥模式为 `pub_key.pem`（SPKI 公钥），证书模式为
+    /// `wechatpay_cert.pem`（X.509 平台证书）。来自账户 certificate 槽。
+    pub verification_key_pem: Option<String>,
+    /// 微信支付公钥 ID（`PUB_KEY_ID_` 前缀）或平台证书序列号，用于与
+    /// `Wechatpay-Serial` 头匹配。
+    pub verification_serial_no: Option<String>,
 }
 
 impl fmt::Debug for WeChatPayProviderConfig {
@@ -59,8 +96,20 @@ impl fmt::Debug for WeChatPayProviderConfig {
             .field("merchant_serial_no", &self.merchant_serial_no)
             .field("merchant_private_key_pem", &"<redacted>")
             .field("api_v3_key", &"<redacted>")
+            .field("sign_verify_mode", &self.sign_verify_mode)
+            .field(
+                "verification_key_pem",
+                &self.verification_key_pem.as_deref().map(|_| "<redacted>"),
+            )
+            .field("verification_serial_no", &"<redacted>")
             .field("notify_url", &self.notify_url)
             .finish()
+    }
+}
+
+impl Default for WeChatPaySignVerifyMode {
+    fn default() -> Self {
+        Self::WeChatPayPublicKey
     }
 }
 
@@ -95,18 +144,16 @@ impl WeChatPayRsaCrypto {
         Ok(BASE64.encode(signature.to_bytes()))
     }
 
-    pub fn verify_with_platform_key(
-        platform_public_key_pem: &str,
+    /// 按验签模式解析验签密钥（SPKI 公钥 PEM 或 X.509 平台证书 PEM）并做
+    /// SHA256withRSA 验签。与官方"证书密钥概览"对齐：微信支付公钥模式直接用
+    /// 公钥，平台证书模式从证书提取 RSA 公钥。
+    pub fn verify_with_verification_key(
+        mode: WeChatPaySignVerifyMode,
+        verification_key_pem: &str,
         payload: &str,
         signature: &str,
     ) -> ProviderResult<bool> {
-        let public_key =
-            RsaPublicKey::from_public_key_pem(platform_public_key_pem).map_err(|error| {
-                ProviderError::invalid_request(
-                    PaymentAdapterOperation::VerifyWebhook,
-                    format!("invalid WeChat Pay platform public key: {error}"),
-                )
-            })?;
+        let public_key = parse_verification_key(mode, verification_key_pem)?;
         let decoded = BASE64.decode(signature).map_err(|error| {
             ProviderError::invalid_request(
                 PaymentAdapterOperation::VerifyWebhook,
@@ -216,9 +263,23 @@ impl WeChatPayApiClient {
             headers.push(("Content-Type".to_owned(), "application/json".to_owned()));
         }
         let url = format!("{WECHAT_PAY_API_BASE_URL}{path}");
-        self.http
-            .request_with_headers(WECHAT_PAY_PROVIDER_CODE, "POST", &url, body, headers)
-            .await
+        let response = self
+            .http
+            .request_with_headers_detailed(WECHAT_PAY_PROVIDER_CODE, method, &url, body, headers)
+            .await?;
+        // 官方要求验证应答签名（Wechatpay-Timestamp/Nonce/Signature/Serial + 原始 body）。
+        // 空响应体与账单文件下载接口跳过验签。
+        if response.status < 300
+            && !response.body_text.is_empty()
+            && !path.starts_with("/v3/billdownload")
+        {
+            verify_wechat_pay_response_signature(
+                &self.config,
+                &response.headers,
+                response.body_text.as_bytes(),
+            )?;
+        }
+        Ok(response.body)
     }
 
     async fn post_json(&self, path: &str, payload: Value) -> ProviderResult<Value> {
@@ -234,14 +295,10 @@ pub struct WeChatPayProviderAdapter {
     config: WeChatPayProviderConfig,
     client: WeChatPayApiClient,
     crypto: Arc<WeChatPayRsaCrypto>,
-    platform_public_key_pem: Option<String>,
 }
 
 impl WeChatPayProviderAdapter {
-    pub fn new(
-        config: WeChatPayProviderConfig,
-        platform_public_key_pem: Option<String>,
-    ) -> ProviderResult<Self> {
+    pub fn new(config: WeChatPayProviderConfig) -> ProviderResult<Self> {
         validate_config_secret("app_id", &config.app_id)?;
         validate_config_secret("mch_id", &config.mch_id)?;
         validate_config_secret("merchant_serial_no", &config.merchant_serial_no)?;
@@ -256,7 +313,6 @@ impl WeChatPayProviderAdapter {
             config,
             client,
             crypto,
-            platform_public_key_pem,
         })
     }
 
@@ -311,23 +367,13 @@ impl WeChatPayProviderAdapter {
 }
 
 /// V3 JSAPI 调起签名串：`{appId}\n{timeStamp}\n{nonceStr}\n{package}\n`。
-fn wechat_jsapi_sign_payload(
-    app_id: &str,
-    timestamp: &str,
-    nonce: &str,
-    package: &str,
-) -> String {
+fn wechat_jsapi_sign_payload(app_id: &str, timestamp: &str, nonce: &str, package: &str) -> String {
     format!("{app_id}\n{timestamp}\n{nonce}\n{package}\n")
 }
 
 /// V3 App 调起签名串：`{appId}\n{timeStamp}\n{nonceStr}\n{prepayId}\n`
 /// （第 4 行为裸 prepayId，不带 `prepay_id=` 前缀）。
-fn wechat_app_sign_payload(
-    app_id: &str,
-    timestamp: &str,
-    nonce: &str,
-    prepay_id: &str,
-) -> String {
+fn wechat_app_sign_payload(app_id: &str, timestamp: &str, nonce: &str, prepay_id: &str) -> String {
     format!("{app_id}\n{timestamp}\n{nonce}\n{prepay_id}\n")
 }
 
@@ -397,7 +443,7 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                 .map(str::to_owned)
                 .unwrap_or_else(|| out_trade_no.clone());
             let notify_url = require_non_empty(
-                self.config.notify_url.as_deref(),
+                resolved_notify_url(&request, &self.config),
                 PaymentAdapterOperation::CreatePaymentIntent,
                 "notify_url",
             )?;
@@ -605,7 +651,7 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
         &'a self,
         request: PaymentVerifyWebhookRequest,
     ) -> PaymentAdapterFuture<'a, PaymentWebhookVerificationOutcome> {
-        let platform_key = self.platform_public_key_pem.clone();
+        let config = self.config.clone();
         Box::pin(async move {
             let timestamp = require_header(&request.headers, "wechatpay-timestamp")?;
             let nonce = require_header(&request.headers, "wechatpay-nonce")?;
@@ -620,6 +666,26 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                     provider_event_id: None,
                 });
             }
+            // 官方验签流程要求按 `Wechatpay-Serial`（公钥 ID 或平台证书序列号）
+            // 识别签名密钥；配置了序列号时强制匹配。
+            let serial = optional_header(&request.headers, "wechatpay-serial");
+            if let Some(configured) = config.verification_serial_no.as_deref() {
+                match serial.as_deref() {
+                    Some(header_serial) if header_serial == configured => {}
+                    Some(_) => {
+                        return Ok(PaymentWebhookVerificationOutcome {
+                            verified: false,
+                            provider_event_id: None,
+                        })
+                    }
+                    None => {
+                        return Err(ProviderError::invalid_request(
+                            PaymentAdapterOperation::VerifyWebhook,
+                            "WeChat Pay webhook header wechatpay-serial is required when a verification serial is configured",
+                        ))
+                    }
+                }
+            }
             let body = std::str::from_utf8(&request.body).map_err(|error| {
                 ProviderError::invalid_response(
                     PaymentAdapterOperation::VerifyWebhook,
@@ -627,13 +693,19 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                 )
             })?;
             let payload = format!("{timestamp}\n{nonce}\n{body}\n");
-            let verified = if let Some(platform_key) = platform_key.as_deref() {
-                WeChatPayRsaCrypto::verify_with_platform_key(platform_key, &payload, &signature)?
-            } else {
-                return Err(ProviderError::invalid_request(
-                    PaymentAdapterOperation::VerifyWebhook,
-                    "WeChat Pay platform public key is required for webhook verification",
-                ));
+            let verified = match config.verification_key_pem.as_deref() {
+                Some(verification_key_pem) => WeChatPayRsaCrypto::verify_with_verification_key(
+                    config.sign_verify_mode,
+                    verification_key_pem,
+                    &payload,
+                    &signature,
+                )?,
+                None => {
+                    return Err(ProviderError::invalid_request(
+                        PaymentAdapterOperation::VerifyWebhook,
+                        "WeChat Pay verification key (platform certificate or WeChat Pay public key) is required for webhook verification",
+                    ))
+                }
             };
             Ok(PaymentWebhookVerificationOutcome {
                 verified,
@@ -693,6 +765,18 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
             })
         })
     }
+}
+
+/// Resolves the effective notify URL for a WeChat Pay down-order: the
+/// order-gateway-resolved request value wins, then the per-account/env config.
+fn resolved_notify_url<'a>(
+    request: &'a PaymentCreateIntentRequest,
+    config: &'a WeChatPayProviderConfig,
+) -> Option<&'a str> {
+    request
+        .notify_url
+        .as_deref()
+        .or_else(|| config.notify_url.as_deref())
 }
 
 fn wechat_pay_operation_outcome(
@@ -762,6 +846,121 @@ fn require_header(headers: &[(String, String)], name: &str) -> ProviderResult<St
         })
 }
 
+fn optional_header(headers: &[(String, String)], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+/// 按验签模式解析验签密钥：微信支付公钥模式解析 SPKI 公钥 PEM；
+/// 平台证书模式解析 X.509 证书 PEM 并提取 RSA 公钥。
+fn parse_verification_key(
+    mode: WeChatPaySignVerifyMode,
+    verification_key_pem: &str,
+) -> ProviderResult<RsaPublicKey> {
+    match mode {
+        WeChatPaySignVerifyMode::WeChatPayPublicKey => {
+            RsaPublicKey::from_public_key_pem(verification_key_pem).map_err(|error| {
+                ProviderError::invalid_request(
+                    PaymentAdapterOperation::VerifyWebhook,
+                    format!("invalid WeChat Pay public key: {error}"),
+                )
+            })
+        }
+        WeChatPaySignVerifyMode::PlatformCertificate => {
+            let (_, pem) = x509_parser::pem::parse_x509_pem(verification_key_pem.as_bytes())
+                .map_err(|error| {
+                    ProviderError::invalid_request(
+                        PaymentAdapterOperation::VerifyWebhook,
+                        format!("invalid WeChat Pay platform certificate PEM: {error}"),
+                    )
+                })?;
+            let (_, certificate) = parse_x509_certificate(&pem.contents).map_err(|error| {
+                ProviderError::invalid_request(
+                    PaymentAdapterOperation::VerifyWebhook,
+                    format!("invalid WeChat Pay platform certificate: {error}"),
+                )
+            })?;
+            RsaPublicKey::from_public_key_der(certificate.tbs_certificate.subject_pki.raw).map_err(
+                |error| {
+                    ProviderError::invalid_request(
+                        PaymentAdapterOperation::VerifyWebhook,
+                        format!("invalid WeChat Pay platform certificate public key: {error}"),
+                    )
+                },
+            )
+        }
+    }
+}
+
+/// 官方应答签名验证：验签串 `{Wechatpay-Timestamp}\n{Wechatpay-Nonce}\n{body}\n`，
+/// 用 `Wechatpay-Serial`（公钥 ID 或平台证书序列号）标识的验签密钥 SHA256withRSA
+/// 验证 `Wechatpay-Signature`。缺少任一验签头时跳过（与官方"下载接口跳过验签"
+/// 语义一致）；已配置 `verification_serial_no` 时强制匹配，避免误用旧密钥。
+fn verify_wechat_pay_response_signature(
+    config: &WeChatPayProviderConfig,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> ProviderResult<()> {
+    let Some(timestamp) = optional_header(headers, "wechatpay-timestamp") else {
+        return Ok(());
+    };
+    let Some(nonce) = optional_header(headers, "wechatpay-nonce") else {
+        return Ok(());
+    };
+    let Some(signature) = optional_header(headers, "wechatpay-signature") else {
+        return Ok(());
+    };
+    let serial = optional_header(headers, "wechatpay-serial");
+    if let Some(configured) = config.verification_serial_no.as_deref() {
+        match serial.as_deref() {
+            Some(header_serial) if header_serial == configured => {}
+            Some(_) => {
+                return Err(ProviderError::invalid_response(
+                    PaymentAdapterOperation::QueryPaymentIntent,
+                    "WeChat Pay response wechatpay-serial does not match the configured verification serial",
+                ))
+            }
+            None => {
+                return Err(ProviderError::invalid_response(
+                    PaymentAdapterOperation::QueryPaymentIntent,
+                    "WeChat Pay response header wechatpay-serial is required when a verification serial is configured",
+                ))
+            }
+        }
+    }
+    let body = std::str::from_utf8(body).map_err(|error| {
+        ProviderError::invalid_response(
+            PaymentAdapterOperation::QueryPaymentIntent,
+            format!("WeChat Pay response body must be UTF-8: {error}"),
+        )
+    })?;
+    let payload = format!("{timestamp}\n{nonce}\n{body}\n");
+    let verified = match config.verification_key_pem.as_deref() {
+        Some(verification_key_pem) => WeChatPayRsaCrypto::verify_with_verification_key(
+            config.sign_verify_mode,
+            verification_key_pem,
+            &payload,
+            &signature,
+        )?,
+        None => {
+            return Err(ProviderError::invalid_request(
+                PaymentAdapterOperation::QueryPaymentIntent,
+                "WeChat Pay verification key (platform certificate or WeChat Pay public key) is required for response verification",
+            ))
+        }
+    };
+    if !verified {
+        return Err(ProviderError::invalid_response(
+            PaymentAdapterOperation::QueryPaymentIntent,
+            "WeChat Pay response signature verification failed",
+        ));
+    }
+    Ok(())
+}
+
 fn parse_body_json(body: &[u8]) -> ProviderResult<Value> {
     serde_json::from_slice(body).map_err(|error| {
         ProviderError::invalid_response(
@@ -812,11 +1011,201 @@ fn wechat_pay_path_for_key(method_key: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_wechat_app_invoke_params, build_wechat_jsapi_invoke_params,
-        wechat_app_sign_payload, wechat_jsapi_sign_payload, wechat_pay_operation_outcome,
-        wechat_webhook_timestamp_is_fresh,
+        build_wechat_app_invoke_params, build_wechat_jsapi_invoke_params, resolved_notify_url,
+        unix_timestamp, wechat_app_sign_payload, wechat_jsapi_sign_payload,
+        wechat_pay_operation_outcome, wechat_webhook_timestamp_is_fresh, WeChatPayProviderAdapter,
+        WeChatPayProviderConfig, WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
     };
-    use crate::adapter::PaymentAdapterOperation;
+    use crate::adapter::{
+        PaymentAdapterOperation, PaymentCreateIntentRequest, PaymentProviderAdapter,
+        PaymentVerifyWebhookRequest,
+    };
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+    use rsa::pkcs1v15::{Signature, SigningKey};
+    use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
+    use rsa::signature::{SignatureEncoding, Signer};
+    use rsa::{RsaPrivateKey, RsaPublicKey};
+    use sha2::Sha256;
+
+    fn rsa_keypair_pem() -> (String, String) {
+        let mut rng = rand::thread_rng();
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("rsa key generation");
+        let private_pem = private_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("private pem")
+            .to_string();
+        let public_pem = RsaPublicKey::from(&private_key)
+            .to_public_key_pem(LineEnding::LF)
+            .expect("public pem");
+        (private_pem, public_pem)
+    }
+
+    fn sign_rsa_sha256(private_key: &RsaPrivateKey, payload: &str) -> String {
+        let signature: Signature =
+            SigningKey::<Sha256>::new(private_key.clone()).sign(payload.as_bytes());
+        BASE64.encode(signature.to_bytes())
+    }
+
+    /// Generates a self-signed RSA-2048 X.509 certificate (wechatpay_cert.pem
+    /// shape) plus its PKCS#8 private key PEM. The key is generated with the
+    /// `rsa` crate (rcgen's ring backend cannot generate RSA) and loaded into
+    /// rcgen for signing.
+    fn rsa_certificate_and_private_key_pem() -> (String, String) {
+        let (private_pem, _) = rsa_keypair_pem();
+        let key_pair = rcgen::KeyPair::from_pem(&private_pem).expect("rcgen rsa key pair");
+        let params =
+            rcgen::CertificateParams::new(vec!["wechat.example".to_owned()]).expect("params");
+        let certificate = params.self_signed(&key_pair).expect("self signed cert");
+        (certificate.pem(), private_pem)
+    }
+
+    fn wechat_api_v3_key() -> String {
+        "0123456789abcdef0123456789abcdef".to_owned()
+    }
+
+    #[test]
+    fn verify_with_wechat_pay_public_key_mode_accepts_matching_signature() {
+        let payload = "1717171717\nnonce-1\n{\"id\":\"event-1\"}\n";
+        let (private_pem, public_pem) = rsa_keypair_pem();
+        let private_key = RsaPrivateKey::from_pkcs8_pem(&private_pem).expect("pkcs8");
+        let signature = sign_rsa_sha256(&private_key, payload);
+
+        let verified = WeChatPayRsaCrypto::verify_with_verification_key(
+            WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            &public_pem,
+            payload,
+            &signature,
+        )
+        .expect("public key mode must parse");
+        assert!(verified, "matching signature must verify");
+
+        let tampered = WeChatPayRsaCrypto::verify_with_verification_key(
+            WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            &public_pem,
+            "1717171717\nnonce-1\n{\"id\":\"event-2\"}\n",
+            &signature,
+        )
+        .expect("verification must not error");
+        assert!(!tampered, "tampered payload must not verify");
+    }
+
+    #[test]
+    fn verify_with_platform_certificate_mode_extracts_rsa_public_key() {
+        let payload = "1717171717\nnonce-1\n{\"id\":\"event-1\"}\n";
+        let (certificate_pem, private_key_pem) = rsa_certificate_and_private_key_pem();
+        assert!(certificate_pem.starts_with("-----BEGIN CERTIFICATE-----"));
+        let private_key = RsaPrivateKey::from_pkcs8_pem(&private_key_pem).expect("pkcs8");
+        let signature = sign_rsa_sha256(&private_key, payload);
+
+        let verified = WeChatPayRsaCrypto::verify_with_verification_key(
+            WeChatPaySignVerifyMode::PlatformCertificate,
+            &certificate_pem,
+            payload,
+            &signature,
+        )
+        .expect("platform certificate mode must parse");
+        assert!(verified, "certificate public key must verify the signature");
+    }
+
+    #[tokio::test]
+    async fn verify_webhook_matches_configured_public_key_id() {
+        let (private_pem, public_pem) = rsa_keypair_pem();
+        let private_key = RsaPrivateKey::from_pkcs8_pem(&private_pem).expect("pkcs8");
+        let body = "{\"id\":\"event-1\",\"event_type\":\"TRANSACTION.SUCCESS\"}";
+        let timestamp = unix_timestamp().to_string();
+        let payload = format!("{timestamp}\nnonce-1\n{body}\n");
+        let signature = sign_rsa_sha256(&private_key, &payload);
+
+        let adapter = WeChatPayProviderAdapter::new(WeChatPayProviderConfig {
+            app_id: "wx-app".to_owned(),
+            mch_id: "1900000109".to_owned(),
+            merchant_serial_no: "serial-no".to_owned(),
+            merchant_private_key_pem: private_pem,
+            api_v3_key: wechat_api_v3_key(),
+            notify_url: None,
+            sign_verify_mode: WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            verification_key_pem: Some(public_pem),
+            verification_serial_no: Some("PUB_KEY_ID_00000000000000000000000000000001".to_owned()),
+        })
+        .expect("adapter");
+
+        let outcome = adapter
+            .verify_webhook(PaymentVerifyWebhookRequest {
+                headers: vec![
+                    ("Wechatpay-Timestamp".to_owned(), timestamp.clone()),
+                    ("Wechatpay-Nonce".to_owned(), "nonce-1".to_owned()),
+                    ("Wechatpay-Signature".to_owned(), signature.clone()),
+                    (
+                        "Wechatpay-Serial".to_owned(),
+                        "PUB_KEY_ID_00000000000000000000000000000001".to_owned(),
+                    ),
+                ],
+                body: body.as_bytes().to_vec(),
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("verify_webhook must not error");
+
+        assert!(outcome.verified);
+        assert_eq!(Some("event-1".to_owned()), outcome.provider_event_id);
+
+        let mismatched = adapter
+            .verify_webhook(PaymentVerifyWebhookRequest {
+                headers: vec![
+                    ("Wechatpay-Timestamp".to_owned(), timestamp),
+                    ("Wechatpay-Nonce".to_owned(), "nonce-1".to_owned()),
+                    ("Wechatpay-Signature".to_owned(), signature),
+                    (
+                        "Wechatpay-Serial".to_owned(),
+                        "6EB892196BEAA85D5E59B06F077C8A2903683649".to_owned(),
+                    ),
+                ],
+                body: body.as_bytes().to_vec(),
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("mismatched serial must not error");
+
+        assert!(!mismatched.verified);
+    }
+
+    #[test]
+    fn resolved_notify_url_prefers_request_value_over_config() {
+        let config = WeChatPayProviderConfig {
+            app_id: "app".to_owned(),
+            mch_id: "mch".to_owned(),
+            merchant_serial_no: "serial".to_owned(),
+            merchant_private_key_pem: "key".to_owned(),
+            api_v3_key: "v3key".to_owned(),
+            notify_url: Some("https://config.example.com/webhooks/wechat_pay".to_owned()),
+            sign_verify_mode: WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            verification_key_pem: None,
+            verification_serial_no: None,
+        };
+        let request = PaymentCreateIntentRequest {
+            notify_url: Some(
+                "https://order.example.com/app/v3/api/orders/payments/webhooks/wechat_pay"
+                    .to_owned(),
+            ),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolved_notify_url(&request, &config),
+            Some("https://order.example.com/app/v3/api/orders/payments/webhooks/wechat_pay")
+        );
+
+        let request_without = PaymentCreateIntentRequest::default();
+        assert_eq!(
+            resolved_notify_url(&request_without, &config),
+            Some("https://config.example.com/webhooks/wechat_pay")
+        );
+
+        let config_without = WeChatPayProviderConfig {
+            notify_url: None,
+            ..config
+        };
+        assert_eq!(resolved_notify_url(&request_without, &config_without), None);
+    }
 
     #[test]
     fn down_order_responses_never_fail_id_extraction() {
@@ -869,14 +1258,14 @@ mod tests {
     fn app_invoke_params_use_the_payreq_key_set() {
         let params = build_wechat_app_invoke_params(
             "wx-appid",
-            "1900000109",
+            "1900977762",
             "wx-prepay-1",
             "1720000000",
             "nonce-1",
             "sig",
         );
         assert_eq!(params["appid"], "wx-appid");
-        assert_eq!(params["partnerid"], "1900000109");
+        assert_eq!(params["partnerid"], "1900977762");
         assert_eq!(params["prepayid"], "wx-prepay-1");
         assert_eq!(params["package"], "Sign=WXPay");
         assert_eq!(params["noncestr"], "nonce-1");

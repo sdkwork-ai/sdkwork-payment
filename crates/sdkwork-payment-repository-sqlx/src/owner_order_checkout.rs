@@ -2,6 +2,12 @@
 //!
 //! Shared by payment and order app-api routers so `orders.payments.create` and `payments.create`
 //! return the same cashier parameters.
+use crate::load_default_notify_domain_postgres;
+use crate::provider_account::{
+    ensure_provider_account_matches, load_active_provider_account_for_channel_postgres,
+    load_active_provider_account_postgres, load_provider_account_for_existing_payment_postgres,
+    PaymentProviderAccountRecord,
+};
 use chrono::{DateTime, Duration, Utc};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_payment_providers::{
@@ -14,12 +20,6 @@ use sdkwork_payment_service::{
 };
 use sqlx::{PgPool, Postgres, Transaction};
 use tokio::time::{sleep, Instant};
-use crate::provider_account::{
-    ensure_provider_account_matches, load_active_provider_account_for_channel_postgres,
-    load_active_provider_account_postgres,
-    load_provider_account_for_existing_payment_postgres,
-    PaymentProviderAccountRecord,
-};
 pub fn provider_account_binding(record: &PaymentProviderAccountRecord) -> ProviderAccountBinding {
     ProviderAccountBinding {
         provider_code: record.provider_code.clone(),
@@ -36,8 +36,7 @@ pub fn provider_account_binding(record: &PaymentProviderAccountRecord) -> Provid
 }
 use crate::owner_payment_params::owner_order_payment_params;
 use crate::payment_attempt_context::{
-    load_payment_attempt_provider_context_postgres,
-    persist_attempt_enrichment_postgres,
+    load_payment_attempt_provider_context_postgres, persist_attempt_enrichment_postgres,
 };
 const PROVIDER_CHECKOUT_TTL_SECONDS: i64 = 900;
 const POSTGRES_CHECKOUT_LOCK_RETRY_MILLIS: u64 = 25;
@@ -128,8 +127,13 @@ fn payment_record_to_pay_outcome(
     let out_trade_no = provider_ctx
         .map(|ctx| ctx.out_trade_no.clone())
         .unwrap_or_else(|| record.order_no.clone());
-    let mut payment_params =
-        owner_order_payment_params(&provider_code, &record.order_id, &record.order_no, None, &out_trade_no);
+    let mut payment_params = owner_order_payment_params(
+        &provider_code,
+        &record.order_id,
+        &record.order_no,
+        None,
+        &out_trade_no,
+    );
     if let Some(ctx) = provider_ctx {
         if let Some(channel_id) = ctx.channel_id.as_deref() {
             payment_params.insert("channelId".to_owned(), channel_id.to_owned());
@@ -221,6 +225,15 @@ async fn enrich_owner_order_payment_postgres_locked(
     let account =
         provider_account_for_attempt_postgres(pool, &context, &attempt_context, &provider_code)
             .await?;
+    // Resolve the configured default notify domain (exact org -> platform
+    // '0' -> env fallback inside provider_checkout_context) so the notify URL
+    // passed to the PSP is built from the payment center configuration.
+    let notify_domain_base =
+        load_default_notify_domain_postgres(pool, context.tenant_id, context.organization_id)
+            .await?
+            .map(|domain| {
+                build_notify_domain_base_url(&domain.protocol, &domain.hostname, domain.port)
+            });
     let enriched = enrich_owner_order_payment_outcome(
         &context,
         account.as_ref().map(provider_account_binding),
@@ -229,6 +242,8 @@ async fn enrich_owner_order_payment_postgres_locked(
         Some(&attempt_context.payment_metadata),
         outcome,
         expires_at.as_deref(),
+        attempt_context.currency_code.as_deref(),
+        notify_domain_base.as_deref(),
     )
     .await?;
     persist_attempt_enrichment_postgres(
@@ -419,6 +434,8 @@ async fn enrich_owner_order_payment_outcome(
     payment_metadata: Option<&serde_json::Value>,
     outcome: PayOwnerOrderOutcome,
     expires_at: Option<&str>,
+    currency_code: Option<&str>,
+    notify_domain_base: Option<&str>,
 ) -> Result<PayOwnerOrderOutcome, CommerceServiceError> {
     let registry = match account {
         Some(binding) => provider_registry_for_account(context.credentials, Some(binding)),
@@ -430,6 +447,8 @@ async fn enrich_owner_order_payment_outcome(
         idempotency_key,
         payment_metadata,
         expires_at,
+        currency_code,
+        notify_domain_base,
     );
     enrich_pay_owner_order_outcome(&registry, &checkout_context, outcome).await
 }
@@ -439,13 +458,29 @@ fn provider_checkout_context(
     idempotency_key: &str,
     payment_metadata: Option<&serde_json::Value>,
     expires_at: Option<&str>,
+    currency_code: Option<&str>,
+    notify_domain_base: Option<&str>,
 ) -> CheckoutContext {
-    let notify_url = context
-        .credentials
-        .provider_notify_url(&normalize_provider_code(provider_code));
+    // Configured default notify domain wins; the env webhook base and the
+    // per-provider account metadata remain the fallbacks.
+    let notify_url = notify_domain_base
+        .map(|base| {
+            let path = crate::notify_domain::ORDER_PAYMENT_WEBHOOK_PATH
+                .replace("{providerCode}", &normalize_provider_code(provider_code));
+            format!("{}{}", base.trim_end_matches('/'), path)
+        })
+        .or_else(|| {
+            context
+                .credentials
+                .provider_notify_url(&normalize_provider_code(provider_code))
+        });
     CheckoutContext {
         provider_code: provider_code.to_owned(),
-        currency_code: "CNY".to_owned(),
+        currency_code: currency_code
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("CNY")
+            .to_owned(),
         tenant_id: context.tenant_id.to_owned(),
         order_id: context.order_id.to_owned(),
         idempotency_key: idempotency_key.to_owned(),
@@ -455,6 +490,14 @@ fn provider_checkout_context(
         payment_metadata: payment_metadata.cloned(),
     }
 }
+/// `{protocol}://{hostname}{:port}` base for building notify URLs.
+fn build_notify_domain_base_url(protocol: &str, hostname: &str, port: Option<i32>) -> String {
+    match port {
+        Some(port) => format!("{protocol}://{hostname}:{port}"),
+        None => format!("{protocol}://{hostname}"),
+    }
+}
+
 fn ensure_provider_attempt_snapshot(
     attempt: &crate::payment_attempt_context::PaymentAttemptProviderContext,
     outcome: &PayOwnerOrderOutcome,

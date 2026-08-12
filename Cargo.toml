@@ -39,9 +39,12 @@ aes-gcm = "0.10"
 base64 = "0.22"
 hmac = "0.12"
 ring = "0.17"
+rand = "0.8"
 rsa = { version = "0.9", features = ["sha2"] }
 sha2 = "0.10"
 urlencoding = "2.1"
+x509-parser = { version = "0.17" }
+rcgen = "0.13"
 sdkwork_contract_service = { path = "../sdkwork-account/crates/sdkwork-contract-service", package = "sdkwork-contract-service" }
 sdkwork-web-core = { path = "../sdkwork-web-framework/crates/sdkwork-web-core" }
 sdkwork-web-axum = { path = "../sdkwork-web-framework/crates/sdkwork-web-axum" }

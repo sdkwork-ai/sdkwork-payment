@@ -188,12 +188,12 @@ pub fn map_service_error(
         "provider-unavailable" => (
             StatusCode::SERVICE_UNAVAILABLE,
             SdkWorkResultCode::ServiceUnavailable,
-            error.message().to_string(),
+            sanitize_provider_error_message(error.message()),
         ),
         "transport" => (
             StatusCode::BAD_GATEWAY,
             SdkWorkResultCode::BadGateway,
-            error.message().to_string(),
+            sanitize_provider_error_message(error.message()),
         ),
         "storage" => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -240,11 +240,56 @@ pub fn forbidden(context: Option<&WebRequestContext>, detail: impl Into<String>)
     problem_json_response(StatusCode::FORBIDDEN, problem, trace_id)
 }
 
+/// Strips the PSP's own HTTP status prefix (`"HTTP 401 Unauthorized: {...}"`)
+/// from a provider transport message so business errors never carry
+/// `"401"`/`"Unauthorized"` text — admin session boundaries match such
+/// patterns and would mistake a payment-gateway rejection for a login problem.
+pub fn sanitize_provider_error_message(message: &str) -> String {
+    let mut sanitized = message.trim().to_owned();
+    for prefix in [
+        "HTTP 401 Unauthorized: ",
+        "HTTP 401: ",
+        "HTTP 400: ",
+        "HTTP 403: ",
+        "HTTP 404: ",
+        "HTTP 409: ",
+        "HTTP 429: ",
+        "HTTP 500: ",
+        "HTTP 502: ",
+        "HTTP 503: ",
+    ] {
+        if sanitized.starts_with(prefix) {
+            sanitized = format!("payment gateway rejected: {}", &sanitized[prefix.len()..]);
+            break;
+        }
+    }
+    sanitized
+}
+
 /// 构建 400 Bad Request Problem+json 响应（校验错误）。
 pub fn validation(context: Option<&WebRequestContext>, detail: impl Into<String>) -> Response {
     let trace_id = resolve_trace_id(context);
     let problem = SdkWorkProblemDetail::platform(
         SdkWorkResultCode::ValidationError,
+        detail,
+        trace_id.clone(),
+    );
+    problem_json_response(StatusCode::BAD_REQUEST, problem, trace_id)
+}
+
+/// 构建 400 Problem+json 响应：支付网关拒绝了请求（如微信 `SIGN_ERROR`、
+/// Stripe `Invalid API Key`）。
+///
+/// 使用独立的 `41101` 错误码（41 开头系列，远离 401xx 认证码），HTTP 状态为
+/// 400 而非 401——前端会话边界不会把支付网关的凭据拒绝误判为登录失效而跳转
+/// 登录页。
+pub fn provider_rejected(
+    context: Option<&WebRequestContext>,
+    detail: impl Into<String>,
+) -> Response {
+    let trace_id = resolve_trace_id(context);
+    let problem = SdkWorkProblemDetail::platform(
+        SdkWorkResultCode::PaymentGatewayRejected,
         detail,
         trace_id.clone(),
     );
@@ -328,5 +373,47 @@ mod tests {
             StatusCode::CREATED,
         );
         assert_eq!(success_no_content(None).status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn provider_rejected_uses_41101_and_http_400_not_401() {
+        // Regression: a PSP rejection (WeChat SIGN_ERROR, Stripe Invalid API
+        // Key) must NOT surface as 40001/401xx or HTTP 401 — admin session
+        // boundaries would mistake it for a login problem and redirect to the
+        // login page.
+        let response = provider_rejected(None, "payment provider checkout failed");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(41101, payload["code"].as_i64().unwrap());
+        assert_eq!(400, payload["status"].as_u64().unwrap());
+    }
+
+    #[test]
+    fn sanitizes_psp_http_status_prefix_from_transport_messages() {
+        assert_eq!(
+            sanitize_provider_error_message(
+                r#"HTTP 401 Unauthorized: {"code":"SIGN_ERROR","message":"签名错误"}"#,
+            ),
+            r#"payment gateway rejected: {"code":"SIGN_ERROR","message":"签名错误"}"#,
+        );
+        assert_eq!(
+            sanitize_provider_error_message("HTTP 404: ORDER_NOT_EXIST"),
+            "payment gateway rejected: ORDER_NOT_EXIST",
+        );
+        // Messages without a PSP HTTP status prefix pass through unchanged.
+        assert_eq!(
+            sanitize_provider_error_message("payment provider wechat_pay is not configured"),
+            "payment provider wechat_pay is not configured",
+        );
+        // The sanitized message must never carry 401/Unauthorized patterns
+        // that admin session boundaries match.
+        let sanitized = sanitize_provider_error_message(
+            r#"HTTP 401 Unauthorized: {"code":"SIGN_ERROR","message":"签名错误"}"#,
+        );
+        assert!(!sanitized.contains("401"));
+        assert!(!sanitized.contains("Unauthorized"));
     }
 }

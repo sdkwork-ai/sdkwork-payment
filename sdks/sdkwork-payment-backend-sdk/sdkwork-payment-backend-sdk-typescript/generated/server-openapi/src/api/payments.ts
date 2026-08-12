@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, PageInfo, PaymentAttempt, PaymentChannel, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -395,11 +395,16 @@ export interface PaymentsChannelsListParams {
   sort?: string;
   q?: string;
   providerCode?: string;
+  methodId?: string;
   sceneCode?: 'app' | 'web' | 'mini_program' | 'api';
   status?: 'active' | 'inactive' | 'deprecated';
 }
 
 export interface PaymentsChannelsCreateParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsChannelsUpdateParams {
   idempotencyKey: string;
 }
 
@@ -419,6 +424,7 @@ export class PaymentsChannelsApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'methodId', value: params?.methodId, style: 'form', explode: true, allowReserved: false },
       { name: 'sceneCode', value: params?.sceneCode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
@@ -435,6 +441,22 @@ export class PaymentsChannelsApi {
     );
     return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
+
+/** Payment channel update. */
+  async update(channelId: string, body: UpdatePaymentChannelCommand, params: PaymentsChannelsUpdateParams, requestOptions?: ApiRequestOptions): Promise<PaymentChannel> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+
+/** Payment channel delete. */
+  async delete(channelId: string, requestOptions?: ApiRequestOptions): Promise<void> {
+    return this.client.request<void>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+  }
 }
 
 export interface PaymentsProviderAccountsCredentialsRotateParams {
@@ -448,6 +470,11 @@ export class PaymentsProviderAccountsCredentialsApi {
     this.client = client;
   }
 
+
+/** Provider account credentials read (decrypted). */
+  async read(providerAccountId: string, requestOptions?: ApiRequestOptions): Promise<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }> {
+    return this.client.request<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
 
 /** Provider account credential rotation. */
   async rotate(providerAccountId: string, body: CredentialRotateCommand, params: PaymentsProviderAccountsCredentialsRotateParams, requestOptions?: ApiRequestOptions): Promise<ProviderAccount> {
@@ -545,6 +572,64 @@ export class PaymentsProviderAccountsApi {
       {}
     );
     return this.client.request<ProviderAccountTestResult>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/test`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+}
+
+export interface PaymentsNotifyDomainsListParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaymentsNotifyDomainsCreateParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsNotifyDomainsUpdateParams {
+  idempotencyKey: string;
+}
+
+export class PaymentsNotifyDomainsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** List payment notify domains */
+  async list(params?: PaymentsNotifyDomainsListParams, requestOptions?: ApiRequestOptions): Promise<{ items: NotifyDomain[]; pageInfo: PageInfo; }> {
+    const query = buildQueryString([
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<{ items: NotifyDomain[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/notify_domains`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+  }
+
+/** Create payment notify domain */
+  async create(body: NotifyDomainCreateRequest, params: PaymentsNotifyDomainsCreateParams, requestOptions?: ApiRequestOptions): Promise<NotifyDomain> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+
+/** Update payment notify domain */
+  async update(domainId: string, body: NotifyDomainUpdateRequest, params: PaymentsNotifyDomainsUpdateParams, requestOptions?: ApiRequestOptions): Promise<NotifyDomain> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+
+/** Delete payment notify domain */
+  async delete(domainId: string, requestOptions?: ApiRequestOptions): Promise<void> {
+    return this.client.request<void>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
   }
 }
 
@@ -716,6 +801,7 @@ export class PaymentsApi {
   public readonly intents: PaymentsIntentsApi;
   public readonly refunds: PaymentsRefundsApi;
   public readonly methods: PaymentsMethodsApi;
+  public readonly notifyDomains: PaymentsNotifyDomainsApi;
   public readonly providerAccounts: PaymentsProviderAccountsApi;
   public readonly channels: PaymentsChannelsApi;
   public readonly routeRules: PaymentsRouteRulesApi;
@@ -731,6 +817,7 @@ export class PaymentsApi {
     this.intents = new PaymentsIntentsApi(client);
     this.refunds = new PaymentsRefundsApi(client);
     this.methods = new PaymentsMethodsApi(client);
+    this.notifyDomains = new PaymentsNotifyDomainsApi(client);
     this.providerAccounts = new PaymentsProviderAccountsApi(client);
     this.channels = new PaymentsChannelsApi(client);
     this.routeRules = new PaymentsRouteRulesApi(client);

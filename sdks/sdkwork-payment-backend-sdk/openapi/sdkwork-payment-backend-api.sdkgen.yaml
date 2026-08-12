@@ -1237,6 +1237,221 @@
         "x-sdkwork-idempotent": true
       }
     },
+    "/backend/v3/api/payments/notify_domains": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "List payment notify domains",
+        "operationId": "notifyDomains.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notify domain list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyDomainListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.notify_domains.list"
+      },
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Create payment notify domain",
+        "operationId": "notifyDomains.create",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyDomainCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created notify domain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyDomainItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-idempotent": true,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.notify_domains.create"
+      }
+    },
+    "/backend/v3/api/payments/notify_domains/{domainId}": {
+      "patch": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Update payment notify domain",
+        "operationId": "notifyDomains.update",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyDomainUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated notify domain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyDomainItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-idempotent": true,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.notify_domains.update"
+      },
+      "delete": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Delete payment notify domain",
+        "operationId": "notifyDomains.delete",
+        "parameters": [
+          {
+            "name": "domainId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.notify_domains.delete"
+      }
+    },
     "/backend/v3/api/payments/provider_accounts": {
       "get": {
         "tags": [
@@ -1964,6 +2179,124 @@
         "x-sdkwork-idempotent": true
       }
     },
+    "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Provider account credentials read (decrypted).",
+        "description": "Decrypts and returns the active write-only credentials (primary secret, webhook secret, certificate) for the admin workspace view/copy/download. Restricted to operators who can manage credentials.",
+        "operationId": "providerAccounts.credentials.read",
+        "parameters": [
+          {
+            "name": "providerAccountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderAccountCredentialsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentProviderAccounts",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.provider_accounts.credentials.rotate"
+      }
+    },
     "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials/rotate": {
       "post": {
         "tags": [
@@ -2138,6 +2471,14 @@
           },
           {
             "name": "providerCode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "methodId",
             "in": "query",
             "required": false,
             "schema": {
@@ -2391,6 +2732,275 @@
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.payments.channels.create",
         "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/channels/{channelId}": {
+      "patch": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Payment channel update.",
+        "operationId": "channels.update",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePaymentChannelCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentChannelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentChannels",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.channels.update",
+        "x-sdkwork-idempotent": true
+      },
+      "delete": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Payment channel delete.",
+        "operationId": "channels.delete",
+        "parameters": [
+          {
+            "name": "channelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentChannels",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.channels.delete"
       }
     },
     "/backend/v3/api/payments/route_rules": {
@@ -5559,6 +6169,187 @@
       }
     },
     "schemas": {
+      "NotifyDomain": {
+        "type": "object",
+        "required": [
+          "id",
+          "protocol",
+          "hostname",
+          "isDefault",
+          "status",
+          "paymentNotifyUrl",
+          "refundNotifyUrl"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "nullable": true
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "https",
+              "http"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "nullable": true
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "paymentNotifyUrl": {
+            "type": "string"
+          },
+          "refundNotifyUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "NotifyDomainCreateRequest": {
+        "type": "object",
+        "required": [
+          "protocol",
+          "hostname"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "https",
+              "http"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "nullable": true
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          }
+        }
+      },
+      "NotifyDomainUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "https",
+              "http"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "nullable": true
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          }
+        }
+      },
+      "NotifyDomainItemResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/NotifyDomain"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "NotifyDomainListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/NotifyDomain"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "SdkWorkApiResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -6544,7 +7335,7 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Provider-specific extras: appId, merchantSerialNo, notifyUrl, returnUrl, sub_appid mappings"
+            "description": "Provider-specific extras: appId, merchantSerialNo, notifyUrl, returnUrl, sub_appid mappings. WeChat Pay also uses signVerifyMode (\"wechatpay_public_key\" default/recommended or \"platform_certificate\"), wechatpayPublicKeyId (PUB_KEY_ID_ prefix) and platformCertificateSerialNo for API v3 signature verification."
           },
           "certificateExpiresAt": {
             "type": "string",
@@ -6659,7 +7450,7 @@
             "minLength": 1,
             "maxLength": 65536,
             "writeOnly": true,
-            "description": "Alipay public key or WeChat platform certificate PEM."
+            "description": "Alipay public key, WeChat platform certificate PEM (platform certificate mode), or WeChat Pay public key PEM (pub_key.pem, public key mode)."
           },
           "capabilities": {
             "type": "object",
@@ -6673,11 +7464,13 @@
               "suspended",
               "deprecated"
             ],
-            "default": "inactive"
+            "default": "active",
+            "description": "Account state. Bootstrap accounts start active; saving credentials takes effect immediately with no activation gate."
           },
           "metadata": {
             "type": "object",
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Provider-specific extras: appId, merchantSerialNo, notifyUrl, returnUrl, sub_appid mappings. WeChat Pay also uses signVerifyMode (\"wechatpay_public_key\" default/recommended or \"platform_certificate\"), wechatpayPublicKeyId (PUB_KEY_ID_ prefix) and platformCertificateSerialNo for API v3 signature verification."
           }
         }
       },
@@ -7073,6 +7866,124 @@
             "additionalProperties": true
           }
         }
+      },
+      "UpdatePaymentChannelCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "channelNo",
+          "providerAccountId",
+          "methodId",
+          "sceneCode",
+          "currencyCode",
+          "countryCode"
+        ],
+        "properties": {
+          "channelNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "channelName": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "providerAccountId": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "providerCode": {
+            "type": "string",
+            "enum": [
+              "stripe",
+              "alipay",
+              "wechat_pay",
+              "sandbox"
+            ]
+          },
+          "sceneCode": {
+            "type": "string",
+            "enum": [
+              "app",
+              "web",
+              "mini_program",
+              "api"
+            ]
+          },
+          "currencyCode": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "countryCode": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 2
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "deprecated"
+            ],
+            "default": "active"
+          },
+          "priority": {
+            "type": "integer",
+            "default": 0
+          },
+          "sortOrder": {
+            "type": "integer",
+            "default": 0
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ProviderAccountCredentialsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "type": "object",
+                    "properties": {
+                      "providerAccountId": {
+                        "type": "string"
+                      },
+                      "primarySecret": {
+                        "type": "string"
+                      },
+                      "webhookSecret": {
+                        "type": "string"
+                      },
+                      "certificate": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "PaymentChannelResponse": {
         "allOf": [

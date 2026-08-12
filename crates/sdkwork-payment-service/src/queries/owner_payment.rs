@@ -22,6 +22,9 @@ pub struct OrderPaymentReferenceSnapshot {
     pub order_subject: Option<String>,
     pub status: String,
     pub total_amount: CommerceMoney,
+    /// ISO-4217 currency code of the order (e.g. `CNY`, `USD`). `None` when
+    /// the order row carries no currency; callers default to `CNY`.
+    pub currency_code: Option<String>,
     pub pay_time: Option<String>,
 }
 

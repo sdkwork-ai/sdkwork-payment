@@ -124,6 +124,12 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     )
     .with_idempotent(true),
     HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials",
+        "payments",
+        "providerAccounts.credentials.read",
+    ),
+    HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials/rotate",
         "payments",
@@ -144,6 +150,18 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "channels.create",
     )
     .with_idempotent(true),
+    HttpRoute::dual_token(
+        HttpMethod::Patch,
+        "/backend/v3/api/payments/channels/{channelId}",
+        "payments",
+        "channels.update",
+    ),
+    HttpRoute::dual_token(
+        HttpMethod::Delete,
+        "/backend/v3/api/payments/channels/{channelId}",
+        "payments",
+        "channels.delete",
+    ),
     // === Route Rule ===
     HttpRoute::dual_token(
         HttpMethod::Get,
@@ -231,6 +249,32 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "certificates.delete",
     ),
     // === Attempt / Webhook / Reconciliation ===
+    HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/notify_domains",
+        "payments",
+        "notifyDomains.list",
+    ),
+    HttpRoute::dual_token(
+        HttpMethod::Post,
+        "/backend/v3/api/payments/notify_domains",
+        "payments",
+        "notifyDomains.create",
+    )
+    .with_idempotent(true),
+    HttpRoute::dual_token(
+        HttpMethod::Patch,
+        "/backend/v3/api/payments/notify_domains/{domainId}",
+        "payments",
+        "notifyDomains.update",
+    )
+    .with_idempotent(true),
+    HttpRoute::dual_token(
+        HttpMethod::Delete,
+        "/backend/v3/api/payments/notify_domains/{domainId}",
+        "payments",
+        "notifyDomains.delete",
+    ),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/attempts",

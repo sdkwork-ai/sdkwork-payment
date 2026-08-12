@@ -18,7 +18,7 @@ use crate::adapter::{
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
     PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome,
 };
-use crate::error::{ProviderError, ProviderResult};
+use crate::error::ProviderError;
 
 const SANDBOX_WEBHOOK_OPERATIONS: &[PaymentAdapterOperation] = &[
     PaymentAdapterOperation::VerifyWebhook,

@@ -11,7 +11,8 @@ use crate::order_reference::{load_order_payment_reference_postgres, order_status
 use crate::shared::{
     current_timestamp_string, ensure_refund_idempotency_replay_matches,
     ensure_refund_requester_idempotency_replay_matches, money_to_minor_units,
-    resolve_refund_amount, stable_storage_id, store_error, validate_refund_bounds,
+    normalize_stored_money_amount, organization_scope_bind, resolve_refund_amount,
+    stable_storage_id, store_error, validate_refund_bounds,
 };
 
 #[derive(Debug, Clone)]
@@ -86,6 +87,7 @@ impl PostgresCommerceRefundStore {
         // attempt amount), not the order total — PSP refunds (e.g. WeChat
         // `amount.total`) are anchored to the paid amount, so an order whose
         // payment settled below its total must not allow refunding more.
+        let paid_amount = normalize_stored_money_amount(&paid_amount)?;
         let paid_money = CommerceMoney::new(&paid_amount).map_err(CommerceServiceError::storage)?;
         let refund_amount = resolve_refund_amount(&command, &paid_money)?;
         let paid_minor = money_to_minor_units(&paid_amount)?;
@@ -111,13 +113,13 @@ impl PostgresCommerceRefundStore {
                  amount, currency_code, status, refund_reason_code, requested_by_type,
                  requested_by, request_no, idempotency_key, created_at, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, 'submitted', $9, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz)
+                ($1, $2, $3, $4, $5, $6, $7::numeric, $8, 'submitted', $9, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz)
             ON CONFLICT (id) DO NOTHING
             "#,
         )
         .bind(&refund_id)
         .bind(&command.tenant_id)
-        .bind(command.organization_id.as_deref())
+        .bind(organization_scope_bind(&command.organization_id))
         .bind(&command.order_id)
         .bind(&payment_attempt_id)
         .bind(&refund_no)
@@ -186,7 +188,7 @@ impl PostgresCommerceRefundStore {
         let mut sql = String::from(
             r#"
             SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
-                   CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status, r.refund_reason_code,
+                   CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status, r.refund_reason_code,
                    COUNT(*) OVER() AS total_count
             FROM commerce_refund r
             INNER JOIN commerce_order o
@@ -239,7 +241,7 @@ impl PostgresCommerceRefundStore {
         let row = sqlx::query(
             r#"
             SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
-                   CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status, r.refund_reason_code
+                   CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status, r.refund_reason_code
             FROM commerce_refund r
             INNER JOIN commerce_order o
                 ON o.tenant_id = r.tenant_id
@@ -330,7 +332,7 @@ impl PostgresCommerceRefundStore {
         let row = sqlx::query(
             r#"
             SELECT id, refund_no, order_id, payment_attempt_id,
-                   CAST(amount AS TEXT) AS amount, currency_code, status, refund_reason_code
+                   CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status, refund_reason_code
             FROM commerce_refund
             WHERE tenant_id = CAST($1 AS TEXT)
               AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
@@ -420,7 +422,7 @@ impl PostgresCommerceRefundStore {
         let row = sqlx::query(
             r#"
             SELECT id, refund_no, order_id, payment_attempt_id,
-                   CAST(amount AS TEXT) AS amount, currency_code, status, refund_reason_code
+                   CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status, refund_reason_code
             FROM commerce_refund
             WHERE tenant_id = CAST($1 AS TEXT)
               AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
@@ -501,7 +503,7 @@ impl PostgresCommerceRefundStore {
         let row = sqlx::query(
             r#"
             SELECT r.id AS id, r.refund_no, r.order_id, r.payment_attempt_id,
-                   CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
+                   CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status,
                    r.refund_reason_code, r.requested_by_type, r.requested_by
             FROM commerce_refund r
             INNER JOIN commerce_order o
@@ -543,7 +545,7 @@ async fn find_succeeded_payment_attempt_in_tx(
 ) -> Result<Option<(String, String, String)>, CommerceServiceError> {
     let row = sqlx::query(
         r#"
-        SELECT id, CAST(amount AS TEXT) AS amount, currency_code
+        SELECT id, CAST(amount AS BIGINT)::TEXT AS amount, currency_code
         FROM commerce_payment_attempt
         WHERE tenant_id = CAST($1 AS TEXT)
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
@@ -583,7 +585,7 @@ async fn sum_refunded_amount_in_tx(
 ) -> Result<i64, CommerceServiceError> {
     let rows = sqlx::query(
         r#"
-        SELECT CAST(amount AS TEXT) AS amount
+        SELECT CAST(amount AS BIGINT)::TEXT AS amount
         FROM commerce_refund
         WHERE tenant_id = CAST($1 AS TEXT)
           AND order_id = CAST($2 AS TEXT)
@@ -616,7 +618,7 @@ async fn find_refund_by_idempotency_in_tx(
     let row = sqlx::query(
         r#"
         SELECT r.id AS id, r.refund_no, r.order_id, r.payment_attempt_id,
-               CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
+               CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status,
                r.refund_reason_code, r.requested_by_type, r.requested_by
         FROM commerce_refund r
         INNER JOIN commerce_order o
@@ -651,7 +653,7 @@ async fn find_refund_by_idempotency_in_tx(
     map_refund_row(row).map(Some)
 }
 
-async fn insert_refund_event(
+pub(crate) async fn insert_refund_event(
     tx: &mut Transaction<'_, Postgres>,
     tenant_id: &str,
     organization_id: Option<&str>,
@@ -680,11 +682,12 @@ async fn insert_refund_event(
              from_status, to_status, actor_type, actor_id, request_id, idempotency_key, created_at)
         VALUES
             ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz)
+        ON CONFLICT (id) DO NOTHING
        "#,
     )
     .bind(&event_id)
     .bind(tenant_id)
-    .bind(organization_id)
+    .bind(organization_scope_bind(&organization_id.map(str::to_owned)))
     .bind(&event_no)
     .bind(refund_id)
     .bind(event_type)
@@ -702,13 +705,13 @@ async fn insert_refund_event(
 }
 
 fn map_refund_row(row: sqlx::postgres::PgRow) -> Result<RefundView, CommerceServiceError> {
+    let amount = normalize_stored_money_amount(&string_cell(&row, "amount"))?;
     Ok(RefundView {
         refund_id: string_cell(&row, "id"),
         refund_no: string_cell(&row, "refund_no"),
         order_id: string_cell(&row, "order_id"),
         payment_attempt_id: string_cell(&row, "payment_attempt_id"),
-        amount: CommerceMoney::new(&string_cell(&row, "amount"))
-            .map_err(CommerceServiceError::storage)?,
+        amount: CommerceMoney::new(&amount).map_err(CommerceServiceError::storage)?,
         currency_code: string_cell(&row, "currency_code"),
         status: string_cell(&row, "status"),
         reason_code: optional_string_cell(&row, "refund_reason_code"),

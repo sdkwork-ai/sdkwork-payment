@@ -120,98 +120,98 @@ UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Stripe Card"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-stripe-card'
+  AND channel_no = 'stripe-card'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Stripe Apple Pay"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-stripe-apple-pay'
+  AND channel_no = 'stripe-apple-pay'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Stripe Google Pay"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-stripe-google-pay'
+  AND channel_no = 'stripe-google-pay'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Stripe Alipay"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-stripe-alipay'
+  AND channel_no = 'stripe-alipay'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Stripe WeChat Pay"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-stripe-wechat-pay'
+  AND channel_no = 'stripe-wechat-pay'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Alipay QR"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-alipay-qr'
+  AND channel_no = 'alipay-qr'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Alipay PC"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-alipay-pc'
+  AND channel_no = 'alipay-pc'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Alipay WAP"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-alipay-wap'
+  AND channel_no = 'alipay-wap'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Alipay App"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-alipay-app'
+  AND channel_no = 'alipay-app'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"Alipay JSAPI"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-alipay-jsapi'
+  AND channel_no = 'alipay-jsapi'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"WeChat Pay Native"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-wechat-native'
+  AND channel_no = 'wechat-native'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"WeChat Pay JSAPI"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-wechat-jsapi'
+  AND channel_no = 'wechat-jsapi'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"WeChat Pay H5"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-wechat-h5'
+  AND channel_no = 'wechat-h5'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel
 SET channel_name_i18n = jsonb_set(channel_name_i18n, '{en-US}', '"WeChat Pay App"'::jsonb, true)
 WHERE tenant_id = '100001'
   AND organization_id = '0'
-  AND channel_no = 'bootstrap-wechat-app'
+  AND channel_no = 'wechat-app'
   AND deleted_at IS NULL;
 
 UPDATE commerce_payment_channel

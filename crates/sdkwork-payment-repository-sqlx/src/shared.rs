@@ -314,6 +314,58 @@ pub(crate) fn provider_out_trade_no(
 pub(crate) fn current_timestamp_string() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
+/// Normalizes a stored money column value into the canonical smallest-unit
+/// integer string expected by `CommerceMoney`.
+///
+/// The storage convention is minor-unit integers, so a zero fraction (e.g.
+/// `"1.00"` — how `NUMERIC(18,2)` columns project the integer `1` back
+/// through `CAST(... AS TEXT)`) is the integer itself and passes through
+/// unchanged. Legacy major-unit decimals with a non-zero fraction (e.g.
+/// `0.01`, `12.50` — written by earlier test-order bootstrap) are converted
+/// to cents so reads keep working. Truly invalid values (negative, empty,
+/// more than two fraction digits) fail with the offending value so the log
+/// line is actionable instead of silently becoming a 0-amount payment.
+pub(crate) fn normalize_stored_money_amount(amount: &str) -> Result<String, CommerceServiceError> {
+    let value = amount.trim();
+    let mut parts = value.split('.');
+    let whole = parts.next().unwrap_or_default();
+    let fraction = parts.next().unwrap_or_default();
+    let trailing = parts.next().is_some();
+    let well_formed = !whole.is_empty()
+        && whole.chars().all(|c| c.is_ascii_digit())
+        && fraction.chars().all(|c| c.is_ascii_digit())
+        && fraction.len() <= 2
+        && !trailing;
+    if !well_formed {
+        return Err(CommerceServiceError::storage(format!(
+            "invalid stored money amount: {value:?}"
+        )));
+    }
+    if fraction.is_empty() || fraction.chars().all(|c| c == '0') {
+        // Integer minor-unit amounts pass through unchanged — including the
+        // `"1.00"` form produced by projecting a NUMERIC(18,2) column back to
+        // TEXT, whose zero fraction must NOT be interpreted as major units
+        // (that would multiply every amount by 100).
+        return Ok(whole.to_string());
+    }
+    let whole_minor = whole.parse::<i64>().map_err(|_| {
+        CommerceServiceError::storage(format!("invalid stored money amount: {value:?}"))
+    })?;
+    let mut padded = fraction.to_string();
+    while padded.len() < 2 {
+        padded.push('0');
+    }
+    let cents = padded.parse::<i64>().map_err(|_| {
+        CommerceServiceError::storage(format!("invalid stored money amount: {value:?}"))
+    })?;
+    whole_minor
+        .checked_mul(100)
+        .and_then(|amount| amount.checked_add(cents))
+        .map(|amount| amount.to_string())
+        .ok_or_else(|| {
+            CommerceServiceError::storage(format!("invalid stored money amount: {value:?}"))
+        })
+}
 /// Parse a money string into integer smallest currency units.
 ///
 /// `CommerceMoney` is stored and exchanged as a non-negative integer string in
@@ -369,6 +421,21 @@ pub(crate) fn validate_refund_bounds(
     }
     Ok(())
 }
+/// Normalizes the organization scope for NOT NULL `organization_id` columns:
+/// tenant (personal) sessions carry no organization, persisted as the `"0"`
+/// sentinel so platform rows satisfy the NOT NULL constraint (mirrors the
+/// order-domain `normalize_organization_scope` behavior).
+pub(crate) fn organization_scope_bind(organization_id: &Option<String>) -> Option<String> {
+    Some(
+        organization_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("0")
+            .to_owned(),
+    )
+}
+
 pub(crate) fn string_cell<R: StringCellRow>(row: &R, column: &str) -> String {
     row.string_cell(column)
 }
@@ -387,9 +454,10 @@ impl StringCellRow for PgRow {
 mod tests {
     use super::{
         ensure_confirmation_intent_update, ensure_owner_payment_idempotency_replay_matches,
-        ensure_refund_idempotency_replay_matches, owner_payment_callback_payload,
-        owner_payment_reuse_matches, payment_attempt_callback_payload, provider_out_trade_no,
-        required_persisted_paid_at, resolve_confirmation_attempt_replayed,
+        ensure_refund_idempotency_replay_matches, normalize_stored_money_amount,
+        owner_payment_callback_payload, owner_payment_reuse_matches,
+        payment_attempt_callback_payload, provider_out_trade_no, required_persisted_paid_at,
+        resolve_confirmation_attempt_replayed,
     };
     use sdkwork_contract_service::CommerceMoney;
     use sdkwork_payment_service::{
@@ -548,5 +616,32 @@ mod tests {
             provider_out_trade_no("a:bc", "d", "e"),
             provider_out_trade_no("a", "bc:d", "e")
         );
+    }
+    #[test]
+    fn normalizes_legacy_major_unit_decimals_to_minor_units() {
+        assert_eq!(normalize_stored_money_amount("0.01").unwrap(), "1");
+        assert_eq!(normalize_stored_money_amount("12.30").unwrap(), "1230");
+        assert_eq!(normalize_stored_money_amount("12.3").unwrap(), "1230");
+        // Canonical integer smallest-unit strings pass through unchanged.
+        assert_eq!(normalize_stored_money_amount("64000").unwrap(), "64000");
+        assert_eq!(normalize_stored_money_amount("0").unwrap(), "0");
+        // A zero fraction is the integer itself: `NUMERIC(18,2)` columns
+        // project the stored integer `1` back as `"1.00"` through
+        // `CAST(... AS TEXT)`, which must NOT be interpreted as major units
+        // (that would multiply every amount by 100). Payment-domain writers
+        // only ever persist minor-unit integers (or legacy non-zero-fraction
+        // test-order amounts like "0.01"), never major "640.00" cents.
+        assert_eq!(normalize_stored_money_amount("1.00").unwrap(), "1");
+        assert_eq!(normalize_stored_money_amount("640.00").unwrap(), "640");
+        assert_eq!(normalize_stored_money_amount("1250.00").unwrap(), "1250");
+        assert_eq!(normalize_stored_money_amount("0.00").unwrap(), "0");
+    }
+    #[test]
+    fn rejects_truly_invalid_stored_money_values() {
+        assert!(normalize_stored_money_amount("-100").is_err());
+        assert!(normalize_stored_money_amount("12.345").is_err());
+        assert!(normalize_stored_money_amount("1,000").is_err());
+        assert!(normalize_stored_money_amount("").is_err());
+        assert!(normalize_stored_money_amount("abc").is_err());
     }
 }

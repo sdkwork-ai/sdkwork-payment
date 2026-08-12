@@ -2,6 +2,6 @@ import type { PaymentRecord } from './payment-record';
 
 export interface PaymentRecordResponse {
   code: 0;
-  data: Record<string, unknown>;
+  data: { item: PaymentRecord; };
   traceId: string;
 }

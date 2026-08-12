@@ -86,19 +86,17 @@ export interface PaymentProviderAccountView {
 }
 
 /**
- * Resolve the operator-facing account name for display: the locale map wins
- * when it has an entry for the current locale, otherwise the canonical
- * account name, otherwise the machine account no. Seeded and operator-edited
+ * Resolve the operator-facing account name for display: the accountName field
+ * is shown verbatim (it is the operator-edited business name), falling back to
+ * the machine account no. Localized name overrides are intentionally NOT
+ * applied — an i18n entry would otherwise shadow names edited in the admin
+ * workspace and make the edit appear ineffective. Seeded and operator-edited
  * names both flow through this path so every surface shows the same label.
  */
 export function resolveProviderAccountName(
   account: Pick<PaymentProviderAccountView, "accountNo" | "accountName" | "accountNameI18n">,
-  localeTag?: string | null,
+  _localeTag?: string | null,
 ): string {
-  if (localeTag) {
-    const localized = account.accountNameI18n?.[localeTag];
-    if (localized) return localized;
-  }
   return account.accountName || account.accountNo;
 }
 
@@ -115,6 +113,13 @@ export interface PaymentSubMerchantView {
   readonly metadata: Record<string, unknown>;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface ProviderAccountCredentialsView {
+  readonly providerAccountId: string;
+  readonly primarySecret?: string;
+  readonly webhookSecret?: string;
+  readonly certificate?: string;
 }
 
 export interface PaymentProviderAccountTestResult {
@@ -239,6 +244,7 @@ export interface PaymentProviderAdminController {
   deleteProviderAccount(id: string): Promise<void>;
   testProviderAccount(id: string, options?: PaymentProviderAccountTestOptions): Promise<PaymentProviderAccountTestResult>;
   rotateProviderAccountCredentials(id: string, draft: PaymentCredentialRotateDraft): Promise<PaymentProviderAccountView>;
+  readProviderAccountCredentials(id: string): Promise<ProviderAccountCredentialsView>;
   createSubMerchant(draft: PaymentSubMerchantDraft): Promise<PaymentSubMerchantView>;
   updateSubMerchant(id: string, draft: PaymentSubMerchantUpdateDraft): Promise<PaymentSubMerchantView>;
   deleteSubMerchant(id: string): Promise<void>;

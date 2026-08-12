@@ -4,7 +4,7 @@ use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceSer
 use sdkwork_payment_service::{
     CancelOwnerPaymentIntentCommand, CreateOwnerPaymentAttemptCommand,
     CreateOwnerPaymentAttemptOutcome, CreateOwnerPaymentIntentCommand, OrderPaymentReferenceQuery,
-    PaymentIntentDetailQuery, PaymentIntentView,
+    OrderPaymentReferenceSnapshot, PaymentIntentDetailQuery, PaymentIntentView,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
@@ -14,13 +14,25 @@ use crate::order_reference::{
 use crate::payment_channel::select_payment_channel_postgres;
 use crate::shared::{
     ensure_payment_attempt_idempotency_replay_matches,
-    ensure_payment_intent_idempotency_replay_matches,
+    ensure_payment_intent_idempotency_replay_matches, normalize_stored_money_amount,
+    organization_scope_bind,
 };
 
 #[derive(Debug, Clone)]
 struct ResolvedPaymentMethod {
     method_key: String,
     provider_code: String,
+}
+
+/// Resolves the order currency for intent persistence, defaulting to `CNY`
+/// when the order row carries none.
+fn order_currency_code(order_ref: &OrderPaymentReferenceSnapshot) -> &str {
+    order_ref
+        .currency_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("CNY")
 }
 
 #[derive(Debug, Clone)]
@@ -84,19 +96,20 @@ impl PostgresCommercePaymentIntentStore {
                  payment_method, provider_code, amount, currency_code, status, request_no,
                  idempotency_key, created_at, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'CNY', $10, $11, $12, $13::timestamptz, $14::timestamptz)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9::numeric, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz)
             ON CONFLICT (id) DO NOTHING
            "#,
         )
         .bind(&payment_intent_id)
         .bind(&command.tenant_id)
-        .bind(command.organization_id.as_deref())
+        .bind(organization_scope_bind(&command.organization_id))
         .bind(&command.owner_user_id)
         .bind(&command.order_id)
         .bind(format!("PAY-{}", order_ref.order_sn))
         .bind(&method.method_key)
         .bind(&method.provider_code)
         .bind(order_ref.total_amount.as_str())
+        .bind(order_currency_code(&order_ref))
         .bind(status)
         .bind(&command.request_no)
         .bind(&command.idempotency_key)
@@ -136,8 +149,8 @@ impl PostgresCommercePaymentIntentStore {
             payment_intent_no: command.request_no,
             payment_method: method.method_key,
             provider_code: method.provider_code,
+            currency_code: order_currency_code(&order_ref).to_owned(),
             amount: order_ref.total_amount,
-            currency_code: "CNY".to_owned(),
             status: status.to_owned(),
         })
     }
@@ -149,7 +162,7 @@ impl PostgresCommercePaymentIntentStore {
         let row = sqlx::query(
             r#"
             SELECT id, order_id, payment_intent_no, payment_method, provider_code,
-                   CAST(amount AS TEXT) AS amount, currency_code, status
+                   CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status
             FROM commerce_payment_intent
             WHERE tenant_id = CAST($1 AS TEXT)
               AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
@@ -324,13 +337,13 @@ impl PostgresCommercePaymentIntentStore {
                  payment_method, provider_code, channel_id, out_trade_no, amount, currency_code, status,
                  callback_payload, request_no, idempotency_key, expires_at, created_at, paid_at, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17::timestamptz, $18::timestamptz, NULL, $19::timestamptz)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14::jsonb, $15, $16, $17::timestamptz, $18::timestamptz, NULL, $19::timestamptz)
             ON CONFLICT (id) DO NOTHING
            "#,
         )
         .bind(&attempt_id)
         .bind(&command.tenant_id)
-        .bind(command.organization_id.as_deref())
+        .bind(organization_scope_bind(&command.organization_id))
         .bind(&command.owner_user_id)
         .bind(&command.payment_intent_id)
         .bind(&intent.order_id)
@@ -354,7 +367,7 @@ impl PostgresCommercePaymentIntentStore {
         if insert.rows_affected() == 0 {
             let row = sqlx::query(
                 r#"
-                SELECT id, payment_intent_id, order_id, out_trade_no, CAST(amount AS TEXT) AS amount,
+                SELECT id, payment_intent_id, order_id, out_trade_no, CAST(amount AS BIGINT)::TEXT AS amount,
                        payment_method, provider_code, channel_id, status
                 FROM commerce_payment_attempt
                 WHERE tenant_id = CAST($1 AS TEXT)
@@ -428,7 +441,7 @@ impl PostgresCommercePaymentIntentStore {
         let row = sqlx::query(
             r#"
             SELECT id, order_id, payment_intent_no, payment_method, provider_code,
-                   CAST(amount AS TEXT) AS amount, currency_code, status
+                   CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status
             FROM commerce_payment_intent
             WHERE tenant_id = CAST($1 AS TEXT)
               AND order_id = CAST($2 AS TEXT)
@@ -458,7 +471,7 @@ impl PostgresCommercePaymentIntentStore {
         let attempt_id = payment_attempt_id(command);
         let row = sqlx::query(
             r#"
-            SELECT id, payment_intent_id, order_id, out_trade_no, CAST(amount AS TEXT) AS amount,
+            SELECT id, payment_intent_id, order_id, out_trade_no, CAST(amount AS BIGINT)::TEXT AS amount,
                    payment_method, provider_code, channel_id, status
             FROM commerce_payment_attempt
             WHERE tenant_id = CAST($1 AS TEXT)
@@ -550,7 +563,7 @@ async fn load_reusable_payment_attempt(
 ) -> Result<Option<CreateOwnerPaymentAttemptOutcome>, CommerceServiceError> {
     let row = sqlx::query(
         r#"
-        SELECT pa.id, pa.payment_intent_id, pa.order_id, pa.out_trade_no, CAST(pa.amount AS TEXT) AS amount,
+        SELECT pa.id, pa.payment_intent_id, pa.order_id, pa.out_trade_no, CAST(pa.amount AS BIGINT)::TEXT AS amount,
                pa.payment_method, pa.provider_code, pa.channel_id, pa.status
         FROM commerce_payment_attempt pa
         INNER JOIN commerce_order o
@@ -585,14 +598,14 @@ async fn load_reusable_payment_attempt(
 fn map_payment_intent_row(
     row: sqlx::postgres::PgRow,
 ) -> Result<PaymentIntentView, CommerceServiceError> {
+    let amount = normalize_stored_money_amount(&string_cell(&row, "amount"))?;
     Ok(PaymentIntentView {
         payment_intent_id: string_cell(&row, "id"),
         order_id: string_cell(&row, "order_id"),
         payment_intent_no: string_cell(&row, "payment_intent_no"),
         payment_method: string_cell(&row, "payment_method"),
         provider_code: string_cell(&row, "provider_code"),
-        amount: CommerceMoney::new(&string_cell(&row, "amount"))
-            .map_err(CommerceServiceError::storage)?,
+        amount: CommerceMoney::new(&amount).map_err(CommerceServiceError::storage)?,
         currency_code: string_cell(&row, "currency_code"),
         status: string_cell(&row, "status"),
     })
@@ -606,13 +619,13 @@ fn map_payment_attempt_row(
     if !channel_id.trim().is_empty() {
         payment_params.insert("channelId".to_owned(), channel_id);
     }
+    let amount = normalize_stored_money_amount(&string_cell(&row, "amount"))?;
     Ok(CreateOwnerPaymentAttemptOutcome {
         attempt_id: string_cell(&row, "id"),
         payment_intent_id: string_cell(&row, "payment_intent_id"),
         order_id: string_cell(&row, "order_id"),
         out_trade_no: string_cell(&row, "out_trade_no"),
-        amount: CommerceMoney::new(&string_cell(&row, "amount"))
-            .map_err(CommerceServiceError::storage)?,
+        amount: CommerceMoney::new(&amount).map_err(CommerceServiceError::storage)?,
         payment_method: string_cell(&row, "payment_method"),
         provider_code: string_cell(&row, "provider_code"),
         status: string_cell(&row, "status"),
@@ -670,4 +683,45 @@ fn optional_string_cell(row: &sqlx::postgres::PgRow, column: &str) -> Option<Str
 
 fn string_cell(row: &sqlx::postgres::PgRow, column: &str) -> String {
     optional_string_cell(row, column).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::order_currency_code;
+    use sdkwork_contract_service::CommerceMoney;
+    use sdkwork_payment_service::OrderPaymentReferenceSnapshot;
+
+    fn snapshot_with_currency(currency_code: Option<String>) -> OrderPaymentReferenceSnapshot {
+        OrderPaymentReferenceSnapshot {
+            expires_at: None,
+            order_id: "order-1".to_owned(),
+            order_sn: "SN-1".to_owned(),
+            order_subject: None,
+            status: "pending_payment".to_owned(),
+            total_amount: CommerceMoney::new("1").expect("amount"),
+            currency_code,
+            pay_time: None,
+        }
+    }
+
+    #[test]
+    fn intent_currency_follows_the_order_currency() {
+        assert_eq!(
+            order_currency_code(&snapshot_with_currency(Some("USD".to_owned()))),
+            "USD"
+        );
+        assert_eq!(
+            order_currency_code(&snapshot_with_currency(Some("CNY".to_owned()))),
+            "CNY"
+        );
+    }
+
+    #[test]
+    fn intent_currency_defaults_to_cny_when_order_has_none() {
+        assert_eq!(order_currency_code(&snapshot_with_currency(None)), "CNY");
+        assert_eq!(
+            order_currency_code(&snapshot_with_currency(Some("  ".to_owned()))),
+            "CNY"
+        );
+    }
 }

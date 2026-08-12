@@ -14,13 +14,14 @@ use sdkwork_payment_providers::{
     ProviderAccountBinding, ProviderCredentialBundle,
 };
 use sdkwork_payment_repository_sqlx::{
-    enrich_owner_payment_attempt_postgres, webhook_status::map_provider_payment_status,
-    IngestProviderWebhookCommand, OwnerOrderPaymentEnrichmentContext,
+    enrich_owner_payment_attempt_postgres,
     payment_attempt_context::PaymentWebhookAttemptIdentity,
-    PostgresCommercePaymentIntentStore,
     postgres_webhook_ingestion::{
         apply_webhook_payment_status_postgres, ingest_provider_webhook_postgres,
     },
+    webhook_status::map_provider_payment_status,
+    IngestProviderWebhookCommand, OwnerOrderPaymentEnrichmentContext,
+    PostgresCommercePaymentIntentStore,
 };
 use sdkwork_payment_service::{
     CreateOwnerPaymentAttemptCommand, CreateOwnerPaymentAttemptOutcome,
@@ -34,8 +35,8 @@ use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Row};
 
 use crate::api_response::{
-    conflict, map_service_error, not_found, success_created_item,
-    success_item, success_list, success_no_content, unauthorized, validation,
+    conflict, map_service_error, not_found, provider_rejected, sanitize_provider_error_message,
+    success_created_item, success_item, success_list, success_no_content, unauthorized, validation,
 };
 use crate::command_headers::{validate_write_payload, WriteCommandHeaderError};
 use crate::subject::{backend_runtime_subject_from_extension, AppRuntimeSubject};
@@ -430,6 +431,7 @@ fn provider_account_readiness_issues(
             {
                 issues.push("WeChat API v3 key is not configured".to_owned());
             }
+            // 验签凭据（官方二选一）：微信支付公钥（默认/推荐）或平台证书。
             if account.certificate.is_none()
                 && account
                     .certificate_ref
@@ -437,7 +439,31 @@ fn provider_account_readiness_issues(
                     .and_then(resolve_secret_ref)
                     .is_none()
             {
-                issues.push("WeChat platform certificate is not configured".to_owned());
+                issues.push(
+                    "WeChat verification key (platform certificate or WeChat Pay public key) is not configured"
+                        .to_owned(),
+                );
+            }
+            match metadata_text(&account.metadata, "signVerifyMode").as_deref() {
+                Some("platform_certificate") => {
+                    if metadata_text(&account.metadata, "platformCertificateSerialNo").is_none() {
+                        issues.push(
+                            "metadata.platformCertificateSerialNo is required for WeChat Pay platform certificate mode"
+                                .to_owned(),
+                        );
+                    }
+                }
+                Some("wechatpay_public_key") | None => {
+                    if metadata_text(&account.metadata, "wechatpayPublicKeyId").is_none() {
+                        issues.push(
+                            "metadata.wechatpayPublicKeyId is required for WeChat Pay public key mode"
+                                .to_owned(),
+                        );
+                    }
+                }
+                Some(other) => issues.push(format!(
+                    "metadata.signVerifyMode must be platform_certificate or wechatpay_public_key, got {other}"
+                )),
             }
             if account
                 .metadata
@@ -446,7 +472,10 @@ fn provider_account_readiness_issues(
                 .is_none_or(|value| value.trim().is_empty())
                 && credentials.provider_notify_url("wechat_pay").is_none()
             {
-                issues.push("metadata.notifyUrl is required for WeChat Pay".to_owned());
+                issues.push(
+                    "metadata.notifyUrl (or a configured default notify domain in the payment center) is required for WeChat Pay"
+                        .to_owned(),
+                );
             }
         }
         "alipay" => {
@@ -484,6 +513,15 @@ fn provider_account_readiness_issues(
         issues.push("provider adapter could not initialize".to_owned());
     }
     issues
+}
+
+fn metadata_text(metadata: &Value, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 async fn rotate_provider_credentials(
@@ -792,7 +830,10 @@ async fn trigger_sandbox_event(
     // record), so the simulated payment takes effect immediately instead of
     // waiting for a queue consumer that does not exist.
     let IntegrationPool::Postgres(pool) = &state.pool else {
-        return validation(ctx, "payment dev endpoints require the postgres integration pool");
+        return validation(
+            ctx,
+            "payment dev endpoints require the postgres integration pool",
+        );
     };
     let ingest_command = IngestProviderWebhookCommand {
         provider_code: account.provider_code.clone(),
@@ -1012,65 +1053,83 @@ async fn create_test_payment(
         return map_service_error(ctx, error);
     }
 
-    let checkout =
-        match create_test_payment_checkout(&state.pool, &subject, &order_id, &method_key, &write)
-            .await
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                // PSP credential/config and upstream transport failures are
-                // diagnosable setup problems for a dev test payment, not
-                // internal errors: surface the concrete message as a 4xx
-                // instead of a generic 50001 so the operator can act on it
-                // (e.g., configure a provider account + channel, or fix the
-                // upstream call).
-                if matches!(error.code(), "provider-unavailable" | "transport") {
-                    let message = error.message();
-                    let guidance = if message.contains("is not configured") {
-                        "create an active provider account and channel for this method (or set the provider credentials), then retry"
-                    } else {
-                        "check the provider credentials, merchant configuration, network access, and the callback (notify) URL configuration, then retry"
-                    };
-                    return validation(
-                        ctx,
-                        format!("payment provider checkout failed: {message}; {guidance}"),
-                    );
-                }
-                // Storage failures (e.g. a missing table column in this
-                // deployment) must be visible for a dev endpoint instead of a
-                // generic 50001: report the concrete SQL problem.
-                if error.code() == "storage" {
-                    return validation(
+    let checkout = match create_test_payment_checkout(
+        &state.pool,
+        &subject,
+        &order_id,
+        &method_key,
+        &write,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // PSP credential/config and upstream transport failures are
+            // diagnosable setup problems for a dev test payment, not
+            // internal errors: surface the concrete message as a 4xx
+            // instead of a generic 50001 so the operator can act on it
+            // (e.g., configure a provider account + channel, or fix the
+            // upstream call).
+            if matches!(error.code(), "provider-unavailable" | "transport") {
+                let message = sanitize_provider_error_message(error.message());
+                // PSP authentication failures (e.g. WeChat `SIGN_ERROR`,
+                // Stripe `Invalid API Key`) arrive as `HTTP 401` from the
+                // PSP — NOT from this API. Report them with the dedicated
+                // 41101 code (not 40001/401xx) and an HTTP 400 (not 401),
+                // with the PSP's own HTTP status stripped from the detail,
+                // so the admin session boundary never treats a
+                // payment-gateway rejection as a login problem.
+                let guidance = if message.contains("is not configured") {
+                    "create an active provider account and channel for this method (or set the provider credentials), then retry"
+                } else if message.contains("SIGN_ERROR") {
+                    "the payment gateway rejected the request signature: the account is using auto-filled test credentials, not a real merchant key. Replace them with the real merchant API private key / certificate in Provider Accounts (edit → save), then retry — the request itself reached the PSP"
+                } else if message.contains("Unauthorized")
+                    || message.contains("Invalid API Key")
+                    || message.contains("invalid api key")
+                {
+                    "the PSP rejected the credentials (the 401 comes from the payment gateway, not from this admin API — your session is fine). Replace the account credentials with valid PSP keys in Provider Accounts, then retry"
+                } else {
+                    "check the provider credentials, merchant configuration, network access, and the callback (notify) URL configuration, then retry"
+                };
+                return provider_rejected(
+                    ctx,
+                    format!("payment provider checkout failed: {message}; {guidance}"),
+                );
+            }
+            // Storage failures (e.g. a missing table column in this
+            // deployment) must be visible for a dev endpoint instead of a
+            // generic 50001: report the concrete SQL problem.
+            if error.code() == "storage" {
+                return validation(
                         ctx,
                         format!(
                             "payment test order storage failed: {} (verify the payment/order schema of this deployment)",
                             error.message()
                         ),
                     );
-                }
-                // Order-boundary conflicts (e.g. "order is not pending
-                // payment") get the stored order status and expiry appended;
-                // method-availability conflicts get the method/channel/account
-                // state appended — so a schema or configuration issue is
-                // visible instead of opaque.
-                if error.code() == "conflict" {
-                    let order_diagnostic =
-                        load_test_order_diagnostic(&state.pool, &subject, &order_id).await;
-                    let method_diagnostic =
-                        load_test_payment_method_diagnostic(&state.pool, &subject, &method_key)
-                            .await;
-                    let diagnostic = [order_diagnostic, method_diagnostic]
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<_>>()
-                        .join("; ");
-                    if !diagnostic.is_empty() {
-                        return conflict(ctx, format!("{} ({diagnostic})", error.message()));
-                    }
-                }
-                return map_service_error(ctx, error);
             }
-        };
+            // Order-boundary conflicts (e.g. "order is not pending
+            // payment") get the stored order status and expiry appended;
+            // method-availability conflicts get the method/channel/account
+            // state appended — so a schema or configuration issue is
+            // visible instead of opaque.
+            if error.code() == "conflict" {
+                let order_diagnostic =
+                    load_test_order_diagnostic(&state.pool, &subject, &order_id).await;
+                let method_diagnostic =
+                    load_test_payment_method_diagnostic(&state.pool, &subject, &method_key).await;
+                let diagnostic = [order_diagnostic, method_diagnostic]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                if !diagnostic.is_empty() {
+                    return conflict(ctx, format!("{} ({diagnostic})", error.message()));
+                }
+            }
+            return map_service_error(ctx, error);
+        }
+    };
     let (intent, attempt) = checkout;
 
     let qr_code_url = attempt
@@ -1089,7 +1148,12 @@ async fn create_test_payment(
             out_trade_no: attempt.out_trade_no,
             method_key: attempt.payment_method,
             provider_code: attempt.provider_code,
-            amount: attempt.amount.as_str().to_owned(),
+            amount: attempt
+                .amount
+                .as_str()
+                .parse::<i64>()
+                .map(minor_units_to_decimal_string)
+                .unwrap_or_else(|_| attempt.amount.as_str().to_owned()),
             currency_code,
             status: attempt.status,
             qr_code_url,
@@ -1183,7 +1247,10 @@ async fn check_attempt_status(
     };
 
     let IntegrationPool::Postgres(pool) = &state.pool else {
-        return validation(ctx, "payment dev endpoints require the postgres integration pool");
+        return validation(
+            ctx,
+            "payment dev endpoints require the postgres integration pool",
+        );
     };
     let organization_id = subject
         .organization_id
@@ -1224,7 +1291,9 @@ async fn check_attempt_status(
     };
     let registry = provider_registry_for_account(
         &EnvPaymentCredentialResolver::load(),
-        account.as_ref().map(|account| account.binding(account.environment.clone())),
+        account
+            .as_ref()
+            .map(|account| account.binding(account.environment.clone())),
     );
     let Some(adapter) = registry.resolve(&attempt.provider_code) else {
         return validation(
@@ -1254,8 +1323,9 @@ async fn check_attempt_status(
     {
         Ok(outcome) => outcome,
         Err(error) => {
-            let message =
-                sdkwork_contract_service::CommerceServiceError::from(error).message().to_string();
+            let message = sdkwork_contract_service::CommerceServiceError::from(error)
+                .message()
+                .to_string();
             return validation(
                 ctx,
                 format!(
@@ -1327,7 +1397,7 @@ async fn check_attempt_status(
         if let Err(error) = tx.commit().await {
             return map_service_error(ctx, storage(error.to_string()));
         }
-        if let Some(applied) = applied {
+        if let Some(applied) = applied.status {
             local_status = applied;
         }
     }
@@ -1403,8 +1473,7 @@ async fn load_provider_account_for_attempt(
     pool: &PgPool,
     subject: &AppRuntimeSubject,
     attempt: &TestAttemptForCheck,
-) -> Result<Option<ProviderAccountRecord>, sdkwork_contract_service::CommerceServiceError>
-{
+) -> Result<Option<ProviderAccountRecord>, sdkwork_contract_service::CommerceServiceError> {
     let Some(channel_id) = attempt.channel_id.as_deref() else {
         return Ok(None);
     };
@@ -1446,7 +1515,11 @@ async fn load_provider_account_for_attempt(
         primary_secret: row.try_get("primary_secret").ok().flatten(),
         webhook_secret: row.try_get("webhook_secret").ok().flatten(),
         certificate: row.try_get("certificate").ok().flatten(),
-        metadata: row.try_get("metadata").ok().flatten().unwrap_or_else(|| json!({})),
+        metadata: row
+            .try_get("metadata")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| json!({})),
     }))
 }
 
@@ -1486,6 +1559,18 @@ async fn insert_test_order(
     expires_at: &str,
 ) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
     let breakdown_id = stable_id("test-payment-breakdown", order_id);
+    // The breakdown amount must be persisted as the canonical minor-unit
+    // integer (e.g. "1" for ¥0.01) — the same representation real orders
+    // store and every downstream reader expects (`CommerceMoney::new`,
+    // `CAST(... AS BIGINT)`). Writing the major-unit string ("0.01") makes the
+    // intent/attempt amount decode fail with "money amount must be a
+    // non-negative integer smallest-unit amount".
+    let amount_minor = decimal_amount_minor_units(amount).ok_or_else(|| {
+        sdkwork_contract_service::CommerceServiceError::validation(
+            "amount overflows the supported range",
+        )
+    })?;
+    let amount_minor = amount_minor.to_string();
     // Platform rows persist the sentinel organization scope (`"0"`) so
     // tenant (personal) sessions never write NULL into the NOT NULL
     // `organization_id` column.
@@ -1520,8 +1605,8 @@ async fn insert_test_order(
             .bind(&subject.tenant_id)
             .bind(organization_id)
             .bind(order_id)
-            .bind(amount)
-            .bind(amount)
+            .bind(&amount_minor)
+            .bind(&amount_minor)
             .bind(currency_code)
             .bind(now)
             .execute(pool)
@@ -1665,6 +1750,12 @@ fn decimal_amount_minor_units(value: &str) -> Option<i64> {
         two => two[..2].parse().ok()?,
     };
     yuan.checked_mul(100)?.checked_add(cents)
+}
+
+/// Formats integer smallest units (1) back to the decimal display string
+/// ("0.01") for the admin response.
+fn minor_units_to_decimal_string(minor_units: i64) -> String {
+    format!("{}.{:02}", minor_units / 100, minor_units % 100)
 }
 
 /// Validates a money string against `^[0-9]+(\.[0-9]{1,2})?$` without regex.

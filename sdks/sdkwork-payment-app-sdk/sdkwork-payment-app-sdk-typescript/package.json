@@ -15,11 +15,17 @@
     }
   },
   "dependencies": {
-    "@sdkwork/sdk-common": "workspace:*"
+    "@sdkwork/sdk-common": "workspace:*",
+    "@sdkwork/utils": "workspace:*"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "files": ["src", "generated/server-openapi/dist", "generated/server-openapi/src", "README.md"]
+  "files": [
+    "src",
+    "generated/server-openapi/dist",
+    "generated/server-openapi/src",
+    "README.md"
+  ]
 }

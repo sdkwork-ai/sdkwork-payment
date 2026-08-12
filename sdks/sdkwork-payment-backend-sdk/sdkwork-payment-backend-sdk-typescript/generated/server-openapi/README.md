@@ -30,11 +30,8 @@ client.setAccessToken('your-access-token');
 const params = {
   page: 1,
   page_size: 2,
-  sort: 'sort',
-  q: 'q',
-  status: 'active',
 };
-const result = await client.payments.methods.list(params);
+const result = await client.payments.notifyDomains.list(params);
 ```
 
 ## Authentication
@@ -68,15 +65,12 @@ const client = new SdkworkBackendClient({
 ### payments
 
 ```typescript
-// Payment methods list.
+// List payment notify domains
 const params = {
   page: 1,
   page_size: 2,
-  sort: 'sort',
-  q: 'q',
-  status: 'active',
 };
-const result = await client.payments.methods.list(params);
+const result = await client.payments.notifyDomains.list(params);
 ```
 
 ## Error Handling
@@ -88,11 +82,8 @@ try {
   const params = {
     page: 1,
     page_size: 2,
-    sort: 'sort',
-    q: 'q',
-    status: 'active',
   };
-  const result = await client.payments.methods.list(params);
+  const result = await client.payments.notifyDomains.list(params);
 } catch (error) {
   if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message);

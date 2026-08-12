@@ -17,13 +17,18 @@ chrono.workspace = true
 hmac.workspace = true
 reqwest.workspace = true
 ring.workspace = true
+rand.workspace = true
 rsa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
+x509-parser.workspace = true
 sdkwork_contract_service.workspace = true
 sdkwork_payment_service.workspace = true
 sdkwork-utils-rust.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 uuid.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
