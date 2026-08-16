@@ -1,7 +1,8 @@
-use sdkwork_api_payment_assembly::{assemble_api_router, gateway_contract_fallback_config};
-use sdkwork_payment_service_host::PaymentServiceHost;
-use sdkwork_web_bootstrap::{service_router, ServiceRouterConfig};
-use std::sync::Arc;
+use sdkwork_api_payment_assembly::assemble_api_router_from_env;
+use sdkwork_iam_web_adapter::{
+    build_web_framework_builder, iam_web_request_context_resolver_from_env,
+};
+use sdkwork_web_bootstrap::{infra_public_path_prefixes, ComposedApiAssembly};
 use std::time::Duration;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
@@ -17,21 +18,21 @@ async fn main() {
     // 结构化日志输出，生产环境应配合 OTel exporter（后续 P1 阶段接入）。
     tracing_subscriber::fmt::init();
 
-    let host = Arc::new(PaymentServiceHost::new().await);
-    let business = assemble_api_router(host)
+    let assembly = assemble_api_router_from_env()
         .await
-        .expect("payment API assembly failed")
+        .expect("payment API assembly failed");
+    let framework = build_web_framework_builder(
+        iam_web_request_context_resolver_from_env().await,
+        assembly.route_manifest.clone(),
+        infra_public_path_prefixes(),
+    );
+    let app = ComposedApiAssembly::try_compose("SDKWork Payment API", vec![assembly])
+        .expect("payment API composition failed")
+        .into_hosted(framework)
         .router
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MiB，支付请求体不会超过
         .layer(TimeoutLayer::new(Duration::from_secs(30))) // 30s 超时，防止慢 SQL 拖垮线程池
         .layer(TraceLayer::new_for_http());
-
-    // C17 修复：接入 contract fallback，为 manifest 内未挂载 handler 的路径返回
-    // 501 Problem+json、为完全未知路径返回 404 Problem+json（RFC 9457）。
-    let service_config = ServiceRouterConfig::default()
-        .with_always_ready()
-        .with_contract_fallback(gateway_contract_fallback_config());
-    let app = service_router(business, service_config);
     let addr = std::env::var("PAYMENT_API_BIND").unwrap_or_else(|_| "0.0.0.0:18094".to_owned());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
 

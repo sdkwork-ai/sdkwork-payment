@@ -1838,7 +1838,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "sdkwork-api-payment-assembly",
- "sdkwork-payment-service-host",
+ "sdkwork-iam-web-adapter",
  "sdkwork-web-bootstrap",
  "tokio",
  "tower-http 0.5.2",
