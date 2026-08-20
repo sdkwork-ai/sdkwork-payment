@@ -25,17 +25,17 @@ export class CommerceRefundsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: Refund[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/refunds`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: Refund[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/refunds`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Create a refund. */
   async create(body: CreateRefundCommand, requestOptions?: ApiRequestOptions): Promise<Refund> {
-    return this.client.request<Refund>(appApiPath(`/refunds`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<Refund>(appApiPath(`/refunds`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Retrieve a refund. */
   async retrieve(refundId: string, requestOptions?: ApiRequestOptions): Promise<Refund> {
-    return this.client.request<Refund>(appApiPath(`/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<Refund>(appApiPath(`/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -49,7 +49,7 @@ export class CommercePaymentsStatusOutTradeNoApi {
 
 /** Retrieve payment status by provider trade number. */
   async retrieve(outTradeNo: string, requestOptions?: ApiRequestOptions): Promise<PaymentRecord> {
-    return this.client.request<PaymentRecord>(appApiPath(`/payments/status/out_trade_no/${serializePathParameter(outTradeNo, { name: 'outTradeNo', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentRecord>(appApiPath(`/payments/status/out_trade_no/${serializePathParameter(outTradeNo, { name: 'outTradeNo', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -65,7 +65,7 @@ export class CommercePaymentsStatusApi {
 
 /** Retrieve payment status. */
   async retrieve(paymentId: string, requestOptions?: ApiRequestOptions): Promise<PaymentRecord> {
-    return this.client.request<PaymentRecord>(appApiPath(`/payments/status/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentRecord>(appApiPath(`/payments/status/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -79,7 +79,7 @@ export class CommercePaymentsCheckoutApi {
 
 /** Retrieve payment checkout data. */
   async retrieve(paymentId: string, requestOptions?: ApiRequestOptions): Promise<Payment> {
-    return this.client.request<Payment>(appApiPath(`/payments/checkout/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<Payment>(appApiPath(`/payments/checkout/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -93,16 +93,14 @@ export class CommercePaymentsStatisticsSummaryApi {
 
 /** Retrieve the payment statistics summary. */
   async retrieve(requestOptions?: ApiRequestOptions): Promise<PaymentStatistics> {
-    return this.client.request<PaymentStatistics>(appApiPath(`/payments/statistics/summary`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentStatistics>(appApiPath(`/payments/statistics/summary`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
 export class CommercePaymentsStatisticsApi {
-  private client: HttpClient;
   public readonly summary: CommercePaymentsStatisticsSummaryApi;
 
   constructor(client: HttpClient) {
-    this.client = client;
     this.summary = new CommercePaymentsStatisticsSummaryApi(client);
   }
 
@@ -118,7 +116,7 @@ export class CommercePaymentsAttemptsApi {
 
 /** Retrieve a payment attempt. */
   async retrieve(paymentAttemptId: string, requestOptions?: ApiRequestOptions): Promise<PaymentAttempt> {
-    return this.client.request<PaymentAttempt>(appApiPath(`/payments/attempts/${serializePathParameter(paymentAttemptId, { name: 'paymentAttemptId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentAttempt>(appApiPath(`/payments/attempts/${serializePathParameter(paymentAttemptId, { name: 'paymentAttemptId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -143,12 +141,12 @@ export class CommercePaymentsRecordsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentRecord[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/payments/records`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentRecord[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/payments/records`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Retrieve a payment record. */
   async retrieve(paymentId: string, requestOptions?: ApiRequestOptions): Promise<PaymentRecord> {
-    return this.client.request<PaymentRecord>(appApiPath(`/payments/records/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentRecord>(appApiPath(`/payments/records/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -173,7 +171,7 @@ export class CommercePaymentsMethodsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'client_type', value: params?.clientType, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentMethod[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/payments/methods`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentMethod[]; pageInfo: PageInfo; }>(appendQueryString(appApiPath(`/payments/methods`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 }
 
@@ -187,7 +185,7 @@ export class CommercePaymentsIntentsAttemptsApi {
 
 /** Create a payment attempt. */
   async create(paymentIntentId: string, requestOptions?: ApiRequestOptions): Promise<PaymentAttempt> {
-    return this.client.request<PaymentAttempt>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}/attempts`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentAttempt>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}/attempts`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -203,17 +201,17 @@ export class CommercePaymentsIntentsApi {
 
 /** Create a payment intent. */
   async create(body: CreatePaymentIntentCommand, requestOptions?: ApiRequestOptions): Promise<PaymentIntent> {
-    return this.client.request<PaymentIntent>(appApiPath(`/payments/intents`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentIntent>(appApiPath(`/payments/intents`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Retrieve a payment intent. */
   async retrieve(paymentIntentId: string, requestOptions?: ApiRequestOptions): Promise<PaymentIntent> {
-    return this.client.request<PaymentIntent>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentIntent>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
 /** Cancel a payment intent. */
   async cancel(paymentIntentId: string, requestOptions?: ApiRequestOptions): Promise<SdkWorkCommandData> {
-    return this.client.request<SdkWorkCommandData>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}/cancel`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkCommandData>(appApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}/cancel`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, sdkworkUnwrapKind: 'command' });
   }
 }
 
@@ -241,27 +239,25 @@ export class CommercePaymentsApi {
 
 /** Create a payment. */
   async create(body: CreatePaymentCommand, requestOptions?: ApiRequestOptions): Promise<Payment> {
-    return this.client.request<Payment>(appApiPath(`/payments`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<Payment>(appApiPath(`/payments`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Resolve the latest local payment record. */
   async reconcile(body: ReconcilePaymentCommand, requestOptions?: ApiRequestOptions): Promise<PaymentRecord> {
-    return this.client.request<PaymentRecord>(appApiPath(`/payments/reconcile`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentRecord>(appApiPath(`/payments/reconcile`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
   }
 
 /** Close a payment. */
   async close(paymentId: string, requestOptions?: ApiRequestOptions): Promise<SdkWorkCommandData> {
-    return this.client.request<SdkWorkCommandData>(appApiPath(`/payments/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}/close`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkCommandData>(appApiPath(`/payments/${serializePathParameter(paymentId, { name: 'paymentId', style: 'simple', explode: false })}/close`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, sdkworkUnwrapKind: 'command' });
   }
 }
 
 export class CommerceApi {
-  private client: HttpClient;
   public readonly payments: CommercePaymentsApi;
   public readonly refunds: CommerceRefundsApi;
 
   constructor(client: HttpClient) {
-    this.client = client;
     this.payments = new CommercePaymentsApi(client);
     this.refunds = new CommerceRefundsApi(client);
   }

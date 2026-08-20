@@ -36,7 +36,7 @@ export class PaymentsDevApi {
       },
       {}
     );
-    return this.client.request<SandboxTriggerResult>(backendApiPath(`/payments/dev/sandbox_trigger`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<SandboxTriggerResult>(backendApiPath(`/payments/dev/sandbox_trigger`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Create a test payment (dev config). */
@@ -47,7 +47,7 @@ export class PaymentsDevApi {
       },
       {}
     );
-    return this.client.request<TestPayment>(backendApiPath(`/payments/dev/test_payments`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<TestPayment>(backendApiPath(`/payments/dev/test_payments`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Check PSP payment status for a dev test payment (dev config). */
@@ -58,7 +58,7 @@ export class PaymentsDevApi {
       },
       {}
     );
-    return this.client.request<CheckAttemptStatusResult>(backendApiPath(`/payments/dev/check_attempt_status`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<CheckAttemptStatusResult>(backendApiPath(`/payments/dev/check_attempt_status`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Webhook signature verification test (dev config). */
@@ -69,7 +69,7 @@ export class PaymentsDevApi {
       },
       {}
     );
-    return this.client.request<WebhookSignatureTestResult>(backendApiPath(`/payments/dev/webhook_signature_test`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<WebhookSignatureTestResult>(backendApiPath(`/payments/dev/webhook_signature_test`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -106,7 +106,7 @@ export class PaymentsReconciliationRunsApi {
       { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'providerAccountId', value: params?.providerAccountId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: ReconciliationRun[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/reconciliation_runs`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: ReconciliationRun[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/reconciliation_runs`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Reconciliation run create. */
@@ -117,7 +117,7 @@ export class PaymentsReconciliationRunsApi {
       },
       {}
     );
-    return this.client.request<ReconciliationRun>(backendApiPath(`/payments/reconciliation_runs`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ReconciliationRun>(backendApiPath(`/payments/reconciliation_runs`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -150,12 +150,12 @@ export class PaymentsWebhookEventsApi {
       { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'eventType', value: params?.eventType, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: WebhookEvent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/webhook_events`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: WebhookEvent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/webhook_events`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Webhook event replay. */
   async replay(eventId: string, body?: WebhookEventsReplayRequest, requestOptions?: ApiRequestOptions): Promise<SdkWorkCommandData> {
-    return this.client.request<SdkWorkCommandData>(backendApiPath(`/payments/webhook_events/${serializePathParameter(eventId, { name: 'eventId', style: 'simple', explode: false })}/replay`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkCommandData>(backendApiPath(`/payments/webhook_events/${serializePathParameter(eventId, { name: 'eventId', style: 'simple', explode: false })}/replay`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(body !== undefined ? { body, contentType: 'application/json' } : {}), sdkworkUnwrapKind: 'command' });
   }
 }
 
@@ -188,7 +188,7 @@ export class PaymentsAttemptsApi {
       { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'paymentIntentId', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentAttempt[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/attempts`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentAttempt[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/attempts`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 }
 
@@ -225,7 +225,7 @@ export class PaymentsCertificatesApi {
       { name: 'certificateType', value: params?.certificateType, style: 'form', explode: true, allowReserved: false },
       { name: 'expiringWithinDays', value: params?.expiringWithinDays, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: Certificate[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/certificates`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: Certificate[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/certificates`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Certificate create (upload/register PEM). */
@@ -236,17 +236,17 @@ export class PaymentsCertificatesApi {
       },
       {}
     );
-    return this.client.request<Certificate>(backendApiPath(`/payments/certificates`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<Certificate>(backendApiPath(`/payments/certificates`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Certificate retrieve. */
   async retrieve(certificateId: string, requestOptions?: ApiRequestOptions): Promise<Certificate> {
-    return this.client.request<Certificate>(backendApiPath(`/payments/certificates/${serializePathParameter(certificateId, { name: 'certificateId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<Certificate>(backendApiPath(`/payments/certificates/${serializePathParameter(certificateId, { name: 'certificateId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
 /** Certificate delete. */
   async delete(certificateId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/certificates/${serializePathParameter(certificateId, { name: 'certificateId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/certificates/${serializePathParameter(certificateId, { name: 'certificateId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 }
 
@@ -287,7 +287,7 @@ export class PaymentsSubMerchantsApi {
       { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: SubMerchant[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/sub_merchants`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: SubMerchant[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/sub_merchants`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Sub-merchant create (ISV/partner mode only). */
@@ -298,12 +298,12 @@ export class PaymentsSubMerchantsApi {
       },
       {}
     );
-    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Sub-merchant retrieve. */
   async retrieve(subMerchantId: string, requestOptions?: ApiRequestOptions): Promise<SubMerchant> {
-    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
 /** Sub-merchant update. */
@@ -314,12 +314,12 @@ export class PaymentsSubMerchantsApi {
       },
       {}
     );
-    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<SubMerchant>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Sub-merchant delete. */
   async delete(subMerchantId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/sub_merchants/${serializePathParameter(subMerchantId, { name: 'subMerchantId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 }
 
@@ -358,7 +358,7 @@ export class PaymentsRouteRulesApi {
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
       { name: 'channelId', value: params?.channelId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: RouteRule[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/route_rules`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: RouteRule[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/route_rules`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Route rule create. */
@@ -369,7 +369,7 @@ export class PaymentsRouteRulesApi {
       },
       {}
     );
-    return this.client.request<RouteRule>(backendApiPath(`/payments/route_rules`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<RouteRule>(backendApiPath(`/payments/route_rules`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Route rule update. */
@@ -380,12 +380,12 @@ export class PaymentsRouteRulesApi {
       },
       {}
     );
-    return this.client.request<RouteRule>(backendApiPath(`/payments/route_rules/${serializePathParameter(routeRuleId, { name: 'routeRuleId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<RouteRule>(backendApiPath(`/payments/route_rules/${serializePathParameter(routeRuleId, { name: 'routeRuleId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Route rule delete. */
   async delete(routeRuleId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/route_rules/${serializePathParameter(routeRuleId, { name: 'routeRuleId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/route_rules/${serializePathParameter(routeRuleId, { name: 'routeRuleId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 }
 
@@ -428,7 +428,7 @@ export class PaymentsChannelsApi {
       { name: 'sceneCode', value: params?.sceneCode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentChannel[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/channels`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentChannel[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/channels`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Payment channel create. */
@@ -439,7 +439,7 @@ export class PaymentsChannelsApi {
       },
       {}
     );
-    return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Payment channel update. */
@@ -450,12 +450,12 @@ export class PaymentsChannelsApi {
       },
       {}
     );
-    return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentChannel>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Payment channel delete. */
   async delete(channelId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/channels/${serializePathParameter(channelId, { name: 'channelId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 }
 
@@ -473,7 +473,7 @@ export class PaymentsProviderAccountsCredentialsApi {
 
 /** Provider account credentials read (decrypted). */
   async read(providerAccountId: string, requestOptions?: ApiRequestOptions): Promise<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }> {
-    return this.client.request<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
 /** Provider account credential rotation. */
@@ -484,7 +484,7 @@ export class PaymentsProviderAccountsCredentialsApi {
       },
       {}
     );
-    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials/rotate`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials/rotate`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -533,7 +533,7 @@ export class PaymentsProviderAccountsApi {
       { name: 'accountMode', value: params?.accountMode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: ProviderAccount[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/provider_accounts`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: ProviderAccount[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/provider_accounts`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Provider account create. */
@@ -544,7 +544,7 @@ export class PaymentsProviderAccountsApi {
       },
       {}
     );
-    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Provider account update. */
@@ -555,12 +555,12 @@ export class PaymentsProviderAccountsApi {
       },
       {}
     );
-    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ProviderAccount>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Provider account delete. */
   async delete(providerAccountId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 
 /** Provider account credential connectivity test. */
@@ -571,7 +571,7 @@ export class PaymentsProviderAccountsApi {
       },
       {}
     );
-    return this.client.request<ProviderAccountTestResult>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/test`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ProviderAccountTestResult>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/test`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(body !== undefined ? { body, contentType: 'application/json' } : {}), ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -602,7 +602,7 @@ export class PaymentsNotifyDomainsApi {
       { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: NotifyDomain[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/notify_domains`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: NotifyDomain[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/notify_domains`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Create payment notify domain */
@@ -613,7 +613,7 @@ export class PaymentsNotifyDomainsApi {
       },
       {}
     );
-    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Update payment notify domain */
@@ -624,12 +624,12 @@ export class PaymentsNotifyDomainsApi {
       },
       {}
     );
-    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<NotifyDomain>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Delete payment notify domain */
   async delete(domainId: string, requestOptions?: ApiRequestOptions): Promise<void> {
-    return this.client.request<void>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any });
+    return this.client.request<void>(backendApiPath(`/payments/notify_domains/${serializePathParameter(domainId, { name: 'domainId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any });
   }
 }
 
@@ -666,7 +666,7 @@ export class PaymentsMethodsApi {
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentMethod[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/methods`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentMethod[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/methods`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Payment method create. */
@@ -677,7 +677,7 @@ export class PaymentsMethodsApi {
       },
       {}
     );
-    return this.client.request<PaymentMethod>(backendApiPath(`/payments/methods`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentMethod>(backendApiPath(`/payments/methods`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Payment method update. */
@@ -688,7 +688,7 @@ export class PaymentsMethodsApi {
       },
       {}
     );
-    return this.client.request<PaymentMethod>(backendApiPath(`/payments/methods/${serializePathParameter(methodKey, { name: 'methodKey', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'PATCH' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentMethod>(backendApiPath(`/payments/methods/${serializePathParameter(methodKey, { name: 'methodKey', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PATCH' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -727,7 +727,7 @@ export class PaymentsRefundsApi {
       { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
       { name: 'payment_intent_id', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: Refund[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/refunds`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: Refund[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/refunds`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Refund create. */
@@ -738,12 +738,12 @@ export class PaymentsRefundsApi {
       },
       {}
     );
-    return this.client.request<Refund>(backendApiPath(`/payments/refunds`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<Refund>(backendApiPath(`/payments/refunds`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Refund retrieve. */
   async retrieve(refundId: string, requestOptions?: ApiRequestOptions): Promise<Refund> {
-    return this.client.request<Refund>(backendApiPath(`/payments/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<Refund>(backendApiPath(`/payments/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
 /** Refund provider submission retry. */
@@ -754,7 +754,7 @@ export class PaymentsRefundsApi {
       },
       {}
     );
-    return this.client.request<SdkWorkCommandData>(backendApiPath(`/payments/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}/retry`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkCommandData>(backendApiPath(`/payments/refunds/${serializePathParameter(refundId, { name: 'refundId', style: 'simple', explode: false })}/retry`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'command' });
   }
 }
 
@@ -787,17 +787,16 @@ export class PaymentsIntentsApi {
       { name: 'ownerUserId', value: params?.ownerUserId, style: 'form', explode: true, allowReserved: false },
       { name: 'orderId', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
     ]);
-    return this.client.request<{ items: PaymentIntent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/intents`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+    return this.client.request<{ items: PaymentIntent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/intents`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
 
 /** Payment intent retrieve. */
   async retrieve(paymentIntentId: string, requestOptions?: ApiRequestOptions): Promise<PaymentIntent> {
-    return this.client.request<PaymentIntent>(backendApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+    return this.client.request<PaymentIntent>(backendApiPath(`/payments/intents/${serializePathParameter(paymentIntentId, { name: 'paymentIntentId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 }
 
 export class PaymentsApi {
-  private client: HttpClient;
   public readonly intents: PaymentsIntentsApi;
   public readonly refunds: PaymentsRefundsApi;
   public readonly methods: PaymentsMethodsApi;
@@ -813,7 +812,6 @@ export class PaymentsApi {
   public readonly dev: PaymentsDevApi;
 
   constructor(client: HttpClient) {
-    this.client = client;
     this.intents = new PaymentsIntentsApi(client);
     this.refunds = new PaymentsRefundsApi(client);
     this.methods = new PaymentsMethodsApi(client);
