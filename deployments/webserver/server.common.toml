@@ -1,0 +1,5 @@
+specVersion = 1
+kind = "sdkwork.webserver.server"
+id = "payment"
+enabled = false
+description = "sdkwork-payment webserver placeholder (align-application-deploy-layout)"

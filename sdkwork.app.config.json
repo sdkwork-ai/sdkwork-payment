@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 3,
+  "kind": "sdkwork.app",
+  "app": {
+    "key": "sdkwork-payment",
+    "name": "Payment",
+    "displayName": "SDKWork Payment",
+    "description": "SDKWork Payment application (bootstrap deploy layout).",
+    "appType": "SDK"
+  },
+  "backend": {
+    "primaryLanguage": "rust",
+    "framework": "axum",
+    "appId": "sdkwork-payment",
+    "serviceId": "sdkwork-payment",
+    "owner": "sdkwork-payment",
+    "domain": "payment"
+  },
+  "runtime": {
+    "family": "server",
+    "framework": "rust-axum",
+    "supportedDeploymentProfiles": [
+      "standalone",
+      "cloud"
+    ],
+    "defaultDeploymentProfile": "standalone"
+  }
+}
