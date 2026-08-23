@@ -27,6 +27,7 @@ import {
   asStatus,
   asString,
 } from "@sdkwork/payment-pc-admin-core";
+import { uuid } from "@sdkwork/utils/id";
 import type {
   CreatePaymentMonitorAdminControllerInput,
   CreateRefundDraft,
@@ -789,5 +790,5 @@ export function createPaymentMonitorAdminController(
 }
 
 function paymentCommandIdempotencyKey(prefix: string): string {
-  return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  return `${prefix}-${uuid()}`;
 }
