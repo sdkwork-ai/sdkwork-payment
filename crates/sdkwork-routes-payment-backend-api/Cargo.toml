@@ -26,7 +26,6 @@ sdkwork-web-bootstrap.workspace = true
 sdkwork-iam-web-adapter.workspace = true
 sdkwork-utils-rust = { workspace = true }
 sha2.workspace = true
-tokio.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true }
