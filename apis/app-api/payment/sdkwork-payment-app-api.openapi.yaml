@@ -8,197 +8,1898 @@
     "x-sdkwork-sdk-family": "sdkwork-payment-app-sdk",
     "x-sdkwork-audience": "Authenticated SDKWork payment clients"
   },
-  "servers": [{ "url": "http://localhost:18094", "description": "Local payment gateway" }],
-  "tags": [{ "name": "commerce", "description": "Commerce payment and refund resources.", "x-sdk-nested-resource-surface": true }],
-  "security": [{ "AuthToken": [], "AccessToken": [] }],
+  "servers": [
+    {
+      "url": "http://localhost:18094",
+      "description": "Local payment gateway"
+    }
+  ],
+  "tags": [
+    {
+      "name": "commerce",
+      "description": "Commerce payment and refund resources.",
+      "x-sdk-nested-resource-surface": true
+    }
+  ],
+  "security": [
+    {
+      "AuthToken": [],
+      "AccessToken": []
+    }
+  ],
   "paths": {
     "/app/v3/api/payments/intents": {
       "post": {
-        "tags": ["commerce"], "summary": "Create a payment intent.", "operationId": "payments.intents.create",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePaymentIntentCommand" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentIntentResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentIntents", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.intents.create", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Create a payment intent.",
+        "operationId": "payments.intents.create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentIntentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentIntents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.intents.create",
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/intents/{paymentIntentId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve a payment intent.", "operationId": "payments.intents.retrieve",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentIntentResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentIntents", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.intents.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve a payment intent.",
+        "operationId": "payments.intents.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentIntentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentIntents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.intents.read"
       }
     },
     "/app/v3/api/payments/intents/{paymentIntentId}/cancel": {
       "post": {
-        "tags": ["commerce"], "summary": "Cancel a payment intent.", "operationId": "payments.intents.cancel",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
-        "responses": { "200": { "description": "Accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SdkWorkCommandResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentIntents", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.intents.cancel", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Cancel a payment intent.",
+        "operationId": "payments.intents.cancel",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentIntentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SdkWorkCommandResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentIntents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.intents.cancel",
+        "x-sdkwork-idempotent": true
       }
     },
     "/app/v3/api/payments/intents/{paymentIntentId}/attempts": {
       "post": {
-        "tags": ["commerce"], "summary": "Create a payment attempt.", "operationId": "payments.intents.attempts.create",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentIntentId" }],
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentAttemptResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentAttempts", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.attempts.create", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Create a payment attempt.",
+        "operationId": "payments.intents.attempts.create",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentIntentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAttemptResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentAttempts",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.attempts.create",
+        "x-sdkwork-idempotent": true
       }
     },
     "/app/v3/api/payments/methods": {
       "get": {
-        "tags": ["commerce"], "summary": "List available payment methods.", "operationId": "payments.methods.list",
-        "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "client_type", "in": "query", "required": false, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentMethodListResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentMethods", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.methods.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "List available payment methods.",
+        "operationId": "payments.methods.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "name": "client_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentMethodListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentMethods",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.methods.read"
       }
     },
     "/app/v3/api/payments/records": {
       "get": {
-        "tags": ["commerce"], "summary": "List payment records.", "operationId": "payments.records.list",
-        "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "order_id", "in": "query", "required": false, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRecordListResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentRecords", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.records.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "List payment records.",
+        "operationId": "payments.records.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRecordListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentRecords",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.records.read"
       }
     },
     "/app/v3/api/payments/records/{paymentId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve a payment record.", "operationId": "payments.records.retrieve",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRecordResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentRecords", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.records.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve a payment record.",
+        "operationId": "payments.records.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRecordResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentRecords",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.records.read"
       }
     },
     "/app/v3/api/payments/attempts/{paymentAttemptId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve a payment attempt.", "operationId": "payments.attempts.retrieve",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentAttemptId" }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentAttemptResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentAttempts", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.attempts.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve a payment attempt.",
+        "operationId": "payments.attempts.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentAttemptId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAttemptResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentAttempts",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.attempts.read"
       }
     },
     "/app/v3/api/payments/statistics/summary": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve the payment statistics summary.", "operationId": "payments.statistics.summary.retrieve",
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentStatisticsResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentStatistics", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.statistics.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve the payment statistics summary.",
+        "operationId": "payments.statistics.summary.retrieve",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentStatisticsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentStatistics",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.statistics.read",
+        "parameters": []
       }
     },
     "/app/v3/api/payments/checkout/{paymentId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve payment checkout data.", "operationId": "payments.checkout.retrieve",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentCheckout", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.checkout.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve payment checkout data.",
+        "operationId": "payments.checkout.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentCheckout",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout.read"
       }
     },
     "/app/v3/api/payments/status/{paymentId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve payment status.", "operationId": "payments.status.retrieve",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRecordResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentStatus", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.status.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve payment status.",
+        "operationId": "payments.status.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRecordResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentStatus",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.status.read"
       }
     },
     "/app/v3/api/payments/status/out_trade_no/{outTradeNo}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve payment status by provider trade number.", "operationId": "payments.status.outTradeNo.retrieve",
-        "parameters": [{ "name": "outTradeNo", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRecordResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "paymentStatus", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.status.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve payment status by provider trade number.",
+        "operationId": "payments.status.outTradeNo.retrieve",
+        "parameters": [
+          {
+            "name": "outTradeNo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRecordResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentStatus",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.status.read"
       }
     },
     "/app/v3/api/payments": {
       "post": {
-        "tags": ["commerce"], "summary": "Create a payment.", "operationId": "payments.create",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreatePaymentCommand" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "payments", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.create", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Create a payment.",
+        "operationId": "payments.create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "payments",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.create",
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/reconcile": {
       "post": {
-        "tags": ["commerce"], "summary": "Resolve the latest local payment record.", "operationId": "payments.reconcile",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconcilePaymentCommand" } } } },
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentRecordResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "payments", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.reconcile", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Resolve the latest local payment record.",
+        "operationId": "payments.reconcile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReconcilePaymentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRecordResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "payments",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.reconcile",
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/{paymentId}/close": {
       "post": {
-        "tags": ["commerce"], "summary": "Close a payment.", "operationId": "payments.close",
-        "parameters": [{ "$ref": "#/components/parameters/PaymentId" }],
-        "responses": { "200": { "description": "Accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SdkWorkCommandResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "payments", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.payments.close", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Close a payment.",
+        "operationId": "payments.close",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PaymentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SdkWorkCommandResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "payments",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.close",
+        "x-sdkwork-idempotent": true
       }
     },
     "/app/v3/api/refunds": {
       "get": {
-        "tags": ["commerce"], "summary": "List refunds.", "operationId": "refunds.list",
-        "parameters": [{ "$ref": "#/components/parameters/Page" }, { "$ref": "#/components/parameters/PageSize" }, { "name": "status", "in": "query", "required": false, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefundListResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "refunds", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.refunds.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "List refunds.",
+        "operationId": "refunds.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "refunds",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.refunds.read"
       },
       "post": {
-        "tags": ["commerce"], "summary": "Create a refund.", "operationId": "refunds.create",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRefundCommand" } } } },
-        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefundResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "refunds", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.refunds.create", "x-sdkwork-idempotent": true
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Create a refund.",
+        "operationId": "refunds.create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRefundCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "refunds",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.refunds.create",
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/refunds/{refundId}": {
       "get": {
-        "tags": ["commerce"], "summary": "Retrieve a refund.", "operationId": "refunds.retrieve",
-        "parameters": [{ "name": "refundId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "Success", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefundResponse" } } } }, "default": { "$ref": "#/components/responses/Problem" } },
-        "security": [{ "AuthToken": [], "AccessToken": [] }], "x-sdkwork-auth-mode": "dual-token", "x-sdkwork-forbid-credential-headers": false, "x-sdkwork-owner": "sdkwork-payment", "x-sdkwork-api-authority": "sdkwork-payment-app-api", "x-sdkwork-domain": "commerce", "x-sdkwork-resource": "refunds", "x-sdkwork-request-context": "WebRequestContext", "x-sdkwork-api-surface": "app-api", "x-sdkwork-server-request-id": true, "x-sdkwork-permission": "commerce.refunds.read"
+        "tags": [
+          "commerce"
+        ],
+        "summary": "Retrieve a refund.",
+        "operationId": "refunds.retrieve",
+        "parameters": [
+          {
+            "name": "refundId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-app-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "refunds",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "app-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.refunds.read"
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "AuthToken": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
-      "AccessToken": { "type": "apiKey", "in": "header", "name": "Access-Token" }
+      "AuthToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "AccessToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Access-Token"
+      }
     },
     "parameters": {
-      "Page": { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "default": 1 } },
-      "PageSize": { "name": "page_size", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 } },
-      "PaymentId": { "name": "paymentId", "in": "path", "required": true, "schema": { "type": "string" } },
-      "PaymentIntentId": { "name": "paymentIntentId", "in": "path", "required": true, "schema": { "type": "string" } },
-      "PaymentAttemptId": { "name": "paymentAttemptId", "in": "path", "required": true, "schema": { "type": "string" } }
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      },
+      "PageSize": {
+        "name": "page_size",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20
+        }
+      },
+      "PaymentId": {
+        "name": "paymentId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "PaymentIntentId": {
+        "name": "paymentIntentId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "PaymentAttemptId": {
+        "name": "paymentAttemptId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
     },
     "responses": {
-      "Problem": { "description": "SDKWork problem detail", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } } } }
+      "Problem": {
+        "description": "SDKWork problem detail",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetail"
+            }
+          }
+        }
+      }
     },
     "schemas": {
-      "SdkWorkApiResponse": { "type": "object", "additionalProperties": false, "required": ["code", "data", "traceId"], "properties": { "code": { "type": "integer", "format": "int32", "const": 0 }, "data": { "type": "object" }, "traceId": { "type": "string", "format": "uuid" } } },
-      "SdkWorkResourceData": { "type": "object", "additionalProperties": false, "required": ["item"], "properties": { "item": { "type": "object", "additionalProperties": true } } },
-      "SdkWorkPageData": { "type": "object", "additionalProperties": false, "required": ["items", "pageInfo"], "properties": { "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }, "pageInfo": { "$ref": "#/components/schemas/PageInfo" } } },
-      "SdkWorkCommandData": { "type": "object", "additionalProperties": false, "required": ["accepted"], "properties": { "accepted": { "type": "boolean", "const": true }, "resourceId": { "type": "string" }, "status": { "type": "string" } } },
-      "SdkWorkResourceResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/SdkWorkResourceData" } } }] },
-      "SdkWorkListResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/SdkWorkPageData" } } }] },
-      "SdkWorkCommandResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/SdkWorkCommandData" } } }] },
-      "PageInfo": { "type": "object", "additionalProperties": false, "required": ["mode", "page", "pageSize", "totalItems", "totalPages"], "properties": { "mode": { "type": "string", "const": "offset" }, "page": { "type": "integer", "minimum": 1 }, "pageSize": { "type": "integer", "minimum": 1, "maximum": 200 }, "totalItems": { "type": "string", "pattern": "^[0-9]+$" }, "totalPages": { "type": "integer", "minimum": 0 }, "hasMore": { "type": "boolean" } } },
-      "ProblemDetail": { "type": "object", "additionalProperties": true, "required": ["type", "title", "status", "code", "traceId"], "properties": { "type": { "type": "string", "format": "uri-reference" }, "title": { "type": "string" }, "status": { "type": "integer", "minimum": 400, "maximum": 599 }, "detail": { "type": "string" }, "code": { "type": "integer", "format": "int32", "minimum": 40001, "maximum": 79999 }, "traceId": { "type": "string", "format": "uuid" } } },
-      "CreatePaymentIntentCommand": { "type": "object", "additionalProperties": false, "required": ["orderId"], "properties": { "orderId": { "type": "string" }, "paymentMethod": { "type": "string", "default": "wechat_native" } } },
-      "CreatePaymentCommand": { "type": "object", "additionalProperties": false, "required": ["orderId"], "properties": { "orderId": { "type": "string" }, "paymentMethod": { "type": "string", "default": "wechat_native" }, "amount": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,2})?$" }, "businessOrderId": { "type": "string" }, "businessType": { "type": "string" }, "clientIp": { "type": "string" }, "payerOpenId": { "type": "string", "description": "WeChat JSAPI payer openid" }, "paymentProvider": { "type": "string" }, "paymentScene": { "type": "string" }, "productType": { "type": "string" } } },
-      "ReconcilePaymentCommand": { "type": "object", "additionalProperties": false, "properties": { "orderId": { "type": "string" }, "outTradeNo": { "type": "string" }, "reconcileType": { "type": "string" } }, "anyOf": [{ "required": ["orderId"] }, { "required": ["outTradeNo"] }] },
-      "CreateRefundCommand": { "type": "object", "additionalProperties": false, "required": ["orderId"], "properties": { "orderId": { "type": "string" }, "paymentAttemptId": { "type": "string" }, "amount": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,2})?$" }, "reasonCode": { "type": "string" } } },
-      "PaymentIntent": { "type": "object", "additionalProperties": false, "required": ["paymentIntentId", "orderId", "paymentIntentNo", "paymentMethod", "providerCode", "amount", "currencyCode", "status"], "properties": { "paymentIntentId": { "type": "string" }, "orderId": { "type": "string" }, "paymentIntentNo": { "type": "string" }, "paymentMethod": { "type": "string" }, "providerCode": { "type": "string" }, "amount": { "type": "string" }, "currencyCode": { "type": "string" }, "status": { "type": "string" } } },
-      "PaymentAttempt": { "type": "object", "additionalProperties": false, "required": ["attemptId", "orderId", "paymentMethod", "amount", "status"], "properties": { "attemptId": { "type": "string" }, "paymentIntentId": { "type": "string" }, "orderId": { "type": "string" }, "outTradeNo": { "type": "string" }, "paymentMethod": { "type": "string" }, "providerCode": { "type": "string" }, "amount": { "type": "string" }, "status": { "type": "string" }, "paymentParams": { "type": "object", "additionalProperties": { "type": "string" } } } },
-      "Payment": { "type": "object", "additionalProperties": false, "required": ["paymentId", "orderId", "outTradeNo", "amount", "paymentMethod", "status", "statusName"], "properties": { "paymentId": { "type": "string" }, "orderId": { "type": "string" }, "outTradeNo": { "type": "string" }, "amount": { "type": "string" }, "paymentMethod": { "type": "string" }, "status": { "type": "string" }, "statusName": { "type": "string" }, "paymentParams": { "type": "object", "additionalProperties": { "type": "string" } }, "paymentUrl": { "type": "string", "format": "uri" } } },
-      "PaymentRecord": { "type": "object", "additionalProperties": false, "required": ["paymentId", "orderId", "outTradeNo", "paymentMethod", "amount", "createdAt", "status", "statusName"], "properties": { "paymentId": { "type": "string" }, "orderId": { "type": "string" }, "outTradeNo": { "type": "string" }, "paymentMethod": { "type": "string" }, "amount": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }, "status": { "type": "string" }, "statusName": { "type": "string" } } },
-      "PaymentMethod": { "type": "object", "additionalProperties": true, "required": ["methodId", "code", "methodName", "available", "sort"], "properties": { "methodId": { "type": "string" }, "code": { "type": "string" }, "methodName": { "type": "string" }, "available": { "type": "boolean" }, "sort": { "type": "integer" } } },
-      "PaymentStatistics": { "type": "object", "additionalProperties": false, "required": ["totalPayments", "pendingPayments", "successPayments", "failedPayments", "timeoutPayments", "closedPayments"], "properties": { "totalPayments": { "type": "integer", "format": "int64" }, "pendingPayments": { "type": "integer", "format": "int64" }, "successPayments": { "type": "integer", "format": "int64" }, "failedPayments": { "type": "integer", "format": "int64" }, "timeoutPayments": { "type": "integer", "format": "int64" }, "closedPayments": { "type": "integer", "format": "int64" } } },
-      "Refund": { "type": "object", "additionalProperties": false, "required": ["refundId", "refundNo", "orderId", "amount", "currencyCode", "status"], "properties": { "refundId": { "type": "string" }, "refundNo": { "type": "string" }, "orderId": { "type": "string" }, "paymentAttemptId": { "type": "string" }, "amount": { "type": "string" }, "currencyCode": { "type": "string" }, "status": { "type": "string" }, "reasonCode": { "type": "string" } } },
-      "PaymentIntentResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/PaymentIntent" } } } } }] },
-      "PaymentAttemptResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/PaymentAttempt" } } } } }] },
-      "PaymentResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/Payment" } } } } }] },
-      "PaymentRecordResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/PaymentRecord" } } } } }] },
-      "PaymentStatisticsResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/PaymentStatistics" } } } } }] },
-      "RefundResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/Refund" } } } } }] },
-      "PaymentMethodListResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "pageInfo"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentMethod" } }, "pageInfo": { "$ref": "#/components/schemas/PageInfo" } } } } }] },
-      "PaymentRecordListResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "pageInfo"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentRecord" } }, "pageInfo": { "$ref": "#/components/schemas/PageInfo" } } } } }] },
-      "RefundListResponse": { "allOf": [{ "$ref": "#/components/schemas/SdkWorkApiResponse" }, { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "pageInfo"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Refund" } }, "pageInfo": { "$ref": "#/components/schemas/PageInfo" } } } } }] }
+      "SdkWorkApiResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "data",
+          "traceId"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "const": 0
+          },
+          "data": {
+            "type": "object"
+          },
+          "traceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "SdkWorkResourceData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item"
+        ],
+        "properties": {
+          "item": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "SdkWorkPageData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "pageInfo"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "pageInfo": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "SdkWorkCommandData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "const": true
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "SdkWorkResourceResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SdkWorkResourceData"
+              }
+            }
+          }
+        ]
+      },
+      "SdkWorkListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SdkWorkPageData"
+              }
+            }
+          }
+        ]
+      },
+      "SdkWorkCommandResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SdkWorkCommandData"
+              }
+            }
+          }
+        ]
+      },
+      "PageInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "offset"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "totalItems": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "totalPages": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProblemDetail": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "traceId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 40001,
+            "maximum": 79999
+          },
+          "traceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "CreatePaymentIntentCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string",
+            "default": "wechat_native"
+          }
+        }
+      },
+      "CreatePaymentCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string",
+            "default": "wechat_native"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"
+          },
+          "businessOrderId": {
+            "type": "string"
+          },
+          "businessType": {
+            "type": "string"
+          },
+          "clientIp": {
+            "type": "string"
+          },
+          "payerOpenId": {
+            "type": "string",
+            "description": "WeChat JSAPI payer openid"
+          },
+          "paymentProvider": {
+            "type": "string"
+          },
+          "paymentScene": {
+            "type": "string"
+          },
+          "productType": {
+            "type": "string"
+          }
+        }
+      },
+      "ReconcilePaymentCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "reconcileType": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "orderId"
+            ]
+          },
+          {
+            "required": [
+              "outTradeNo"
+            ]
+          }
+        ]
+      },
+      "CreateRefundCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "paymentAttemptId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"
+          },
+          "reasonCode": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentIntent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId",
+          "orderId",
+          "paymentIntentNo",
+          "paymentMethod",
+          "providerCode",
+          "amount",
+          "currencyCode",
+          "status"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "paymentIntentNo": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentAttempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attemptId",
+          "orderId",
+          "paymentMethod",
+          "amount",
+          "status"
+        ],
+        "properties": {
+          "attemptId": {
+            "type": "string"
+          },
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "paymentParams": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentId",
+          "orderId",
+          "outTradeNo",
+          "amount",
+          "paymentMethod",
+          "status",
+          "statusName"
+        ],
+        "properties": {
+          "paymentId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "statusName": {
+            "type": "string"
+          },
+          "paymentParams": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "paymentUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "PaymentRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentId",
+          "orderId",
+          "outTradeNo",
+          "paymentMethod",
+          "amount",
+          "createdAt",
+          "status",
+          "statusName"
+        ],
+        "properties": {
+          "paymentId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "statusName": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentMethod": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "methodId",
+          "code",
+          "methodName",
+          "available",
+          "sort"
+        ],
+        "properties": {
+          "methodId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "methodName": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "sort": {
+            "type": "integer"
+          }
+        }
+      },
+      "PaymentStatistics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "totalPayments",
+          "pendingPayments",
+          "successPayments",
+          "failedPayments",
+          "timeoutPayments",
+          "closedPayments"
+        ],
+        "properties": {
+          "totalPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          },
+          "pendingPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          },
+          "successPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          },
+          "failedPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          },
+          "timeoutPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          },
+          "closedPayments": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
+          }
+        }
+      },
+      "Refund": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "refundId",
+          "refundNo",
+          "orderId",
+          "amount",
+          "currencyCode",
+          "status"
+        ],
+        "properties": {
+          "refundId": {
+            "type": "string"
+          },
+          "refundNo": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "paymentAttemptId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "reasonCode": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentIntentResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentIntent"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentAttemptResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentAttempt"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/Payment"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentRecordResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentRecord"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentStatisticsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentStatistics"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RefundResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/Refund"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentMethodListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PaymentMethod"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentRecordListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PaymentRecord"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RefundListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Refund"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     }
   }
 }

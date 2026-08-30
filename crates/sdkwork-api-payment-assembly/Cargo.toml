@@ -13,8 +13,8 @@ path = "src/lib.rs"
 axum.workspace = true
 tokio.workspace = true
 sdkwork-web-bootstrap.workspace = true
+sdkwork-web-core.workspace = true
 sdkwork_payment_service_host.workspace = true
 sdkwork-database-sqlx.workspace = true
-sdkwork-web-core.workspace = true
-sdkwork_routes_payment_app_api.workspace = true
-sdkwork_routes_payment_backend_api.workspace = true
+sdkwork_routes_payment_app_api = { workspace = true }
+sdkwork_routes_payment_backend_api = { workspace = true }
