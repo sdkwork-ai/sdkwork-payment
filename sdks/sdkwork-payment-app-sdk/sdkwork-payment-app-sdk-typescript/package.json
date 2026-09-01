@@ -1,6 +1,6 @@
 {
   "name": "@sdkwork/payment-app-sdk",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "SDKWork Payment App API composed consumer facade.",
   "type": "module",
   "private": false,
