@@ -11,8 +11,8 @@ use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_iam_context_service::IamAppContext;
 use sdkwork_payment_providers::{PaymentProviderRegistry, ProviderCredentialBundle};
 use sdkwork_payment_repository_sqlx::{
-    enrich_owner_payment_attempt_postgres,
-    OwnerOrderPaymentEnrichmentContext, PostgresCommercePaymentIntentStore,
+    enrich_owner_payment_attempt_postgres, OwnerOrderPaymentEnrichmentContext,
+    PostgresCommercePaymentIntentStore,
 };
 use sdkwork_payment_service::{
     CancelOwnerPaymentIntentCommand, CreateOwnerPaymentAttemptCommand,
@@ -60,7 +60,6 @@ struct AppPaymentIntentState {
     store: Arc<dyn CommercePaymentIntentStore>,
 }
 
-
 struct ProviderEnrichedPostgresPaymentIntents {
     inner: Arc<PostgresCommercePaymentIntentStore>,
     pool: PgPool,
@@ -103,7 +102,6 @@ struct PaymentAttemptResponse {
     payment_params: std::collections::BTreeMap<String, String>,
 }
 
-
 impl CommercePaymentIntentStore for PostgresCommercePaymentIntentStore {
     fn create_owner_payment_intent<'a>(
         &'a self,
@@ -133,7 +131,6 @@ impl CommercePaymentIntentStore for PostgresCommercePaymentIntentStore {
         Box::pin(async move { self.create_owner_payment_attempt(command).await })
     }
 }
-
 
 impl CommercePaymentIntentStore for ProviderEnrichedPostgresPaymentIntents {
     fn create_owner_payment_intent<'a>(
@@ -189,7 +186,6 @@ impl CommercePaymentIntentStore for ProviderEnrichedPostgresPaymentIntents {
         })
     }
 }
-
 
 pub fn app_payment_intent_router_with_postgres_pool(
     pool: PgPool,

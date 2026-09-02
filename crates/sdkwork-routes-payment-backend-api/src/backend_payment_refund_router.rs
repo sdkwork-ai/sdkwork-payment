@@ -13,8 +13,7 @@ use sdkwork_payment_providers::{
 };
 use sdkwork_payment_repository_sqlx::{
     ensure_provider_account_matches, load_payment_attempt_provider_context_by_id_postgres,
-    load_provider_account_for_existing_payment_postgres,
-    PaymentProviderAccountRecord,
+    load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
     PostgresCommerceRefundStore,
 };
 use sdkwork_payment_service::{CreateOwnerRefundCommand, RefundView};
@@ -812,7 +811,6 @@ fn provider_account_binding(record: &PaymentProviderAccountRecord) -> ProviderAc
     }
 }
 
-
 async fn ensure_postgres_account_refund_capability(
     pool: &PgPool,
     subject: &AppRuntimeSubject,
@@ -886,7 +884,6 @@ fn validate_backend_write_payload(
     })
 }
 
-
 fn map_postgres_refund(row: &PgRow) -> BackendRefundView {
     BackendRefundView {
         id: postgres_string(row, "id"),
@@ -907,7 +904,6 @@ fn map_postgres_refund(row: &PgRow) -> BackendRefundView {
     }
 }
 
-
 fn map_postgres_payment_context(row: &PgRow) -> RefundPaymentContext {
     RefundPaymentContext {
         payment_intent_no: postgres_string(row, "payment_intent_no"),
@@ -918,14 +914,11 @@ fn map_postgres_payment_context(row: &PgRow) -> RefundPaymentContext {
     }
 }
 
-
 fn postgres_total(rows: &[PgRow]) -> i64 {
     rows.first()
         .and_then(|row| row.try_get::<i64, _>("total_count").ok())
         .unwrap_or(0)
 }
-
-
 
 fn postgres_string(row: &PgRow, name: &str) -> String {
     postgres_optional_string(row, name).unwrap_or_default()
@@ -937,4 +930,3 @@ fn postgres_optional_string(row: &PgRow, name: &str) -> Option<String> {
         .flatten()
         .or_else(|| row.try_get::<String, _>(name).ok())
 }
-

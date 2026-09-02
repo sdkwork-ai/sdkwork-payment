@@ -1,5 +1,7 @@
 //! Gateway assembly for sdkwork-payment.
 //! Application bootstrap lives in `bootstrap.rs`; route inventory is in `assembly-manifest.json`.
+use sdkwork_database_sqlx::DatabasePool;
+use sdkwork_web_bootstrap::WebModule;
 // SDKWORK-ASSEMBLY-LIB-CUSTOM
 
 mod bootstrap;
@@ -55,4 +57,21 @@ pub async fn assemble_backend_business_router_from_env() -> Result<BusinessRoute
 
 pub fn assembly_route_count() -> usize {
     generated::ROUTE_CRATE_COUNT
+}
+
+/// Canonical Web Module definition for this application
+/// (API_ASSEMBLY_SPEC §4.1.1): the complete HTTP surface — every route,
+/// manifest, and OpenAPI document of this owner — as one installable module.
+pub async fn web_module() -> Result<WebModule, String> {
+    Ok(WebModule::from_contribution(
+        assemble_api_router_from_env().await?,
+    ))
+}
+
+/// Same as [`web_module`] but composed on a process-shared database pool
+/// (platform gateways, API_ASSEMBLY_SPEC §4.1.1).
+pub async fn web_module_with_pool(pool: DatabasePool) -> Result<WebModule, String> {
+    Ok(WebModule::from_contribution(
+        assemble_api_router_with_pool(pool).await?,
+    ))
 }

@@ -10,17 +10,14 @@ pub mod subject;
 pub mod web_bootstrap;
 
 pub use backend_payment_admin_router::{
-    backend_payment_admin_router_with_postgres_pool,
-    build_backend_payment_admin_router, BackendPaymentMethodListQuery,
-    CommerceBackendPaymentAdminStore,
+    backend_payment_admin_router_with_postgres_pool, build_backend_payment_admin_router,
+    BackendPaymentMethodListQuery, CommerceBackendPaymentAdminStore,
 };
 pub use backend_payment_intent_router::{
     backend_payment_intent_router_with_postgres_pool, build_backend_payment_intent_router,
     CommerceBackendPaymentIntentStore,
 };
-pub use backend_payment_refund_router::{
-    backend_payment_refund_router_with_postgres_pool,
-};
+pub use backend_payment_refund_router::backend_payment_refund_router_with_postgres_pool;
 pub use routes::build_payment_backend_router_with_framework;
 pub use web_bootstrap::{wrap_router_with_web_framework, wrap_router_with_web_framework_from_env};
 

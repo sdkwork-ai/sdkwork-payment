@@ -58,16 +58,24 @@ impl PaymentServiceHost {
 /// end to end without an activation gate. No-op on non-PostgreSQL pools; the
 /// repository function is idempotent and skips accounts that already carry
 /// operator-configured credentials or complete environment credentials.
-async fn ensure_bootstrap_provider_credentials(database: &PaymentDatabaseHost) -> Result<(), String> {
+async fn ensure_bootstrap_provider_credentials(
+    database: &PaymentDatabaseHost,
+) -> Result<(), String> {
     let Some(pool) = database.pool().as_postgres() else {
         return Ok(());
     };
     ensure_development_provider_credentials_postgres(pool)
         .await
-        .map_err(|error| format!("payment bootstrap credential fill failed: {}", error.message()))
+        .map_err(|error| {
+            format!(
+                "payment bootstrap credential fill failed: {}",
+                error.message()
+            )
+        })
 }
 
-fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {    if payment_credential_cipher_is_installed() {
+fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {
+    if payment_credential_cipher_is_installed() {
         return Ok(());
     }
 

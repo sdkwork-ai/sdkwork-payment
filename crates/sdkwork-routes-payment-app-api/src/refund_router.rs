@@ -18,8 +18,7 @@ use sdkwork_payment_providers::{
 use sdkwork_payment_repository_sqlx::{
     ensure_provider_account_matches, load_active_provider_account_postgres,
     load_payment_attempt_provider_context_by_id_postgres,
-    load_provider_account_for_existing_payment_postgres,
-    PaymentProviderAccountRecord,
+    load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
     PostgresCommerceRefundStore,
 };
 use sdkwork_payment_service::{
@@ -94,7 +93,6 @@ struct RefundResponse {
     reason_code: Option<String>,
 }
 
-
 struct ProviderEnrichedPostgresRefundStore {
     inner: Arc<PostgresCommerceRefundStore>,
     pool: PgPool,
@@ -115,7 +113,6 @@ fn provider_account_binding(record: &PaymentProviderAccountRecord) -> ProviderAc
         metadata: record.metadata.clone(),
     }
 }
-
 
 impl CommerceRefundStore for PostgresCommerceRefundStore {
     fn create_owner_refund<'a>(
@@ -139,7 +136,6 @@ impl CommerceRefundStore for PostgresCommerceRefundStore {
         Box::pin(async move { self.retrieve_owner_refund(query).await })
     }
 }
-
 
 async fn submit_provider_refund_postgres(
     credentials: &ProviderCredentialBundle,
@@ -232,7 +228,6 @@ fn refund_requires_processing_claim(status: &str) -> bool {
     matches!(status, "submitted" | "failed")
 }
 
-
 async fn submit_provider_refund_postgres_with_retry(
     credentials: &ProviderCredentialBundle,
     pool: &PgPool,
@@ -263,7 +258,6 @@ async fn submit_provider_refund_postgres_with_retry(
     }
     Err(last_error.expect("refund submission attempted at least once"))
 }
-
 
 impl CommerceRefundStore for ProviderEnrichedPostgresRefundStore {
     fn create_owner_refund<'a>(
@@ -371,7 +365,6 @@ impl CommerceRefundStore for ProviderEnrichedPostgresRefundStore {
         Box::pin(async move { inner.retrieve_owner_refund(query).await })
     }
 }
-
 
 pub fn app_refund_router_with_postgres_pool(
     pool: PgPool,
