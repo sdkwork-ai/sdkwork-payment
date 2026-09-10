@@ -55,10 +55,21 @@ coverage/
 **/.pnpm-store/
 .idea/
 .vscode/
-**/.sdkwork/dart/pub-cache/
 **/.sdkwork/sdkwork-generator-changes.json
 **/.sdkwork/sdkwork-generator-manifest.json
 **/.sdkwork/sdkwork-generator-report.json
+
+# Generated SDK compiled outputs (only .ts sources are tracked)
+**/generated/**/*.js
+**/generated/**/*.d.ts
+**/generated/**/*.js.map
+**/generated/**/*.d.ts.map
+
+# TypeScript/JavaScript build artifacts emitted alongside source (tsc declaration/emit)
+*.d.ts.map
+*.js.map
+**/src/**/*.js
+**/src/**/*.d.ts
 
 # Common runtime/build artifacts (auto-aligned)
 *.sqlite-shm
