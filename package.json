@@ -6,15 +6,19 @@
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "stop": "node ../sdkwork-specs/tools/stop-sdkwork-workspace-processes.mjs --workspace .",
-    "dev": "pnpm --dir apps/sdkwork-payment-pc dev",
-    "build": "pnpm --dir apps/sdkwork-payment-pc build",
+    "stop": "pnpm exec sdkwork-app stop",
+    "dev": "pnpm dev:standalone",
+    "dev:standalone": "pnpm exec sdkwork-app dev --deployment-profile standalone",
+    "dev:cloud": "pnpm exec sdkwork-app dev --deployment-profile cloud",
+    "build": "pnpm exec sdkwork-app build",
+    "test": "pnpm exec sdkwork-app test",
+    "check": "pnpm exec sdkwork-app check",
+    "verify": "pnpm exec sdkwork-app verify",
+    "clean": "pnpm exec sdkwork-app clean",
     "start": "cargo run -p sdkwork-api-payment-standalone-gateway --bin payment-server",
-    "test": "pnpm test:node && pnpm test:vitest && cargo test --workspace",
     "test:node": "node --test --test-reporter=spec tests/static/placeholder.test.mjs",
     "test:vitest": "vitest run --config vitest.config.ts --configLoader native --pool vmThreads",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm typecheck && pnpm test:vitest && cargo test --workspace && pnpm run check:app-composition && pnpm run check:api-patterns && pnpm run check:api-envelope && pnpm run check:pagination && pnpm run check:sdk-consumer && pnpm check:cors-standard",
     "check:api-patterns": "node ../sdkwork-specs/tools/check-api-operation-patterns.mjs --workspace .",
     "check:cors-standard": "node ../sdkwork-specs/tools/check-cors-standard.mjs --root .",
     "check:api-envelope": "node ../sdkwork-specs/tools/check-api-response-envelope.mjs --workspace .",
@@ -23,7 +27,6 @@
     "sdk:check": "node tools/payment_app_sdk_generate.mjs --check && node tools/payment_sdk_generate.mjs --check",
     "sdk:generate": "node tools/payment_app_sdk_generate.mjs && node tools/payment_sdk_generate.mjs",
     "format:check": "cargo fmt --all -- --check",
-    "check": "pnpm run check:app-composition && pnpm db:validate && pnpm api:assembly:validate && pnpm format:check",
     "db:validate": "node ../sdkwork-specs/tools/check-database-framework-standard.mjs --root .",
     "db:materialize:contract": "node ../sdkwork-specs/tools/materialize-database-contract-from-baseline.mjs --root . --baseline database/ddl/baseline/postgres/0001_payment_baseline.sql --module-id payment --owner sdkwork-payment --prefixes commerce_ --engines postgres",
     "db:plan": "cargo run --manifest-path ../sdkwork-database/Cargo.toml -p sdkwork-database-cli -- --app-root . plan",
@@ -56,7 +59,13 @@
     "build:pc:staging:cloud": "node ../sdkwork-specs/tools/build-browser-client.mjs --root . --architecture pc --environment staging --deployment-profile cloud",
     "build:pc:demo:cloud": "node ../sdkwork-specs/tools/build-browser-client.mjs --root . --architecture pc --environment demo --deployment-profile cloud",
     "build:pc:prod:cloud": "node ../sdkwork-specs/tools/build-browser-client.mjs --root . --architecture pc --environment prod --deployment-profile cloud",
-    "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json"
+    "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",
+    "_sdkwork:build": "pnpm --dir apps/sdkwork-payment-pc build",
+    "_sdkwork:test": "pnpm test:node && pnpm test:vitest && cargo test --workspace",
+    "_sdkwork:check": "pnpm run check:app-composition && pnpm db:validate && pnpm api:assembly:validate && pnpm format:check",
+    "_sdkwork:verify": "pnpm typecheck && pnpm test:vitest && cargo test --workspace && pnpm run check:app-composition && pnpm run check:api-patterns && pnpm run check:api-envelope && pnpm run check:pagination && pnpm run check:sdk-consumer && pnpm check:cors-standard",
+    "_sdkwork:clean": "cargo clean",
+    "_sdkwork:dev:standalone": "pnpm --dir apps/sdkwork-payment-pc dev"
   },
   "devDependencies": {
     "@sdkwork/appbase-pc-react": "workspace:*",
@@ -76,7 +85,8 @@
     "vitest": "^4.1.2",
     "lucide-react": "^1.7.0",
     "qrcode": "^1.5.4",
-    "@types/qrcode": "^1.5.5"
+    "@types/qrcode": "^1.5.5",
+    "@sdkwork/app-topology": "workspace:*"
   },
   "exports": {
     ".": {
