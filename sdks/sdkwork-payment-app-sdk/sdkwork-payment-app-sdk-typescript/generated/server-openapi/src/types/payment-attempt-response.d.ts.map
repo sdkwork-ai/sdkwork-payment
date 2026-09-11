@@ -1,0 +1,1 @@
+{"version":3,"file":"payment-attempt-response.d.ts","sourceRoot":"","sources":["payment-attempt-response.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,cAAc,EAAE,MAAM,mBAAmB,CAAC;AAExD,MAAM,WAAW,sBAAsB;IACrC,IAAI,EAAE,CAAC,CAAC;IACR,IAAI,EAAE;QAAE,IAAI,EAAE,cAAc,CAAC;KAAE,CAAC;IAChC,OAAO,EAAE,MAAM,CAAC;CACjB"}

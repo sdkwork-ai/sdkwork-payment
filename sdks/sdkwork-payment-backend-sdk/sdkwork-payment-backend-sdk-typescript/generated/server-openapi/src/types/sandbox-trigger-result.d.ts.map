@@ -1,0 +1,1 @@
+{"version":3,"file":"sandbox-trigger-result.d.ts","sourceRoot":"","sources":["sandbox-trigger-result.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,oBAAoB;IACnC,WAAW,EAAE,MAAM,CAAC;IACpB,OAAO,EAAE,MAAM,CAAC;IAChB,8BAA8B;IAC9B,cAAc,EAAE,MAAM,CAAC;IACvB,gBAAgB,CAAC,EAAE,MAAM,CAAC;IAC1B,qFAAqF;IACrF,aAAa,CAAC,EAAE,MAAM,CAAC;CACxB"}

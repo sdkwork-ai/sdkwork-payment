@@ -1,0 +1,1 @@
+{"version":3,"file":"check-attempt-status-result-response.d.ts","sourceRoot":"","sources":["check-attempt-status-result-response.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,wBAAwB,EAAE,MAAM,+BAA+B,CAAC;AAE9E,MAAM,WAAW,gCAAgC;IAC/C,IAAI,EAAE,CAAC,CAAC;IACR,IAAI,EAAE,OAAO,GAAG;QAAE,IAAI,EAAE,wBAAwB,CAAC;KAAE,CAAC;IACpD,2CAA2C;IAC3C,OAAO,EAAE,MAAM,CAAC;CACjB"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"notify-domain-create-request.d.ts","sourceRoot":"","sources":["notify-domain-create-request.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,yBAAyB;IACxC,QAAQ,EAAE,OAAO,GAAG,MAAM,CAAC;IAC3B,QAAQ,EAAE,MAAM,CAAC;IACjB,IAAI,CAAC,EAAE,MAAM,GAAG,IAAI,CAAC;IACrB,SAAS,CAAC,EAAE,OAAO,CAAC;IACpB,MAAM,CAAC,EAAE,QAAQ,GAAG,UAAU,CAAC;IAC/B,SAAS,CAAC,EAAE,MAAM,CAAC;CACpB"}

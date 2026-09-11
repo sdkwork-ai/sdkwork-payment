@@ -1,0 +1,1 @@
+{"version":3,"file":"sdk-work-command-response.d.ts","sourceRoot":"","sources":["sdk-work-command-response.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,sBAAsB;IACrC,IAAI,EAAE,CAAC,CAAC;IACR,IAAI,EAAE;QAAE,QAAQ,EAAE,IAAI,CAAC;QAAC,UAAU,CAAC,EAAE,MAAM,CAAC;QAAC,MAAM,CAAC,EAAE,MAAM,CAAC;KAAE,CAAC;IAChE,OAAO,EAAE,MAAM,CAAC;CACjB"}
