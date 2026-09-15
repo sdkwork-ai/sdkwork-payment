@@ -162,7 +162,7 @@ Credential envelopes use `PaymentCredentialCipher` with AES-256-GCM and an HKDF 
 ## Verification
 
 ```powershell
-cd E:\sdkwork-space\sdkwork-payment
+cd <workspace-root>/sdkwork-payment
 cargo test --workspace
 pnpm verify
 node ../sdkwork-specs/tools/check-api-response-envelope.mjs --workspace .
