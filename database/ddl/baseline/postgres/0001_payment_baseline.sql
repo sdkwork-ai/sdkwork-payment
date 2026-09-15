@@ -101,7 +101,13 @@ CREATE TABLE IF NOT EXISTS commerce_payment_intent (
 );
 
 -- Self-heal: back-fill columns when the table was pre-created by another module.
+-- The Cloud Router `payment-runtime` module materializes the runtime shape of
+-- the shared commerce_payment_* / commerce_refund* facts before this baseline
+-- runs, and that shape carries `provider` instead of `provider_code`. Cover the
+-- operator-facing columns so the indexes and the reference seeds below work on
+-- either table origin.
 ALTER TABLE commerce_payment_intent ADD COLUMN IF NOT EXISTS payment_intent_no TEXT NOT NULL DEFAULT '';
+ALTER TABLE commerce_payment_intent ADD COLUMN IF NOT EXISTS provider_code TEXT NOT NULL DEFAULT '';
 ALTER TABLE commerce_payment_intent ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE commerce_payment_intent ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
 
@@ -153,6 +159,13 @@ CREATE TABLE IF NOT EXISTS commerce_payment_attempt (
 );
 
 -- Self-heal: back-fill columns when the table was pre-created by another module.
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS provider_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT '';
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS attempt_no TEXT;
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS channel_id TEXT;
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT;
+ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS request_no TEXT;
 ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
 ALTER TABLE commerce_payment_attempt ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ NULL;
@@ -211,6 +224,7 @@ CREATE TABLE IF NOT EXISTS commerce_refund (
 );
 
 -- Self-heal: back-fill columns when the table was pre-created by another module.
+ALTER TABLE commerce_refund ADD COLUMN IF NOT EXISTS order_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE commerce_refund ADD COLUMN IF NOT EXISTS refund_reason_code TEXT;
 ALTER TABLE commerce_refund ADD COLUMN IF NOT EXISTS requested_by_type TEXT NOT NULL DEFAULT 'buyer';
 ALTER TABLE commerce_refund ADD COLUMN IF NOT EXISTS requested_by TEXT;
