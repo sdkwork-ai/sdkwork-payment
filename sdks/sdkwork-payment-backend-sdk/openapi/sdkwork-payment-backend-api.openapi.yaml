@@ -1402,7 +1402,7 @@
         ],
         "summary": "Provider account credentials read (decrypted).",
         "description": "Decrypts and returns the active write-only credentials (primary secret, webhook secret, certificate) for the admin workspace view/copy/download. Restricted to operators who can manage credentials.",
-        "operationId": "providerAccounts.credentials.list",
+        "operationId": "providerAccounts.credentials.read",
         "parameters": [
           {
             "name": "providerAccountId",

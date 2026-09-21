@@ -457,7 +457,7 @@ impl BackendRefundPool {
                 let rows = sqlx::query(
                     r#"
                     SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
-                           a.payment_intent_id, a.provider_code, a.provider_account_id,
+                           a.payment_intent_id, a.provider_code, c.provider_account_id,
                            CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
                            r.refund_reason_code, r.requested_by_type, r.requested_by,
                            CAST(r.created_at AS TEXT) AS created_at,
@@ -465,6 +465,7 @@ impl BackendRefundPool {
                            COUNT(*) OVER() AS total_count
                     FROM commerce_refund r
                     INNER JOIN commerce_payment_attempt a ON a.id = r.payment_attempt_id
+                    LEFT JOIN commerce_payment_channel c ON c.id = a.channel_id
                     WHERE r.tenant_id = CAST($1 AS TEXT)
                       AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $3 IS NULL) OR (r.organization_id = '0' AND $3 IS NULL))
                       AND ($4::text IS NULL OR LOWER(r.status) = LOWER($4::text))
@@ -505,13 +506,14 @@ impl BackendRefundPool {
             Self::Postgres(pool) => sqlx::query(
                 r#"
                 SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
-                       a.payment_intent_id, a.provider_code, a.provider_account_id,
+                       a.payment_intent_id, a.provider_code, c.provider_account_id,
                        CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
                        r.refund_reason_code, r.requested_by_type, r.requested_by,
                        CAST(r.created_at AS TEXT) AS created_at,
                        CAST(r.updated_at AS TEXT) AS updated_at
                 FROM commerce_refund r
                 INNER JOIN commerce_payment_attempt a ON a.id = r.payment_attempt_id
+                LEFT JOIN commerce_payment_channel c ON c.id = a.channel_id
                 WHERE r.id = CAST($1 AS TEXT) AND r.tenant_id = CAST($2 AS TEXT)
                   AND ((r.organization_id = CAST($3 AS TEXT)) OR (r.organization_id IS NULL AND $4 IS NULL) OR (r.organization_id = '0' AND $4 IS NULL))
                   AND r.deleted_at IS NULL LIMIT 1
