@@ -17,6 +17,14 @@ const PAYMENT_ENVIRONMENT_KEYS: &[&str] = &[
     "SDKWORK_ENV",
 ];
 
+/// Resolves the payment deployment environment from the canonical payment
+/// environment keys. Fail-closed: an unrecognized value resolves to the
+/// production-like posture.
+#[must_use]
+pub fn payment_runtime_environment() -> WebEnvironment {
+    sdkwork_web_bootstrap::web_environment_from_env(PAYMENT_ENVIRONMENT_KEYS)
+}
+
 pub struct PaymentServiceHost {
     database: PaymentDatabaseHost,
 }
@@ -55,15 +63,31 @@ impl PaymentServiceHost {
 
 /// Fills bootstrap provider accounts with real-format test credentials so the
 /// one-cent test payment (and any checkout) drives the real provider adapters
-/// end to end without an activation gate. No-op on non-PostgreSQL pools; the
-/// repository function is idempotent and skips accounts that already carry
-/// operator-configured credentials or complete environment credentials.
+/// end to end without an activation gate.
+///
+/// The fill runs in development and test environments only: fabricated
+/// credentials that present as `last_test_status='success'` must never appear
+/// on a production-like deployment, where they would mask unconfigured PSPs as
+/// healthy until an operator replaces them. Production-like hosts (staging,
+/// prod, and any unrecognized environment value) skip the fill fail-closed;
+/// set `SDKWORK_ENVIRONMENT=development|test` to opt back in on a non-prod
+/// deployment. No-op on non-PostgreSQL pools; the repository function is
+/// idempotent and skips accounts that already carry operator-configured
+/// credentials or complete environment credentials.
 async fn ensure_bootstrap_provider_credentials(
     database: &PaymentDatabaseHost,
 ) -> Result<(), String> {
     let Some(pool) = database.pool().as_postgres() else {
         return Ok(());
     };
+    let environment = payment_runtime_environment();
+    if !matches!(environment, WebEnvironment::Dev | WebEnvironment::Test) {
+        tracing::info!(
+            environment = ?environment,
+            "skipping development provider credential fill: production-like environments require operator-configured credentials"
+        );
+        return Ok(());
+    }
     ensure_development_provider_credentials_postgres(pool)
         .await
         .map_err(|error| {
@@ -79,7 +103,7 @@ fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {
         return Ok(());
     }
 
-    let environment = sdkwork_web_bootstrap::web_environment_from_env(PAYMENT_ENVIRONMENT_KEYS);
+    let environment = payment_runtime_environment();
     let production_like = environment == WebEnvironment::Prod;
     let key_path = resolve_payment_credential_master_key_path(
         nonempty_env_path(PAYMENT_CREDENTIAL_MASTER_KEY_FILE_ENV),

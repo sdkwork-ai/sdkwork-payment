@@ -2782,6 +2782,7 @@ fn backend_write_header_error(
     error: WriteCommandHeaderError,
 ) -> Response {
     let message = match error {
+        WriteCommandHeaderError::MissingHeader(name) => format!("{name} header is required"),
         WriteCommandHeaderError::InvalidHeader(message) => message.to_owned(),
     };
     validation(ctx, message)

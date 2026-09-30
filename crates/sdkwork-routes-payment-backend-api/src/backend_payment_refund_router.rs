@@ -882,6 +882,9 @@ fn validate_backend_write_payload(
         format!("{request_no_prefix}-{idempotency_key}")
     })
     .map_err(|error| match error {
+        WriteCommandHeaderError::MissingHeader(name) => {
+            validation(ctx, format!("{name} header is required"))
+        }
         WriteCommandHeaderError::InvalidHeader(message) => validation(ctx, message),
     })
 }

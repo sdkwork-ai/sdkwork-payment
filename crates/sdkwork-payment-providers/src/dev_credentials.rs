@@ -2,9 +2,10 @@
 //!
 //! Development bootstrap provider accounts are seeded active (see
 //! `database/seeds/common/003_development_templates.sql`); the payment service
-//! host fills them with real-format test credentials on first boot so the
-//! one-cent test payment drives the real provider adapters — real HTTP calls
-//! to the PSP — without a manual Test → Activate gate.
+//! host fills them with real-format test credentials on first boot — in
+//! development and test environments only (the host enforces the gate) — so
+//! the one-cent test payment drives the real provider adapters: real HTTP
+//! calls to the PSP with authentic PSP errors.
 //!
 //! The generated values are structurally valid (Stripe `sk_test_…` keys,
 //! parseable RSA-2048 PKCS#8 PEM private keys, a 32-char WeChat API v3 key),
@@ -12,6 +13,13 @@
 //! either succeeds — after the operator replaces them with real credentials in
 //! Provider Accounts — or fails with the PSP's own authentic error. Nothing
 //! here is a mock: the adapter, the HTTP call, and the error are all real.
+//!
+//! Provider **verification** material (Alipay platform public key, WeChat
+//! platform certificate / public key ID) is intentionally never generated:
+//! a verification key this system generated itself would let anyone holding
+//! the paired private key forge webhook signatures that pass verification.
+//! Signature verification fails closed until the operator installs the real
+//! platform key on the provider account.
 
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use rsa::{RsaPrivateKey, RsaPublicKey};
@@ -22,10 +30,9 @@ use uuid::Uuid;
 pub struct DevelopmentCredentials {
     pub primary_secret: String,
     pub webhook_secret: Option<String>,
+    /// Verification material slot; never carries a self-generated key.
     pub certificate: Option<String>,
-    /// WeChat Pay public key ID (`PUB_KEY_ID_` prefix, WeChat Pay public key
-    /// mode) so bootstrap accounts exercise the official recommended
-    /// verification credential system end to end.
+    /// WeChat Pay public key ID slot; never carries a self-generated value.
     pub wechatpay_public_key_id: Option<String>,
 }
 
@@ -41,28 +48,33 @@ pub fn generate_development_credentials(
             certificate: None,
             wechatpay_public_key_id: None,
         }),
+        // The merchant RSA private key signs outgoing Alipay requests; the
+        // Alipay platform public key used to verify notifies is operator
+        // installed and is never fabricated here — a verification key this
+        // system generated itself would let anyone holding the paired private
+        // key forge webhook signatures that pass verification.
         "alipay" => {
-            let (private_pem, public_pem) = generate_rsa_keypair_pem()?;
+            let (private_pem, _public_pem) = generate_rsa_keypair_pem()?;
             Ok(DevelopmentCredentials {
                 primary_secret: private_pem,
                 webhook_secret: None,
-                certificate: Some(public_pem),
+                certificate: None,
                 wechatpay_public_key_id: None,
             })
         }
         "wechat_pay" | "wechat-pay" => {
-            let (private_pem, public_pem) = generate_rsa_keypair_pem()?;
+            let (private_pem, _public_pem) = generate_rsa_keypair_pem()?;
             Ok(DevelopmentCredentials {
                 primary_secret: private_pem,
                 // WeChat API v3 key: 32 arbitrary characters (hex form).
                 webhook_secret: Some(random_hex(32)),
-                // The verification key slot accepts a SPKI public key PEM
-                // (`pub_key.pem` equivalent), which the adapter uses to verify
-                // webhook and response signatures in WeChat Pay public key mode.
-                certificate: Some(public_pem),
-                // WeChat Pay public key ID (PUB_KEY_ID_ prefix) carried by the
-                // `Wechatpay-Serial` response/webhook header in public key mode.
-                wechatpay_public_key_id: Some(format!("PUB_KEY_ID_{}", random_hex(32))),
+                // The WeChat platform verification material (platform
+                // certificate or public key + key ID) is operator installed;
+                // self-generated verification keys are forgeable, so this
+                // template leaves both slots empty and webhook/response
+                // verification fails closed until a real key is configured.
+                certificate: None,
+                wechatpay_public_key_id: None,
             })
         }
         _ => Err(format!(
@@ -128,8 +140,6 @@ fn random_hex(len: usize) -> String {
 mod tests {
     use super::*;
     use rsa::pkcs8::DecodePrivateKey;
-    use rsa::pkcs8::DecodePublicKey;
-    use rsa::traits::PrivateKeyParts;
     use rsa::traits::PublicKeyParts;
 
     #[test]
@@ -162,16 +172,16 @@ mod tests {
             assert!(credentials
                 .primary_secret
                 .starts_with("-----BEGIN PRIVATE KEY-----"));
-            let public_key = credentials
-                .certificate
-                .as_deref()
-                .expect("rsa providers carry a certificate slot");
-            let parsed = RsaPublicKey::from_public_key_pem(public_key)
-                .unwrap_or_else(|error| panic!("{provider_code} public key must parse: {error}"));
-            assert_eq!(
-                parsed.n(),
-                private_key.n(),
-                "{provider_code} keypair must match"
+            // Verification material is never self-generated: a forged-key
+            // template would let webhook signatures be forged by anyone who
+            // can read the generated private key from the database.
+            assert!(
+                credentials.certificate.is_none(),
+                "{provider_code} must not fabricate a verification key"
+            );
+            assert!(
+                credentials.wechatpay_public_key_id.is_none(),
+                "{provider_code} must not fabricate a verification key id"
             );
         }
     }

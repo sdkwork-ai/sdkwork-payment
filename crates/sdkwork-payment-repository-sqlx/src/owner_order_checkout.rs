@@ -437,6 +437,7 @@ async fn enrich_owner_order_payment_outcome(
     currency_code: Option<&str>,
     notify_domain_base: Option<&str>,
 ) -> Result<PayOwnerOrderOutcome, CommerceServiceError> {
+    let deployment_registry_fallback = account.is_none();
     let registry = match account {
         Some(binding) => provider_registry_for_account(context.credentials, Some(binding)),
         None => context.deployment_registry.clone(),
@@ -450,7 +451,24 @@ async fn enrich_owner_order_payment_outcome(
         currency_code,
         notify_domain_base,
     );
-    enrich_pay_owner_order_outcome(&registry, &checkout_context, outcome).await
+    let mut outcome =
+        enrich_pay_owner_order_outcome(&registry, &checkout_context, outcome).await?;
+    if deployment_registry_fallback {
+        // Settlement attribution must never be implicit: when a tenant has no
+        // bound provider account, checkout falls back to the deployment-level
+        // PSP account. Mark the cashier parameters and log loudly so operators
+        // can spot tenants charging through the platform account.
+        tracing::warn!(
+            provider_code = %provider_code,
+            tenant_id = %context.tenant_id,
+            "no tenant provider account binding: checkout is routed through the deployment-level provider credentials"
+        );
+        outcome
+            .payment_params
+            .entry("credentialSource".to_owned())
+            .or_insert_with(|| "deployment-registry".to_owned());
+    }
+    Ok(outcome)
 }
 fn provider_checkout_context(
     context: &OwnerOrderPaymentEnrichmentContext<'_>,

@@ -35,8 +35,9 @@ use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Row};
 
 use crate::api_response::{
-    conflict, map_service_error, not_found, provider_rejected, sanitize_provider_error_message,
-    success_created_item, success_item, success_list, success_no_content, unauthorized, validation,
+    conflict, forbidden, map_service_error, not_found, provider_rejected,
+    sanitize_provider_error_message, success_created_item, success_item, success_list,
+    success_no_content, unauthorized, validation,
 };
 use crate::command_headers::{validate_write_payload, WriteCommandHeaderError};
 use crate::subject::{backend_runtime_subject_from_extension, AppRuntimeSubject};
@@ -49,6 +50,19 @@ enum IntegrationPool {
 #[derive(Clone)]
 struct IntegrationState {
     pool: IntegrationPool,
+    /// Unsigned sandbox webhook ingestion is a development affordance: a
+    /// production-like deployment must never accept simulated settlement
+    /// events, even behind authenticated admin routes.
+    sandbox_trigger_enabled: bool,
+}
+
+/// Sandbox settlement injection is a development affordance and is disabled
+/// fail-closed on every production-like environment (staging, prod, unknown).
+fn sandbox_trigger_enabled_for_environment() -> bool {
+    !matches!(
+        sdkwork_payment_service_host::payment_runtime_environment(),
+        sdkwork_web_core::WebEnvironment::Prod
+    )
 }
 
 #[derive(Clone)]
@@ -242,12 +256,16 @@ pub fn build_backend_payment_integration_router(host: Arc<PaymentServiceHost>) -
         .expect("payment backend integration routes require an authoritative PostgreSQL pool")
         .clone();
     let pool = IntegrationPool::Postgres(pool);
-    build_router(IntegrationState { pool })
+    build_router(IntegrationState {
+        pool,
+        sandbox_trigger_enabled: sandbox_trigger_enabled_for_environment(),
+    })
 }
 
 pub fn backend_payment_integration_router_with_postgres_pool(pool: PgPool) -> Router {
     build_router(IntegrationState {
         pool: IntegrationPool::Postgres(pool),
+        sandbox_trigger_enabled: sandbox_trigger_enabled_for_environment(),
     })
 }
 
@@ -797,6 +815,12 @@ async fn trigger_sandbox_event(
         Ok(subject) => subject,
         Err(response) => return response,
     };
+    if !state.sandbox_trigger_enabled {
+        return forbidden(
+            ctx,
+            "sandbox event triggers are disabled on production-like deployments",
+        );
+    }
     let write = match validate_command(ctx, &headers, "sandbox-trigger", &body) {
         Ok(write) => write,
         Err(response) => return response,
@@ -1948,6 +1972,9 @@ fn command_header_error(
     error: WriteCommandHeaderError,
 ) -> Response {
     match error {
+        WriteCommandHeaderError::MissingHeader(name) => {
+            validation(ctx, format!("{name} header is required"))
+        }
         WriteCommandHeaderError::InvalidHeader(message) => validation(ctx, message),
     }
 }
