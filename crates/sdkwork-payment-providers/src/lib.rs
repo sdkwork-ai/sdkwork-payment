@@ -17,7 +17,8 @@ mod webhook_peek;
 mod wechat_pay;
 
 pub use adapter::{
-    normalize_provider_code, PaymentProviderAdapter, PaymentQueryPaymentIntentRequest,
+    normalize_provider_code, PaymentCreateRefundRequest, PaymentProviderAdapter,
+    PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
 };
 pub use adapter::{PaymentNormalizeWebhookRequest, PaymentVerifyWebhookRequest};
 pub use checkout::{enrich_pay_owner_order_outcome, CheckoutContext};

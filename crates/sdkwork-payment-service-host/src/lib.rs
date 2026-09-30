@@ -1,13 +1,17 @@
 use sdkwork_database_sqlx::DatabasePool;
+use sdkwork_payment_compensation_worker::{
+    spawn_payment_compensation_worker, PaymentCompensationWorkerConfig,
+};
 use sdkwork_payment_database_host::{bootstrap_payment_database_from_env, PaymentDatabaseHost};
 use sdkwork_payment_providers::{
     install_payment_credential_cipher, payment_credential_cipher_is_installed,
-    LocalFilePaymentCredentialCipher, PaymentCredentialCipher,
+    LocalFilePaymentCredentialCipher, PaymentCredentialCipher, ProviderCredentialBundle,
 };
 use sdkwork_payment_repository_sqlx::ensure_development_provider_credentials_postgres;
 use sdkwork_web_core::WebEnvironment;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 const PAYMENT_CREDENTIAL_MASTER_KEY_FILE_ENV: &str = "SDKWORK_PAYMENT_CREDENTIAL_MASTER_KEY_FILE";
 const PAYMENT_ENVIRONMENT_KEYS: &[&str] = &[
@@ -16,6 +20,10 @@ const PAYMENT_ENVIRONMENT_KEYS: &[&str] = &[
     "PAYMENT_ENVIRONMENT",
     "SDKWORK_ENV",
 ];
+
+/// Graceful-drain budget for the background compensation worker: each pass is
+/// bounded by the PSP client timeouts, so one sweep plus margin suffices.
+const COMPENSATION_DRAIN_TIMEOUT: Duration = Duration::from_secs(31);
 
 /// Resolves the payment deployment environment from the canonical payment
 /// environment keys. Fail-closed: an unrecognized value resolves to the
@@ -27,6 +35,10 @@ pub fn payment_runtime_environment() -> WebEnvironment {
 
 pub struct PaymentServiceHost {
     database: PaymentDatabaseHost,
+    compensation_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
+    /// Taken by [`Self::drain_payment_compensation_worker`]; the mutex only
+    /// guards the take and is never held across an await.
+    compensation_handle: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl PaymentServiceHost {
@@ -40,7 +52,7 @@ impl PaymentServiceHost {
         ensure_payment_credential_cipher_from_env()?;
         let database = bootstrap_payment_database_from_env().await?;
         ensure_bootstrap_provider_credentials(&database).await?;
-        Ok(Self { database })
+        Ok(Self::from_database(database))
     }
 
     /// Build the payment service host against a caller-provided database pool so
@@ -49,7 +61,51 @@ impl PaymentServiceHost {
         ensure_payment_credential_cipher_from_env()?;
         let database = sdkwork_payment_database_host::bootstrap_payment_database(pool).await?;
         ensure_bootstrap_provider_credentials(&database).await?;
-        Ok(Self { database })
+        Ok(Self::from_database(database))
+    }
+
+    fn from_database(database: PaymentDatabaseHost) -> Self {
+        // One compensation worker per host process. It shares the host pool,
+        // drains with the host, and is disabled by kill-switch via
+        // SDKWORK_PAYMENT_COMPENSATION_ENABLED=0.
+        let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
+        let credentials = ProviderCredentialBundle::from_env();
+        let handle = spawn_payment_compensation_worker(
+            database.pool().as_postgres().expect(
+                "payment compensation worker requires the authoritative PostgreSQL pool",
+            ).clone(),
+            credentials,
+            PaymentCompensationWorkerConfig::from_env(),
+            shutdown_rx,
+        );
+        Self {
+            database,
+            compensation_shutdown: Arc::new(shutdown),
+            compensation_handle: Arc::new(std::sync::Mutex::new(Some(handle))),
+        }
+    }
+
+    /// Signals the compensation worker to stop and waits (bounded) for the
+    /// current pass to finish. Hosts must call this during graceful shutdown;
+    /// a second call is a no-op.
+    pub async fn drain_payment_compensation_worker(&self) {
+        let _ = self.compensation_shutdown.send(true);
+        let handle = self
+            .compensation_handle
+            .lock()
+            .expect("payment compensation worker handle mutex poisoned")
+            .take();
+        let Some(mut handle) = handle else {
+            return;
+        };
+        match tokio::time::timeout(COMPENSATION_DRAIN_TIMEOUT, &mut handle).await {
+            Ok(Ok(())) => tracing::info!("payment compensation worker drained"),
+            Ok(Err(_)) => tracing::warn!("payment compensation worker panicked during drain"),
+            Err(_) => tracing::warn!(
+                "payment compensation worker drain timed out after {}s",
+                COMPENSATION_DRAIN_TIMEOUT.as_secs()
+            ),
+        }
     }
 
     pub fn database_pool(&self) -> &DatabasePool {

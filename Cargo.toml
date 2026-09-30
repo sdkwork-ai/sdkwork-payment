@@ -5,6 +5,7 @@ members = [
   "crates/sdkwork-payment-service",
   "crates/sdkwork-payment-providers",
   "crates/sdkwork-payment-repository-sqlx",
+  "crates/sdkwork-payment-compensation-worker",
   "crates/sdkwork-routes-payment-app-api",
   "crates/sdkwork-routes-payment-backend-api",
   "crates/sdkwork-payment-database-host",
@@ -75,6 +76,7 @@ sdkwork-database-spi = { path = "../sdkwork-database/crates/sdkwork-database-spi
 sdkwork-database-sqlx = { path = "../sdkwork-database/crates/sdkwork-database-sqlx", features = ["postgres"] }
 sdkwork_payment_service = { path = "crates/sdkwork-payment-service", package = "sdkwork-payment-service" }
 sdkwork_payment_providers = { path = "crates/sdkwork-payment-providers", package = "sdkwork-payment-providers" }
+sdkwork_payment_compensation_worker = { path = "crates/sdkwork-payment-compensation-worker", package = "sdkwork-payment-compensation-worker" }
 sdkwork_payment_repository_sqlx = { path = "crates/sdkwork-payment-repository-sqlx", package = "sdkwork-payment-repository-sqlx" }
 sdkwork_routes_payment_app_api = { path = "crates/sdkwork-routes-payment-app-api", package = "sdkwork-routes-payment-app-api" }
 sdkwork_routes_payment_backend_api = { path = "crates/sdkwork-routes-payment-backend-api", package = "sdkwork-routes-payment-backend-api" }

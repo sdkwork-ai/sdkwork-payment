@@ -63,6 +63,17 @@ pub async fn rotate_provider_credentials_postgres(
         return Ok(());
     }
     let mut transaction = pool.begin().await.map_err(store_error)?;
+    // Serialize the version = MAX(version)+1 read-modify-write per account:
+    // two concurrent rotations (admin rotate + bootstrap fill) would otherwise
+    // compute the same next version and race the active-unique index.
+    sqlx::query_scalar::<_, bool>(
+        "SELECT pg_advisory_xact_lock(hashtextextended('sdkwork-payment:credential-rotate:' || CAST($1 AS TEXT) || ':' || CAST($2 AS TEXT), 0))",
+    )
+    .bind(tenant_id)
+    .bind(provider_account_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(store_error)?;
     ensure_account_postgres(
         &mut transaction,
         tenant_id,
@@ -101,6 +112,29 @@ pub async fn rotate_provider_credentials_postgres(
 /// (operator-configured) or whose provider credentials are fully provided
 /// through environment variables are skipped untouched.
 pub async fn ensure_development_provider_credentials_postgres(
+    pool: &PgPool,
+) -> Result<(), CommerceServiceError> {
+    // Multi-replica cold start: the has-active-credentials check and the fill
+    // must be serialized across replicas, or both replicas generate
+    // credentials for the same account and the loser crashes into the
+    // active-unique index. The advisory lock is transaction-scoped and
+    // key-named, so it excludes only concurrent bootstrap fills.
+    let mut lock_tx = pool.begin().await.map_err(store_error)?;
+    sqlx::query_scalar::<_, bool>(
+        "SELECT pg_advisory_xact_lock(hashtextextended('sdkwork-payment:bootstrap-credentials', 0))",
+    )
+    .fetch_one(&mut *lock_tx)
+    .await
+    .map_err(store_error)?;
+    let fill = fill_development_provider_credentials_locked(pool).await;
+    lock_tx.commit().await.map_err(store_error)?;
+    fill
+}
+
+/// Runs the bootstrap fill while holding the bootstrap advisory lock. The
+/// per-account checks re-read committed state, so a replica that waited on
+/// the lock sees the winner's rows and skips untouched.
+async fn fill_development_provider_credentials_locked(
     pool: &PgPool,
 ) -> Result<(), CommerceServiceError> {
     let accounts = sqlx::query(

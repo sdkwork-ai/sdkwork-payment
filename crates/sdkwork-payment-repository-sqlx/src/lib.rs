@@ -23,8 +23,8 @@ pub mod webhook_status;
 
 pub use compensation_claim::{
     claim_due_payment_attempts_postgres, claim_due_refunds_postgres,
-    load_claim_attempt_provider_context_postgres, ClaimAttemptProviderContext,
-    ClaimedPaymentAttempt, ClaimedRefund,
+    list_due_compensation_tenants_postgres, load_claim_attempt_provider_context_postgres,
+    ClaimAttemptProviderContext, ClaimedPaymentAttempt, ClaimedRefund,
 };
 pub use notify_domain::{
     build_notify_domain_urls, delete_notify_domain_postgres, list_notify_domains_postgres,

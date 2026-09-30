@@ -1,0 +1,26 @@
+[package]
+rust-version.workspace = true
+name = "sdkwork-payment-compensation-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Background compensation worker for sdkwork-payment: reconciles stuck payment attempts and refunds against the PSP."
+
+[lints]
+workspace = true
+
+[lib]
+name = "payment_compensation_worker"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork_contract_service.workspace = true
+sdkwork_payment_providers.workspace = true
+sdkwork_payment_repository_sqlx.workspace = true
+sdkwork-utils-rust.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
+tracing.workspace = true

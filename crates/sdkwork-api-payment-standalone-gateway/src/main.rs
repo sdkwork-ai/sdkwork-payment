@@ -1,4 +1,4 @@
-use sdkwork_api_payment_assembly::assemble_api_router_from_env;
+use sdkwork_api_payment_assembly::assemble_api_router;
 use sdkwork_iam_web_adapter::{
     build_web_framework_builder, iam_web_request_context_resolver_from_env,
 };
@@ -8,17 +8,25 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-/// C13/H1/C23 修复：API server 生产级启动配置。
+/// API server production bootstrap.
 ///
-/// - C13: CORS 由 `PAYMENT_API_CORS_ORIGINS` 环境变量驱动（逗号分隔），默认拒绝跨域，
-/// - H1:  接入 graceful shutdown、请求超时（30s）、请求体大小限制（1 MiB）。
-/// - C23: 接入 TraceLayer 结构化请求追踪（含 span、URI、状态码、耗时）。
+/// - CORS is allow-list driven (`SDKWORK_CORS_ALLOWED_ORIGINS`, deny by default).
+/// - Graceful shutdown (SIGINT/SIGTERM), 30s request timeout, 1 MiB body cap.
+/// - The payment compensation worker reconciles lost-PSP-callback attempts
+///   and stuck refunds on a bounded, jittered cadence; it drains with the
+///   same shutdown signal as the HTTP server.
 #[tokio::main]
 async fn main() {
-    // 结构化日志输出，生产环境应配合 OTel exporter（后续 P1 阶段接入）。
     tracing_subscriber::fmt::init();
 
-    let assembly = assemble_api_router_from_env()
+    // The host owns the authoritative pool; the compensation worker shares it
+    // (the checkout lock gate sizes itself from this pool's capacity).
+    let host = std::sync::Arc::new(
+        sdkwork_payment_service_host::PaymentServiceHost::from_env()
+            .await
+            .expect("payment service host bootstrap failed"),
+    );
+    let assembly = assemble_api_router(host.clone())
         .await
         .expect("payment API assembly failed");
     let framework = build_web_framework_builder(
@@ -41,8 +49,8 @@ async fn main() {
 
     tracing::info!(bind = %addr, "payment api server starting");
 
-    // H1 修复：graceful shutdown，收到 SIGINT/Ctrl+C 后停止接受新连接，
-    // 等待在途请求完成（最多 30s），避免 K8s 滚动更新断连。
+    // Graceful shutdown: SIGINT/SIGTERM stops accepting new connections and
+    // drains in-flight requests (bounded by the 30s timeout layer).
     let shutdown = async {
         let ctrl_c = async {
             tokio::signal::ctrl_c()
@@ -69,8 +77,13 @@ async fn main() {
         tracing::info!("payment api server shutdown signal received, draining in-flight requests");
     };
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
-        .expect("serve");
+    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown);
+    if let Err(error) = serve.await {
+        eprintln!("payment api server error: {error}");
+    }
+
+    // The 30s timeout layer bounds in-flight requests; the host-owned
+    // compensation worker pass is bounded by the PSP client timeouts, so this
+    // drain terminates.
+    host.drain_payment_compensation_worker().await;
 }

@@ -44,15 +44,61 @@ pub struct ClaimedPaymentAttempt {
     pub amount: String,
 }
 
-/// A claimed refund awaiting PSP status query.
+/// A claimed refund awaiting PSP submission retry or status query.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClaimedRefund {
     pub id: String,
     pub tenant_id: String,
     pub organization_id: Option<String>,
+    pub order_id: String,
+    pub provider_code: String,
     pub refund_no: String,
     pub payment_attempt_id: String,
     pub status: String,
+    pub amount: String,
+    pub currency_code: String,
+    pub request_no: String,
+    pub idempotency_key: String,
+}
+
+/// Tenants that currently hold rows due for compensation, so the worker can
+/// run the per-tenant claim scans (which are index-servable) without a
+/// cross-tenant seq scan. Bounded; repeat passes cover overflow.
+pub async fn list_due_compensation_tenants_postgres(
+    pool: &Pool<Postgres>,
+    min_age_seconds: i64,
+    limit: i64,
+) -> Result<Vec<String>, CommerceServiceError> {
+    let min_age = chrono::Utc::now().timestamp() - min_age_seconds;
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT tenant_id FROM (
+            SELECT pa.tenant_id
+            FROM commerce_payment_attempt pa
+            WHERE pa.status IN ('pending', 'processing')
+              AND EXTRACT(EPOCH FROM pa.created_at) <= $1
+              AND (pa.expires_at IS NULL OR EXTRACT(EPOCH FROM pa.expires_at) > $1)
+              AND pa.deleted_at IS NULL
+            UNION
+            SELECT r.tenant_id
+            FROM commerce_refund r
+            WHERE r.status IN ('submitted', 'processing')
+              AND EXTRACT(EPOCH FROM r.created_at) <= $1
+              AND r.deleted_at IS NULL
+        ) due
+        ORDER BY tenant_id
+        LIMIT $2
+        "#,
+    )
+    .bind(min_age)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| store_error("failed to list compensation tenants", error))?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| optional_string_cell(row, "tenant_id"))
+        .collect())
 }
 
 /// Claims due payment attempts: status pending/processing, created at least
@@ -156,7 +202,10 @@ pub async fn claim_due_refunds_postgres(
         .map_err(|error| store_error("failed to begin refund claim", error))?;
     let rows = sqlx::query(
         r#"
-        SELECT id, tenant_id, organization_id, refund_no, payment_attempt_id, status
+        SELECT id, tenant_id, organization_id, order_id, provider_code, refund_no,
+               payment_attempt_id, status,
+               CAST(COALESCE(amount, 0) AS BIGINT)::TEXT AS amount,
+               currency_code, request_no, idempotency_key
         FROM commerce_refund
         WHERE tenant_id = CAST($1 AS TEXT)
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
@@ -181,9 +230,15 @@ pub async fn claim_due_refunds_postgres(
             id: string_cell(row, "id"),
             tenant_id: string_cell(row, "tenant_id"),
             organization_id: optional_string_cell(row, "organization_id"),
+            order_id: string_cell(row, "order_id"),
+            provider_code: string_cell(row, "provider_code"),
             refund_no: string_cell(row, "refund_no"),
             payment_attempt_id: string_cell(row, "payment_attempt_id"),
             status: string_cell(row, "status"),
+            amount: string_cell(row, "amount"),
+            currency_code: string_cell(row, "currency_code"),
+            request_no: string_cell(row, "request_no"),
+            idempotency_key: string_cell(row, "idempotency_key"),
         })
         .collect::<Vec<_>>();
     let submitted_ids: Vec<String> = claimed

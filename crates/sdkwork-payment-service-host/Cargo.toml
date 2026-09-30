@@ -17,7 +17,9 @@ sdkwork-database-sqlx.workspace = true
 sdkwork-database-spi.workspace = true
 sdkwork-web-bootstrap.workspace = true
 sdkwork-web-core.workspace = true
+sdkwork_payment_compensation_worker.workspace = true
 sdkwork_payment_database_host.workspace = true
 sdkwork_payment_providers.workspace = true
 sdkwork_payment_repository_sqlx.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing.workspace = true

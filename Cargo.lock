@@ -2173,6 +2173,7 @@ dependencies = [
  "axum",
  "sdkwork-api-payment-assembly",
  "sdkwork-iam-web-adapter",
+ "sdkwork-payment-service-host",
  "sdkwork-web-bootstrap",
  "tokio",
  "tower-http 0.5.2",
@@ -2344,6 +2345,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-payment-compensation-worker"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sdkwork-contract-service",
+ "sdkwork-payment-providers",
+ "sdkwork-payment-repository-sqlx",
+ "sdkwork-utils-rust",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sdkwork-payment-database-host"
 version = "0.1.0"
 dependencies = [
@@ -2411,11 +2427,13 @@ version = "0.1.0"
 dependencies = [
  "sdkwork-database-spi",
  "sdkwork-database-sqlx",
+ "sdkwork-payment-compensation-worker",
  "sdkwork-payment-database-host",
  "sdkwork-payment-providers",
  "sdkwork-payment-repository-sqlx",
  "sdkwork-web-bootstrap",
  "sdkwork-web-core",
+ "tokio",
  "tracing",
 ]
 
