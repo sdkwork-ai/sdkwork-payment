@@ -1,4 +1,5 @@
 use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
+use sdkwork_payment_providers::{ensure_currency_supported, require_positive_minor};
 use sdkwork_payment_service::{
     CancelOrderPaymentsCommand, ConfirmOwnerOrderPaymentOutcome, OrderPaymentSettlementAttempt,
     PayOwnerOrderCommand, PayOwnerOrderOutcome,
@@ -306,9 +307,23 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         let order_subject = optional_string_cell(&order_row, "order_subject");
         let order_expires_at = optional_string_cell(&order_row, "expired_at");
         let order_currency = optional_string_cell(&order_row, "currency_code");
+        // Channel routing must see the order's real currency: the channel
+        // catalog filters by currency_code, so hardcoding CNY routed
+        // non-CNY orders by CNY rules or into the channel-less fallback.
+        let currency_code: String = order_currency
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_uppercase)
+            .unwrap_or_else(|| "CNY".to_owned());
         let total_amount = normalize_stored_money_amount(&string_cell(&order_row, "total_amount"))?;
         let total_amount =
             CommerceMoney::new(&total_amount).map_err(CommerceServiceError::storage)?;
+        // A zero/negative payable amount cannot produce a PSP charge and would
+        // corrupt refund reservation math; currency storage is NUMERIC(18,2),
+        // so non-two-decimal currencies fail closed here as well.
+        require_positive_minor(&total_amount, "order total amount")?;
+        ensure_currency_supported(&currency_code)?;
         if !order_status_is_payable(&order_status)
             || !order_expiration_is_payable(order_expires_at.as_deref())
         {
@@ -348,17 +363,12 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         // Channel routing must see the order's real currency: the channel
         // catalog filters by currency_code, so hardcoding CNY routed
         // non-CNY orders by CNY rules or into the channel-less fallback.
-        let currency_code = order_currency
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("CNY");
         let channel = select_payment_channel_postgres(
             &mut tx,
             &command.tenant_id,
             command.organization_id.as_deref(),
             &command.payment_method,
-            currency_code,
+            &currency_code,
             total_amount.as_str(),
             command.payment_scene.as_deref(),
         )
@@ -402,7 +412,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         .bind(&command.payment_method)
         .bind(&channel.provider_code)
         .bind(total_amount.as_str())
-        .bind(currency_code)
+        .bind(&currency_code)
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&command.request_no)
         .bind(&command.idempotency_key)
@@ -451,7 +461,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         .bind(channel.channel_id.as_deref())
         .bind(&out_trade_no)
         .bind(total_amount.as_str())
-        .bind(currency_code)
+        .bind(&currency_code)
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&callback_payload)
         .bind(&command.request_no)

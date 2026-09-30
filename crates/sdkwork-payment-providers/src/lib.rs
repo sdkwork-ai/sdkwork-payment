@@ -21,6 +21,10 @@ pub use adapter::{
 };
 pub use adapter::{PaymentNormalizeWebhookRequest, PaymentVerifyWebhookRequest};
 pub use checkout::{enrich_pay_owner_order_outcome, CheckoutContext};
+pub use money::{
+    ensure_currency_supported, money_to_minor, normalized_payment_currency,
+    require_positive_minor,
+};
 pub use credential_cipher::{
     install_payment_credential_cipher, payment_credential_cipher,
     payment_credential_cipher_is_installed, CredentialCipherScope, EncryptedPaymentCredential,

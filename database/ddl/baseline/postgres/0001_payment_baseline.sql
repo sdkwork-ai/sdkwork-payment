@@ -115,6 +115,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_intent_idempotency
     ON commerce_payment_intent (tenant_id, order_id, idempotency_key)
     WHERE deleted_at IS NULL;
 
+-- payment_intent_no is the operator-facing intent number (migration 0002 parity).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_intent_tenant_intent_no
+    ON commerce_payment_intent (tenant_id, payment_intent_no)
+    WHERE deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_commerce_payment_intent_owner
     ON commerce_payment_intent (tenant_id, owner_user_id, id)
     WHERE deleted_at IS NULL;
@@ -190,6 +195,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
     ON commerce_payment_attempt (tenant_id, provider_code, out_trade_no)
     WHERE out_trade_no IS NOT NULL AND deleted_at IS NULL;
 
+-- PSP native-id lookup without a seq scan (migration 0002 parity).
+CREATE INDEX IF NOT EXISTS ix_commerce_payment_attempt_provider_transaction
+    ON commerce_payment_attempt (tenant_id, provider_code, provider_transaction_id)
+    WHERE provider_transaction_id IS NOT NULL AND deleted_at IS NULL;
+
 -- Compensation worker claim scan: status window + created_at age window with
 -- ORDER BY created_at LIMIT (run_payment_compensation_pass claims). The
 -- owner-scoped indexes cannot serve a tenant-wide scan; this one can.
@@ -233,6 +243,12 @@ ALTER TABLE commerce_refund ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_refund_idempotency
     ON commerce_refund (tenant_id, order_id, idempotency_key)
+    WHERE deleted_at IS NULL;
+
+-- refund_no is the per-tenant webhook resolution key; collisions would make
+-- `FOR UPDATE` refund lookup nondeterministic (migration 0002 parity).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_refund_tenant_refund_no
+    ON commerce_refund (tenant_id, refund_no)
     WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_commerce_refund_owner
