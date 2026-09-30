@@ -1302,7 +1302,7 @@ async fn check_attempt_status(
 
     // Resolve the provider account bound to the attempt's channel so the PSP
     // query uses the same credentials as the original checkout.
-    let account = match load_provider_account_for_attempt(pool, &subject, &attempt).await {
+    let account = match load_provider_account_for_attempt(pool, &attempt).await {
         Ok(account) => account,
         Err(error) => return map_service_error(ctx, error),
     };
@@ -1492,18 +1492,13 @@ async fn load_test_attempt_for_check(
 
 async fn load_provider_account_for_attempt(
     pool: &PgPool,
-    subject: &AppRuntimeSubject,
     attempt: &TestAttemptForCheck,
 ) -> Result<Option<ProviderAccountRecord>, sdkwork_contract_service::CommerceServiceError> {
     let Some(channel_id) = attempt.channel_id.as_deref() else {
         return Ok(None);
     };
-    let organization_id = subject
-        .organization_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("0");
+    // The channel→account join resolves inside the attempt's tenant; the
+    // subject organization is not part of this lookup's identity.
     let row = sqlx::query(
         "SELECT a.id, a.provider_code, a.merchant_id, a.environment, a.secret_ref, \
                 a.webhook_secret_ref, a.certificate_ref, a.primary_secret, a.webhook_secret, \

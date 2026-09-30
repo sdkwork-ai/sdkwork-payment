@@ -4,7 +4,7 @@
 
 > ℹ️ **交付姿态**：本模块 standalone 交付为宿主包（`host-package/host-service`），cloud 交付为容器镜像（`container-image/kubernetes`）。
 > 本文档 §1 安装 / §2 升级描述的 bundle 容器安装路径（`deployments/docker/bundle/`）仅在该模块启用 standalone **容器**安装时适用；
-> 宿主包路径请使用 `bin/apps-package.sh` + `bin/apps-pkg-installer.sh`，cloud 路径由 kubernetes 编排消费 `bin/docker-image.sh push` 产出的镜像。
+> 宿主包路径（server）请使用 `bin/apps-package.sh server <env>` 打包 + `bin/apps-deploy.sh server install|upgrade <env> --host ssh://…` 安装升级（包内自带 `install/install-ubuntu.sh`，systemd 单元 + 健康门禁）；cloud 路径由 kubernetes 编排消费 `bin/docker-image.sh push` 产出的镜像。
 
 ## 1. 安装（首次）
 

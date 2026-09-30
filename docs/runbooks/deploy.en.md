@@ -7,7 +7,7 @@ targets. Image reference: `registry.sdkwork.com/apps/sdkwork-payment-standalone:
 
 > ℹ️ **Delivery posture**: standalone delivery is a host package (`host-package/host-service`); cloud delivery is a container image (`container-image/kubernetes`).
 > The bundle container-install path described in sections 1 (install) / 2 (upgrade) (`deployments/docker/bundle/`) applies only when the module
-> enables a standalone **container** install; use `bin/apps-package.sh` + `bin/apps-pkg-installer.sh` for the host package, and let kubernetes
+> enables a standalone **container** install; use `bin/apps-package.sh server <env>` to package and `bin/apps-deploy.sh server install|upgrade <env> --host ssh://…` to install/upgrade (the package carries its own `install/install-ubuntu.sh`, systemd unit, and health gate); let kubernetes
 > orchestration consume the image produced by `bin/docker-image.sh push` for the cloud plane.
 
 ## 1. Install (first time)

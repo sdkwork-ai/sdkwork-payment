@@ -18,7 +18,11 @@ sdkwork_api_payment_assembly.workspace = true
 axum = { workspace = true }
 tokio = { workspace = true }
 tower-http = { workspace = true }
+opentelemetry = "0.33"
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-client"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["rt-tokio"] }
 tracing = { workspace = true }
+tracing-opentelemetry = "0.34"
 tracing-subscriber = { workspace = true }
 sdkwork-web-bootstrap.workspace = true
 sdkwork-iam-web-adapter.workspace = true

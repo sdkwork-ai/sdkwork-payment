@@ -8,16 +8,62 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-/// API server production bootstrap.
+mod observability;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BINARY_NAME: &str = "sdkwork-api-payment-standalone-gateway";
+
+/// Information commands run before any runtime initialization
+/// (PACKAGING_SPEC.md §5.2: `--help`/`--version` must have no durable or
+/// external side effects — no database, no network, no tracing exporter).
+fn handle_info_args(args: &[String]) -> Option<i32> {
+    let first = args.first()?.as_str();
+    match first {
+        "--version" | "-V" => {
+            println!("{BINARY_NAME} {VERSION}");
+            Some(0)
+        }
+        "--help" | "-h" => {
+            println!(
+                "{BINARY_NAME} {VERSION}\n\nSDKWork payment standalone API gateway.\n\n\
+                 USAGE:\n    {BINARY_NAME} [--version] [--help]\n\n\
+                 The gateway is configured through environment variables only\n\
+                 (see .env.postgres.example and docs/architecture/tech/TECH_ARCHITECTURE.md):\n\
+                 \x20 SDKWORK_DATABASE_*              authoritative PostgreSQL connection\n\
+                 \x20 PAYMENT_API_BIND                ingress bind address (default 0.0.0.0:18094)\n\
+                 \x20 SDKWORK_PAYMENT_APPLICATION_PUBLIC_INGRESS_BIND\n\
+                 \x20                                 topology-contract bind key (wins over PAYMENT_API_BIND)\n\
+                 \x20 SDKWORK_CORS_ALLOWED_ORIGINS    browser origin allow-list\n\
+                 \x20 SDKWORK_PAYMENT_CREDENTIAL_MASTER_KEY_FILE\n\
+                 \x20                                 provider credential master key (required in production)\n\
+                 \x20 OTEL_EXPORTER_OTLP_ENDPOINT     enables OTLP/HTTP span export when set\n\n\
+                 Running without arguments starts the HTTP server."
+            );
+            Some(0)
+        }
+        other => {
+            eprintln!("{BINARY_NAME}: unrecognized argument '{other}' (run with --help)");
+            Some(2)
+        }
+    }
+}
+
+/// Standalone payment API gateway.
 ///
 /// - CORS is allow-list driven (`SDKWORK_CORS_ALLOWED_ORIGINS`, deny by default).
 /// - Graceful shutdown (SIGINT/SIGTERM), 30s request timeout, 1 MiB body cap.
-/// - The payment compensation worker reconciles lost-PSP-callback attempts
+/// - The host-owned compensation worker reconciles lost-PSP-callback attempts
 ///   and stuck refunds on a bounded, jittered cadence; it drains with the
 ///   same shutdown signal as the HTTP server.
+/// - Span export goes through OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT`
+///   is set (see `observability.rs`).
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    if let Some(code) = handle_info_args(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        std::process::exit(code);
+    }
+
+    let otel_guard = observability::init_tracing();
 
     // The host owns the authoritative pool; the compensation worker shares it
     // (the checkout lock gate sizes itself from this pool's capacity).
@@ -52,7 +98,7 @@ async fn main() {
         .unwrap_or_else(|_| "0.0.0.0:18094".to_owned());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
 
-    tracing::info!(bind = %addr, "payment api server starting");
+    tracing::info!(bind = %addr, version = VERSION, "payment api server starting");
 
     // Graceful shutdown: SIGINT/SIGTERM stops accepting new connections and
     // drains in-flight requests (bounded by the 30s timeout layer).
@@ -91,4 +137,5 @@ async fn main() {
     // compensation worker pass is bounded by the PSP client timeouts, so this
     // drain terminates.
     host.drain_payment_compensation_worker().await;
+    otel_guard.shutdown();
 }
