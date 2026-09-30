@@ -96,7 +96,7 @@ impl PaymentCompensationWorkerConfig {
         if let Some(value) = env_i64("SDKWORK_PAYMENT_COMPENSATION_INTERVAL_SECONDS") {
             config.interval = Duration::from_secs(value.clamp(10, 3600) as u64);
         }
-        if let Some(value) = std::env::var("SDKWORK_PAYMENT_COMPENSATION_ENABLED").ok() {
+        if let Ok(value) = std::env::var("SDKWORK_PAYMENT_COMPENSATION_ENABLED") {
             config.enabled = !matches!(value.trim(), "0" | "false" | "off");
         }
         config
@@ -604,10 +604,10 @@ async fn ingest_refund_status(
         tenant_id: Some(refund.tenant_id.clone()),
         organization_id: refund.organization_id.clone(),
     };
-    ingest_provider_refund_webhook_postgres(pool, command).await.map(|_| ())
+    ingest_provider_refund_webhook_postgres(pool, command).await.map(drop)
 }
 
-async fn resolve_adapter<'a>(
+async fn resolve_adapter(
     pool: &PgPool,
     credentials: &ProviderCredentialBundle,
     tenant_id: &str,

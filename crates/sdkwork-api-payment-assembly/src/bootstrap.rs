@@ -90,11 +90,9 @@ pub fn gateway_contract_fallback_config() -> ContractFallbackConfig {
     let backend_manifest = sdkwork_routes_payment_backend_api::gateway_route_manifest();
 
     let mut config = ContractFallbackConfig::from_manifest(&app_manifest);
-    config.manifest_paths.extend(
-        ContractFallbackConfig::from_manifest(&backend_manifest)
-            .manifest_paths
-            .into_iter(),
-    );
+    config
+        .manifest_paths
+        .extend(ContractFallbackConfig::from_manifest(&backend_manifest).manifest_paths);
     config
 }
 

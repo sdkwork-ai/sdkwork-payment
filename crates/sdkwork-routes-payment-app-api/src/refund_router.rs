@@ -497,6 +497,18 @@ fn map_refund(value: RefundView) -> RefundResponse {
     }
 }
 
+fn request_ctx(ext: &Option<Extension<WebRequestContext>>) -> Option<&WebRequestContext> {
+    ext.as_ref().map(|Extension(value)| value)
+}
+
+fn refund_system_response(
+    context: Option<&WebRequestContext>,
+    _label: &str,
+    error: CommerceServiceError,
+) -> Response {
+    map_service_error(context, error)
+}
+
 #[cfg(test)]
 mod provider_submission_tests {
     use super::{
@@ -523,16 +535,4 @@ mod provider_submission_tests {
             "provider response was not observed"
         )));
     }
-}
-
-fn request_ctx(ext: &Option<Extension<WebRequestContext>>) -> Option<&WebRequestContext> {
-    ext.as_ref().map(|Extension(value)| value)
-}
-
-fn refund_system_response(
-    context: Option<&WebRequestContext>,
-    _label: &str,
-    error: CommerceServiceError,
-) -> Response {
-    map_service_error(context, error)
 }

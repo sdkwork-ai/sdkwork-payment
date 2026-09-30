@@ -294,7 +294,7 @@ pub async fn load_claim_attempt_provider_context_postgres(
     };
     let payload: Value = row
         .try_get("callback_payload")
-        .unwrap_or_else(|_| Value::Null);
+        .unwrap_or(Value::Null);
     let provider_transaction_id =
         optional_string_cell(&row, "provider_transaction_id").or_else(|| {
             payload

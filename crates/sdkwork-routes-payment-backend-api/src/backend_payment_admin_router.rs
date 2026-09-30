@@ -174,14 +174,6 @@ fn filtered_list_query(
     }
 }
 
-/// Renders `AND ($N::text IS NULL OR column = $N)` for one equality filter.
-/// `column` must come from the caller's const whitelist, never from input.
-fn push_eq_clause(clauses: &mut Vec<String>, column: &'static str, index: usize) {
-    clauses.push(format!(
-        "AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
-    ));
-}
-
 /// Resolves the ORDER BY clause for a filtered list: a whitelisted sort field
 /// with optional `-` descending prefix, otherwise the list default. Always
 /// appends the `id` tie-breaker required by PAGINATION_SPEC §3.
@@ -411,7 +403,7 @@ struct NotifyDomainBody {
 }
 
 #[derive(Debug, Clone)]
-struct BackendNotifyDomainPayload {
+pub struct BackendNotifyDomainPayload {
     tenant_id: String,
     organization_id: Option<String>,
     id: Option<String>,
@@ -1496,7 +1488,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 .items
                 .into_iter()
                 .map(|domain| {
-                    serde_json::to_value(domain).unwrap_or_else(|_| serde_json::Value::Null)
+                    serde_json::to_value(domain).unwrap_or(serde_json::Value::Null)
                 })
                 .collect::<Vec<_>>();
             Ok(BackendJsonListPage {
@@ -2176,7 +2168,7 @@ async fn upsert_provider_account_inner(
             None => return validation(ctx, "accountNo is required"),
         },
     };
-    let required_for_create = |value: Option<String>, field: &str| {
+    let required_for_create = move |value: Option<String>, field: &str| {
         let value = value
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
@@ -3154,6 +3146,25 @@ fn masked_secret_preview(value: Option<&str>) -> String {
     format!("****{last4}")
 }
 
+fn stable_storage_id(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .map(|part| {
+            part.chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                        character
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+
 #[cfg(test)]
 mod masked_secret_preview_tests {
     use super::masked_secret_preview;
@@ -3176,21 +3187,4 @@ mod masked_secret_preview_tests {
     fn short_secrets_stay_masked() {
         assert_eq!(masked_secret_preview(Some("abc")), "****abc");
     }
-}
-fn stable_storage_id(parts: &[&str]) -> String {
-    parts
-        .iter()
-        .map(|part| {
-            part.chars()
-                .map(|character| {
-                    if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
-                        character
-                    } else {
-                        '-'
-                    }
-                })
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("-")
 }

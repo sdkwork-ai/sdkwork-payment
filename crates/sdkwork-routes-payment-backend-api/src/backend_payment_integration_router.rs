@@ -942,7 +942,6 @@ struct TestPaymentMethodRecord {
 /// Provider-enriched intent store for the test payment flow. Mirrors the
 /// app-api `ProviderEnriched*PaymentIntents` wrappers so the attempt checkout
 /// drives the real provider adapter (WeChat native code_url, Alipay QR, ...).
-
 struct PostgresTestPaymentStore {
     inner: Arc<PostgresCommercePaymentIntentStore>,
     pool: PgPool,

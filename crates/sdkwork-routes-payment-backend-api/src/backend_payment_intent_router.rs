@@ -322,6 +322,13 @@ fn map_payment_intent(value: BackendPaymentIntentView) -> BackendPaymentIntentRe
         updated_at: value.updated_at,
     }
 }
+fn pg_optional_string(row: &PgRow, column: &str) -> Option<String> {
+    row.try_get::<Option<String>, _>(column).ok().flatten()
+}
+fn pg_string(row: &PgRow, column: &str) -> String {
+    pg_optional_string(row, column).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{map_payment_intent, BackendPaymentIntentView};
@@ -346,10 +353,4 @@ mod tests {
         assert_eq!(value["id"], "intent-1");
         assert!(value.get("paymentIntentId").is_none());
     }
-}
-fn pg_optional_string(row: &PgRow, column: &str) -> Option<String> {
-    row.try_get::<Option<String>, _>(column).ok().flatten()
-}
-fn pg_string(row: &PgRow, column: &str) -> String {
-    pg_optional_string(row, column).unwrap_or_default()
 }

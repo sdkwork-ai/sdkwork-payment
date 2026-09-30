@@ -120,7 +120,7 @@ pub(crate) async fn persist_webhook_event_postgres(
     )
     .bind(insert.internal_id)
     .bind(insert.tenant_id)
-    .bind(insert.organization_id.or_else(|| Some("0")))
+    .bind(insert.organization_id.or(Some("0")))
     .bind(insert.provider_scoped_event_id)
     .bind(insert.event_type)
     .bind(insert.provider_code)

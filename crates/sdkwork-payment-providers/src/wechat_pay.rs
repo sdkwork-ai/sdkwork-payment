@@ -47,9 +47,10 @@ static WECHAT_PAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCap
 ///   官方推荐且新商户默认；`Wechatpay-Serial` 头携带 `PUB_KEY_ID_` 前缀的公钥 ID）。
 /// - `PlatformCertificate`：平台证书（`wechatpay_cert.pem`，X.509，5 年有效期需轮换；
 ///   `Wechatpay-Serial` 头携带平台证书序列号）。
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum WeChatPaySignVerifyMode {
     PlatformCertificate,
+    #[default]
     WeChatPayPublicKey,
 }
 
@@ -105,12 +106,6 @@ impl fmt::Debug for WeChatPayProviderConfig {
             .field("verification_serial_no", &"<redacted>")
             .field("notify_url", &self.notify_url)
             .finish()
-    }
-}
-
-impl Default for WeChatPaySignVerifyMode {
-    fn default() -> Self {
-        Self::WeChatPayPublicKey
     }
 }
 
@@ -198,6 +193,10 @@ impl WeChatPayRsaCrypto {
         })?;
         let plaintext = cipher
             .decrypt(
+                // from_slice is the documented hot path for a stack slice of
+                // known length (12-byte nonce built two lines above); the
+                // TryFrom alternative adds no safety for a fixed-size input.
+                #[allow(deprecated)]
                 AesNonce::from_slice(nonce_bytes),
                 aes_gcm::aead::Payload {
                     msg: &ciphertext,
@@ -792,7 +791,7 @@ fn resolved_notify_url<'a>(
     request
         .notify_url
         .as_deref()
-        .or_else(|| config.notify_url.as_deref())
+        .or(config.notify_url.as_deref())
 }
 
 fn wechat_pay_operation_outcome(
