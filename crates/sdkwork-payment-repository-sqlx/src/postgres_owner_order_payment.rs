@@ -345,12 +345,20 @@ impl PostgresCommerceOwnerOrderPaymentStore {
             return Ok(existing);
         }
 
+        // Channel routing must see the order's real currency: the channel
+        // catalog filters by currency_code, so hardcoding CNY routed
+        // non-CNY orders by CNY rules or into the channel-less fallback.
+        let currency_code = order_currency
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("CNY");
         let channel = select_payment_channel_postgres(
             &mut tx,
             &command.tenant_id,
             command.organization_id.as_deref(),
             &command.payment_method,
-            "CNY",
+            currency_code,
             total_amount.as_str(),
             command.payment_scene.as_deref(),
         )
@@ -394,7 +402,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         .bind(&command.payment_method)
         .bind(&channel.provider_code)
         .bind(total_amount.as_str())
-        .bind(order_currency.as_deref().unwrap_or("CNY"))
+        .bind(currency_code)
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&command.request_no)
         .bind(&command.idempotency_key)
@@ -443,7 +451,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
         .bind(channel.channel_id.as_deref())
         .bind(&out_trade_no)
         .bind(total_amount.as_str())
-        .bind(order_currency.as_deref().unwrap_or("CNY"))
+        .bind(currency_code)
         .bind(CommercePaymentStatus::Pending.as_str())
         .bind(&callback_payload)
         .bind(&command.request_no)

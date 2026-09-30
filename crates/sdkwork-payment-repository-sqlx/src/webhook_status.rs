@@ -22,7 +22,13 @@ pub fn map_provider_payment_status(provider_code: &str, raw_status: &str) -> Opt
         },
         "wechat_pay" | "wechat-pay" => match status.as_str() {
             "success" => Some("succeeded"),
-            "refund" => Some("refunding"),
+            // A WeChat REFUND trade state means the capture itself succeeded
+            // and a refund (full or partial) exists. Refund completeness is
+            // tracked on `commerce_refund` rows by the refund webhook family —
+            // never on the attempt status, which would mark partially refunded
+            // payments as fully refunded (and today also violates the attempt
+            // status CHECK constraint, crashing webhook ingestion).
+            "refund" => None,
             "revoked" => Some("canceled"),
             "closed" | "payerror" => Some("canceled"),
             "notpay" | "userpaying" => Some("pending"),
@@ -181,11 +187,11 @@ mod tests {
     }
 
     #[test]
-    fn maps_wechat_refund_to_refunding() {
-        assert_eq!(
-            map_provider_payment_status("wechat_pay", "REFUND"),
-            Some("refunding")
-        );
+    fn maps_wechat_refund_to_no_payment_status_change() {
+        // Refund completeness lives on commerce_refund rows: writing a
+        // refund-derived status onto the attempt would mark partially
+        // refunded payments as fully refunded and violates the status CHECK.
+        assert_eq!(map_provider_payment_status("wechat_pay", "REFUND"), None);
     }
 
     #[test]

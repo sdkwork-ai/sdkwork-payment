@@ -55,9 +55,10 @@ pub struct ClaimedRefund {
     pub status: String,
 }
 
-/// Claims due payment attempts: status pending/processing, created between
-/// `min_age_seconds` and `max_age_seconds` ago, not expired. Rows are locked
-/// for the claiming transaction and skipped when another worker holds them.
+/// Claims due payment attempts: status pending/processing, created at least
+/// `min_age_seconds` ago, not expired. Locked `FOR UPDATE SKIP LOCKED` inside
+/// one transaction; freshly `pending` claims flip to `processing` before
+/// commit so later sweeps skip them while the PSP is being queried.
 pub async fn claim_due_payment_attempts_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
@@ -65,10 +66,12 @@ pub async fn claim_due_payment_attempts_postgres(
     limit: i64,
     now_seconds: i64,
     min_age_seconds: i64,
-    max_age_seconds: i64,
 ) -> Result<Vec<ClaimedPaymentAttempt>, CommerceServiceError> {
     let min_age = now_seconds - min_age_seconds;
-    let max_age = now_seconds - max_age_seconds;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| store_error("failed to begin payment attempt claim", error))?;
     let rows = sqlx::query(
         r#"
         SELECT pa.id, pa.tenant_id, pa.organization_id, pa.owner_user_id,
@@ -82,10 +85,9 @@ pub async fn claim_due_payment_attempts_postgres(
           AND pa.status IN ('pending', 'processing')
           AND (pa.expires_at IS NULL OR EXTRACT(EPOCH FROM pa.expires_at) > $3)
           AND EXTRACT(EPOCH FROM pa.created_at) <= $4
-          AND EXTRACT(EPOCH FROM pa.created_at) >= $5
           AND pa.deleted_at IS NULL
         ORDER BY pa.created_at ASC, pa.id ASC
-        LIMIT $6
+        LIMIT $5
         FOR UPDATE SKIP LOCKED
         "#,
     )
@@ -93,12 +95,11 @@ pub async fn claim_due_payment_attempts_postgres(
     .bind(organization_id)
     .bind(now_seconds)
     .bind(min_age)
-    .bind(max_age)
     .bind(limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|error| store_error("failed to claim due payment attempts", error))?;
-    Ok(rows
+    let claimed = rows
         .iter()
         .map(|row| ClaimedPaymentAttempt {
             id: string_cell(row, "id"),
@@ -114,11 +115,32 @@ pub async fn claim_due_payment_attempts_postgres(
             provider_account_id: optional_string_cell(row, "provider_account_id"),
             amount: string_cell(row, "amount"),
         })
-        .collect())
+        .collect::<Vec<_>>();
+    let fresh_ids: Vec<String> = claimed.iter().map(|claim| claim.id.clone()).collect();
+    if !fresh_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE commerce_payment_attempt
+            SET status = 'processing', updated_at = NOW()
+            WHERE id = ANY($1)
+              AND LOWER(COALESCE(status, '')) = 'pending'
+            "#,
+        )
+        .bind(&fresh_ids)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| store_error("failed to mark claimed payment attempts", error))?;
+    }
+    tx.commit()
+        .await
+        .map_err(|error| store_error("failed to commit payment attempt claim", error))?;
+    Ok(claimed)
 }
 
-/// Claims due refunds: status submitted/processing within the age window.
-/// Refunds have no expires_at column, so the window is created_at-bounded.
+/// Claims due refunds: status submitted/processing, created at least
+/// `min_age_seconds` ago. Locked `FOR UPDATE SKIP LOCKED` inside one
+/// transaction; `submitted` claims flip to `processing` before commit so
+/// later sweeps skip them while the PSP submission is retried.
 pub async fn claim_due_refunds_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
@@ -126,10 +148,12 @@ pub async fn claim_due_refunds_postgres(
     limit: i64,
     now_seconds: i64,
     min_age_seconds: i64,
-    max_age_seconds: i64,
 ) -> Result<Vec<ClaimedRefund>, CommerceServiceError> {
     let min_age = now_seconds - min_age_seconds;
-    let max_age = now_seconds - max_age_seconds;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| store_error("failed to begin refund claim", error))?;
     let rows = sqlx::query(
         r#"
         SELECT id, tenant_id, organization_id, refund_no, payment_attempt_id, status
@@ -138,22 +162,20 @@ pub async fn claim_due_refunds_postgres(
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
           AND status IN ('submitted', 'processing')
           AND EXTRACT(EPOCH FROM created_at) <= $3
-          AND EXTRACT(EPOCH FROM created_at) >= $4
           AND deleted_at IS NULL
         ORDER BY created_at ASC, id ASC
-        LIMIT $5
+        LIMIT $4
         FOR UPDATE SKIP LOCKED
         "#,
     )
     .bind(tenant_id)
     .bind(organization_id)
     .bind(min_age)
-    .bind(max_age)
     .bind(limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|error| store_error("failed to claim due refunds", error))?;
-    Ok(rows
+    let claimed = rows
         .iter()
         .map(|row| ClaimedRefund {
             id: string_cell(row, "id"),
@@ -163,7 +185,30 @@ pub async fn claim_due_refunds_postgres(
             payment_attempt_id: string_cell(row, "payment_attempt_id"),
             status: string_cell(row, "status"),
         })
-        .collect())
+        .collect::<Vec<_>>();
+    let submitted_ids: Vec<String> = claimed
+        .iter()
+        .filter(|claim| claim.status.eq_ignore_ascii_case("submitted"))
+        .map(|claim| claim.id.clone())
+        .collect();
+    if !submitted_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE commerce_refund
+            SET status = 'processing', updated_at = NOW()
+            WHERE id = ANY($1)
+              AND LOWER(COALESCE(status, '')) = 'submitted'
+            "#,
+        )
+        .bind(&submitted_ids)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| store_error("failed to mark claimed refunds", error))?;
+    }
+    tx.commit()
+        .await
+        .map_err(|error| store_error("failed to commit refund claim", error))?;
+    Ok(claimed)
 }
 
 /// Loads the provider context for a claimed payment attempt (channel,
