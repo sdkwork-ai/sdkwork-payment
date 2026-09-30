@@ -44,7 +44,12 @@ async fn main() {
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1 MiB，支付请求体不会超过
         .layer(TimeoutLayer::new(Duration::from_secs(30))) // 30s 超时，防止慢 SQL 拖垮线程池
         .layer(TraceLayer::new_for_http());
-    let addr = std::env::var("PAYMENT_API_BIND").unwrap_or_else(|_| "0.0.0.0:18094".to_owned());
+    // Bind precedence: the topology contract key wins, the legacy payment
+    // key stays accepted, and the default matches the deployed nginx
+    // (reverse-proxy) expectations.
+    let addr = std::env::var("SDKWORK_PAYMENT_APPLICATION_PUBLIC_INGRESS_BIND")
+        .or_else(|_| std::env::var("PAYMENT_API_BIND"))
+        .unwrap_or_else(|_| "0.0.0.0:18094".to_owned());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
 
     tracing::info!(bind = %addr, "payment api server starting");

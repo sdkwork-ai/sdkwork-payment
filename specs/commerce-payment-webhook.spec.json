@@ -34,7 +34,7 @@
   },
   "backendAdminWebhookOps": {
     "list": "GET /backend/v3/api/payments/webhook_events",
-    "replay": "POST /backend/v3/api/payments/webhook_events/{eventId}/replays",
+    "replay": "POST /backend/v3/api/payments/webhook_events/{eventId}/replay",
     "replayScope": "Re-applies stored payment attempt status only; order settlement via order payment_confirmations"
   },
   "forbiddenInPayment": [

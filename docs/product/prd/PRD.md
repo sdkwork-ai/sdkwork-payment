@@ -68,9 +68,9 @@ The system supports 15 payment method keys across 4 providers, defined in `admin
 | `wechat_jsapi` | WeChat Pay JSAPI | wechat_pay | `/v3/pay/transactions/jsapi` — Official Account / Mini Program (requires openid) |
 | `wechat_h5` | WeChat Pay H5 | wechat_pay | `/v3/pay/transactions/h5` — mobile browser (requires client_ip) |
 | `wechat_app` | WeChat Pay App | wechat_pay | `/v3/pay/transactions/app` — native App SDK |
+| `sandbox_test` | Sandbox Test | sandbox | Local cashier URL — no external HTTP |
 
 For payment creation, `wechat_jsapi` requires `payerOpenId` and `wechat_h5` requires `clientIp`. The selected payment method, rather than the generic UI/client scene, determines the upstream WeChat V3 endpoint.
-| `sandbox_test` | Sandbox Test | sandbox | Local cashier URL — no external HTTP |
 
 ## 6. Webhook Event Management
 

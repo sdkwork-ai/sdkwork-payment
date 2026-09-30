@@ -1,8 +1,9 @@
 //! Shared utility functions for the commerce payment repository-sqlx crate.
 //!
-//! These helpers are used across both PostgreSQL and SQLite repository
-//! implementations. Keeping them in a single module eliminates duplication
-//! and ensures consistent behavior.
+//! These helpers serve the PostgreSQL repository implementations (the only
+//! engine this capability supports; see ADR-20261001-postgres-only-payment-store).
+//! Keeping them in a single module eliminates duplication and ensures
+//! consistent behavior.
 use chrono::{DateTime, SecondsFormat, Utc};
 use sdkwork_contract_service::{CommerceMoney, CommerceServiceError};
 use sdkwork_payment_service::{
