@@ -267,7 +267,7 @@ pub async fn ingest_provider_refund_webhook_postgres(
     let payment_attempt_context = match attempt_identity.as_ref() {
         Some(identity) => {
             load_payment_webhook_attempt_context_by_identity(&mut tx, identity, &provider_code)
-                .await
+                .await?
         }
         None => None,
     };
@@ -623,7 +623,9 @@ async fn load_payment_webhook_attempt_context_by_identity(
     tx: &mut Transaction<'_, Postgres>,
     identity: &PaymentWebhookAttemptIdentity,
     provider_code: &str,
-) -> Option<PaymentWebhookAttemptContext> {
+) -> Result<Option<PaymentWebhookAttemptContext>, CommerceServiceError> {
+    // `None` = genuinely absent (attempt not resolvable); a transient DB error
+    // must abort the ingestion instead of masquerading as "not found".
     crate::payment_attempt_context::load_payment_webhook_attempt_context_by_id_postgres(
         tx,
         &identity.payment_attempt_id,
@@ -632,8 +634,6 @@ async fn load_payment_webhook_attempt_context_by_identity(
         identity.organization_id.as_deref(),
     )
     .await
-    .ok()
-    .flatten()
 }
 
 #[cfg(test)]

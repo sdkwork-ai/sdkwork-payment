@@ -132,23 +132,26 @@ pub(crate) fn ensure_owner_payment_idempotency_replay_matches(
     {
         return Err(idempotency_parameter_conflict("order payment"));
     }
-    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(callback_payload) {
-        if let Some(object) = payload.as_object() {
-            if object
-                .get("paymentMetadata")
-                .is_some_and(|metadata| metadata != &command.payment_metadata)
-            {
+    // The persisted callback payload is system-generated JSON; a parse failure
+    // means the stored row is corrupted, so the replay fails closed instead of
+    // skipping the paymentMetadata/paymentScene conflict checks.
+    let payload: serde_json::Value = serde_json::from_str(callback_payload)
+        .map_err(|error| CommerceServiceError::storage(format!("persisted payment callback payload is not valid JSON: {error}")))?;
+    if let Some(object) = payload.as_object() {
+        if object
+            .get("paymentMetadata")
+            .is_some_and(|metadata| metadata != &command.payment_metadata)
+        {
+            return Err(idempotency_parameter_conflict("order payment"));
+        }
+        if let Some(persisted_scene) = object.get("paymentScene") {
+            let requested_scene = command
+                .payment_scene
+                .as_deref()
+                .map(|value| serde_json::Value::String(value.to_owned()))
+                .unwrap_or(serde_json::Value::Null);
+            if persisted_scene != &requested_scene {
                 return Err(idempotency_parameter_conflict("order payment"));
-            }
-            if let Some(persisted_scene) = object.get("paymentScene") {
-                let requested_scene = command
-                    .payment_scene
-                    .as_deref()
-                    .map(|value| serde_json::Value::String(value.to_owned()))
-                    .unwrap_or(serde_json::Value::Null);
-                if persisted_scene != &requested_scene {
-                    return Err(idempotency_parameter_conflict("order payment"));
-                }
             }
         }
     }
@@ -273,17 +276,26 @@ fn idempotency_parameter_conflict(resource: &str) -> CommerceServiceError {
 pub(crate) fn store_error(message: &str, error: impl std::fmt::Display) -> CommerceServiceError {
     CommerceServiceError::storage(format!("{message}: {error}"))
 }
-/// Produce a deterministic, filesystem-safe storage identifier from path parts.
+/// Produce a deterministic, collision-safe storage identifier from parts.
 ///
-/// Each part is sanitized: non-alphanumeric characters (except `-`, `_`, `.`)
-/// are replaced with `-`, and parts are joined with `-`.
+/// Same derivation scheme as [`provider_out_trade_no`]: a length-prefixed
+/// fingerprint over every part hashed with SHA-256, so `("a-b", "c")` and
+/// `("a", "b-c")` derive different identifiers. The first part (an opaque
+/// domain prefix such as `pi` / `pa`) is kept as a sanitized human-readable
+/// head; the rest of the identity lives in the digest.
 pub(crate) fn stable_storage_id(parts: &[&str]) -> String {
-    parts
+    let fingerprint = parts
         .iter()
+        .map(|part| format!("{}:{}", part.len(), part))
+        .collect::<Vec<_>>()
+        .join("|");
+    let digest = sdkwork_utils_rust::crypto::sha256_hash(fingerprint.as_bytes());
+    let prefix = parts
+        .first()
         .map(|part| {
             part.chars()
                 .map(|character| {
-                    if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                    if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
                         character
                     } else {
                         '-'
@@ -291,8 +303,8 @@ pub(crate) fn stable_storage_id(parts: &[&str]) -> String {
                 })
                 .collect::<String>()
         })
-        .collect::<Vec<_>>()
-        .join("-")
+        .unwrap_or_default();
+    format!("{prefix}-{digest}")
 }
 pub(crate) fn provider_out_trade_no(
     tenant_id: &str,

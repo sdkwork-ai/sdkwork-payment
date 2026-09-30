@@ -899,6 +899,29 @@ fn parse_verification_key(
                     format!("invalid WeChat Pay platform certificate: {error}"),
                 )
             })?;
+            // Fail closed on an expired / not-yet-valid platform certificate:
+            // signatures verified with an out-of-validity key are not evidence
+            // of authenticity (WeChat rotates platform certs; an expired one
+            // must force operator rotation instead of silently passing).
+            let now = time::OffsetDateTime::now_utc();
+            let not_before = certificate.validity.not_before.to_datetime();
+            let not_after = certificate.validity.not_after.to_datetime();
+            if now < not_before {
+                return Err(ProviderError::invalid_request(
+                    PaymentAdapterOperation::VerifyWebhook,
+                    format!(
+                        "WeChat Pay platform certificate is not yet valid (notBefore {not_before})"
+                    ),
+                ));
+            }
+            if now > not_after {
+                return Err(ProviderError::invalid_request(
+                    PaymentAdapterOperation::VerifyWebhook,
+                    format!(
+                        "WeChat Pay platform certificate expired at {not_after}; rotate the platform certificate on the provider account"
+                    ),
+                ));
+            }
             RsaPublicKey::from_public_key_der(certificate.tbs_certificate.subject_pki.raw).map_err(
                 |error| {
                     ProviderError::invalid_request(
@@ -913,22 +936,32 @@ fn parse_verification_key(
 
 /// 官方应答签名验证：验签串 `{Wechatpay-Timestamp}\n{Wechatpay-Nonce}\n{body}\n`，
 /// 用 `Wechatpay-Serial`（公钥 ID 或平台证书序列号）标识的验签密钥 SHA256withRSA
-/// 验证 `Wechatpay-Signature`。缺少任一验签头时跳过（与官方"下载接口跳过验签"
-/// 语义一致）；已配置 `verification_serial_no` 时强制匹配，避免误用旧密钥。
+/// 验证 `Wechatpay-Signature`。
+///
+/// Fail-closed：官方 API v3 的所有 2xx JSON 应答都携带签名头（账单下载与空体
+/// 已由调用方排除），缺任一验签头都视为响应被篡改/劫持而非跳过；
+/// 已配置 `verification_serial_no` 时强制匹配，避免误用旧密钥。
 fn verify_wechat_pay_response_signature(
     config: &WeChatPayProviderConfig,
     headers: &[(String, String)],
     body: &[u8],
 ) -> ProviderResult<()> {
-    let Some(timestamp) = optional_header(headers, "wechatpay-timestamp") else {
-        return Ok(());
-    };
-    let Some(nonce) = optional_header(headers, "wechatpay-nonce") else {
-        return Ok(());
-    };
-    let Some(signature) = optional_header(headers, "wechatpay-signature") else {
-        return Ok(());
-    };
+    let missing = ["wechatpay-timestamp", "wechatpay-nonce", "wechatpay-signature"]
+        .into_iter()
+        .filter(|name| optional_header(headers, name).is_none())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(ProviderError::invalid_response(
+            PaymentAdapterOperation::QueryPaymentIntent,
+            format!(
+                "WeChat Pay response is missing required signature headers: {}",
+                missing.join(", ")
+            ),
+        ));
+    }
+    let timestamp = optional_header(headers, "wechatpay-timestamp").unwrap_or_default();
+    let nonce = optional_header(headers, "wechatpay-nonce").unwrap_or_default();
+    let signature = optional_header(headers, "wechatpay-signature").unwrap_or_default();
     let serial = optional_header(headers, "wechatpay-serial");
     if let Some(configured) = config.verification_serial_no.as_deref() {
         match serial.as_deref() {
@@ -1028,10 +1061,12 @@ fn wechat_pay_path_for_key(method_key: &str) -> &'static str {
 mod tests {
     use super::{
         build_wechat_app_invoke_params, build_wechat_jsapi_invoke_params, resolved_notify_url,
-        unix_timestamp, wechat_app_sign_payload, wechat_jsapi_sign_payload,
-        wechat_pay_operation_outcome, wechat_webhook_timestamp_is_fresh, WeChatPayProviderAdapter,
-        WeChatPayProviderConfig, WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
+        unix_timestamp, verify_wechat_pay_response_signature, wechat_app_sign_payload,
+        wechat_jsapi_sign_payload, wechat_pay_operation_outcome,
+        wechat_webhook_timestamp_is_fresh, WeChatPayProviderAdapter, WeChatPayProviderConfig,
+        WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
     };
+    use crate::error::ProviderError;
     use crate::adapter::{
         PaymentAdapterOperation, PaymentCreateIntentRequest, PaymentProviderAdapter,
         PaymentVerifyWebhookRequest,
@@ -1183,6 +1218,36 @@ mod tests {
             .expect("mismatched serial must not error");
 
         assert!(!mismatched.verified);
+    }
+
+    #[test]
+    fn response_verification_fails_closed_on_missing_signature_headers() {
+        let config = WeChatPayProviderConfig {
+            app_id: "app".to_owned(),
+            mch_id: "mch".to_owned(),
+            merchant_serial_no: "serial".to_owned(),
+            merchant_private_key_pem: "key".to_owned(),
+            api_v3_key: "v3key".to_owned(),
+            notify_url: None,
+            sign_verify_mode: WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            verification_key_pem: None,
+            verification_serial_no: None,
+        };
+        let body = b"{\"code\":\"SUCCESS\"}";
+
+        // All signature headers missing: a stripped/tampered response, not a skip.
+        let error = verify_wechat_pay_response_signature(&config, &[], body)
+            .expect_err("missing headers must fail closed");
+        assert!(matches!(error, ProviderError::InvalidResponse { .. }));
+
+        // Partial headers are equally rejected.
+        let partial = vec![
+            ("Wechatpay-Timestamp".to_owned(), "1700000000".to_owned()),
+            ("Wechatpay-Nonce".to_owned(), "nonce".to_owned()),
+        ];
+        let error = verify_wechat_pay_response_signature(&config, &partial, body)
+            .expect_err("partial headers must fail closed");
+        assert!(matches!(error, ProviderError::InvalidResponse { .. }));
     }
 
     #[test]

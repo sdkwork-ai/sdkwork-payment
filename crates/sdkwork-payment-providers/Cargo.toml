@@ -28,6 +28,7 @@ serde_json.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
 x509-parser.workspace = true
+time = "0.3"
 sdkwork_contract_service.workspace = true
 sdkwork_payment_service.workspace = true
 sdkwork-utils-rust.workspace = true

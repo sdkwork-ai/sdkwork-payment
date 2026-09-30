@@ -26,22 +26,22 @@ fn creates_payment_intent_with_method_provider_and_order_reference() {
 }
 
 #[test]
-fn payment_domain_contract_uses_explicit_method_and_provider_code_fields() {
-    let domain_source = include_str!("../src/domain/mod.rs");
-    let command_source = include_str!("../src/commands/mod.rs");
+fn payment_domain_contract_carries_distinct_method_and_provider_code() {
+    // Behavioral replacement for the former source-text assertions: construct
+    // a draft where collapsing payment_method and provider_code into one field
+    // would produce a different (wrong) intent.
+    let draft = PaymentIntentDraft::new(
+        "100001",
+        "order-2",
+        "wechat_h5",
+        "wechat_pay",
+        CommerceMoney::new("500").unwrap(),
+        "idem-key-2",
+    )
+    .unwrap();
 
-    assert!(domain_source.contains("pub payment_method: String"));
-    assert!(domain_source.contains("pub provider_code: String"));
-    assert!(
-        !domain_source.contains("pub provider: String"),
-        "PaymentIntentDraft must not collapse payment_method and provider_code into provider",
-    );
-    assert!(command_source.contains("pub payment_method: String"));
-    assert!(command_source.contains("pub provider_code: String"));
-    assert!(
-        !command_source.contains("pub provider: String"),
-        "CreatePaymentIntentCommand must not collapse payment_method and provider_code into provider",
-    );
+    assert_eq!(draft.payment_method, "wechat_h5");
+    assert_eq!(draft.provider_code, "wechat_pay");
 }
 
 #[test]

@@ -26,11 +26,14 @@ pub(crate) async fn load_order_payment_reference_postgres(
             -- (order baseline) or TIMESTAMPTZ, and a silent decode failure
             -- would turn every boundary into NULL (order "not pending
             -- payment").
-            CASE WHEN o.expired_at IS NULL OR o.expired_at = '' THEN NULL
+            -- `CAST(col AS TEXT)` is deliberate: the column may be TEXT
+            -- (legacy) or TIMESTAMPTZ (DATABASE_SPEC 8.1 native); comparing a
+            -- native column against '' would itself fail to parse.
+            CASE WHEN NULLIF(CAST(o.expired_at AS TEXT), '') IS NULL THEN NULL
                  ELSE to_char(CAST(o.expired_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC',
                               'YYYY-MM-DD"T"HH24:MI:SS"Z"')
             END AS expires_at,
-            CASE WHEN o.paid_at IS NULL OR o.paid_at = '' THEN NULL
+            CASE WHEN NULLIF(CAST(o.paid_at AS TEXT), '') IS NULL THEN NULL
                  ELSE to_char(CAST(o.paid_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC',
                               'YYYY-MM-DD"T"HH24:MI:SS"Z"')
             END AS pay_time,
