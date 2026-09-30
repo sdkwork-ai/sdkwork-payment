@@ -101,30 +101,34 @@ impl PaymentProviderAdapter for StripePaymentProviderAdapter {
             )?;
             let idempotency_key =
                 metadata_string(&request.metadata, "idempotency_key").map(str::to_owned);
-            let mut form = vec![
-                ("amount".to_owned(), amount_minor.to_string()),
-                ("currency".to_owned(), currency.to_ascii_lowercase()),
-                (
-                    "automatic_payment_methods[enabled]".to_owned(),
-                    "true".to_owned(),
-                ),
-            ];
             // When a method_key is supplied (e.g., `stripe_card`,
             // `stripe_apple_pay`, `stripe_google_pay`), pass the corresponding
             // `payment_method_types` so Stripe restricts the PaymentIntent to
-            // the requested instrument. Apple Pay / Google Pay are supported via
+            // the requested instrument. `automatic_payment_methods` and
+            // `payment_method_types` are mutually exclusive on PaymentIntent
+            // creation, so the automatic set is sent only when no explicit
+            // method types apply. Apple Pay / Google Pay are supported via
             // Stripe's `card` payment method type with wallet support enabled
             // in the Stripe Dashboard.
-            if let Some(method_key) = request
+            let method_key = request
                 .payment_scene
                 .as_deref()
                 .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                if let Some(types) = stripe_payment_method_types_for_key(method_key) {
-                    for pm_type in types {
-                        form.push(("payment_method_types[]".to_owned(), (*pm_type).to_owned()));
-                    }
+                .filter(|value| !value.is_empty());
+            let method_types = method_key.and_then(stripe_payment_method_types_for_key);
+            let mut form = vec![
+                ("amount".to_owned(), amount_minor.to_string()),
+                ("currency".to_owned(), currency.to_ascii_lowercase()),
+            ];
+            if method_types.is_none() {
+                form.push((
+                    "automatic_payment_methods[enabled]".to_owned(),
+                    "true".to_owned(),
+                ));
+            }
+            if let Some(types) = method_types {
+                for pm_type in types {
+                    form.push(("payment_method_types[]".to_owned(), (*pm_type).to_owned()));
                 }
             }
             if let Some(tenant_id) = request.tenant_id {

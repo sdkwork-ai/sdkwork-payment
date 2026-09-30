@@ -31,7 +31,7 @@ x509-parser.workspace = true
 sdkwork_contract_service.workspace = true
 sdkwork_payment_service.workspace = true
 sdkwork-utils-rust.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 uuid.workspace = true
 
 [dev-dependencies]
