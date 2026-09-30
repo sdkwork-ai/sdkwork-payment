@@ -183,17 +183,49 @@ impl PostgresCommercePaymentIntentStore {
         row.map(map_payment_intent_row).transpose()
     }
 
+    /// Cancels a pending payment intent and its active attempts in one
+    /// transaction.
+    ///
+    /// The intent row is locked `FOR UPDATE` and both updates carry status
+    /// preconditions, so a webhook confirmation that commits
+    /// `succeeded` first wins and the cancel fails closed — the previous
+    /// check-then-act implementation could overwrite a terminal state.
     pub async fn cancel_owner_payment_intent(
         &self,
         command: CancelOwnerPaymentIntentCommand,
     ) -> Result<PaymentIntentView, CommerceServiceError> {
-        let query = PaymentIntentDetailQuery::new(
+        // Validates tenant/owner/id scope inputs before the transaction opens.
+        PaymentIntentDetailQuery::new(
             &command.tenant_id,
             command.organization_id.as_deref(),
             &command.owner_user_id,
             &command.payment_intent_id,
         )?;
-        let Some(intent) = self.retrieve_owner_payment_intent(query).await? else {
+        let mut tx = self.pool().begin().await.map_err(|error| {
+            store_error("failed to begin payment intent cancel transaction", error)
+        })?;
+        let row = sqlx::query(
+            r#"
+            SELECT id, order_id, payment_intent_no, payment_method, provider_code,
+                   CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status
+            FROM commerce_payment_intent
+            WHERE tenant_id = CAST($1 AS TEXT)
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+              AND owner_user_id = CAST($4 AS TEXT)
+              AND id = CAST($5 AS TEXT)
+            LIMIT 1
+            FOR UPDATE
+           "#,
+        )
+        .bind(&command.tenant_id)
+        .bind(command.organization_id.as_deref())
+        .bind(command.organization_id.as_deref())
+        .bind(&command.owner_user_id)
+        .bind(&command.payment_intent_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|error| store_error("failed to lock payment intent", error))?;
+        let Some(intent) = row.map(map_payment_intent_row).transpose()? else {
             return Err(CommerceServiceError::not_found(
                 "payment intent was not found",
             ));
@@ -210,13 +242,14 @@ impl PostgresCommercePaymentIntentStore {
         let now = current_timestamp_string();
         let canceled = CommercePaymentStatus::Canceled.as_str();
         crate::shared::ensure_payment_status_transition(&intent.status, canceled)?;
-        sqlx::query(
+        let intent_updated = sqlx::query(
             r#"
             UPDATE commerce_payment_intent
             SET status = $1, updated_at = $2::timestamptz
             WHERE tenant_id = CAST($3 AS TEXT)
               AND owner_user_id = CAST($4 AS TEXT)
               AND id = CAST($5 AS TEXT)
+              AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing')
            "#,
         )
         .bind(canceled)
@@ -224,9 +257,16 @@ impl PostgresCommercePaymentIntentStore {
         .bind(&command.tenant_id)
         .bind(&command.owner_user_id)
         .bind(&command.payment_intent_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(|error| store_error("failed to cancel payment intent", error))?;
+        if intent_updated.rows_affected() != 1 {
+            // A concurrent terminal transition (webhook confirmation) committed
+            // first; roll back instead of overwriting it.
+            return Err(CommerceServiceError::conflict(
+                "payment intent changed state concurrently and is no longer cancelable",
+            ));
+        }
 
         sqlx::query(
             r#"
@@ -243,9 +283,12 @@ impl PostgresCommercePaymentIntentStore {
         .bind(&command.tenant_id)
         .bind(&command.owner_user_id)
         .bind(&command.payment_intent_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(|error| store_error("failed to cancel payment attempts", error))?;
+        tx.commit().await.map_err(|error| {
+            store_error("failed to commit payment intent cancellation", error)
+        })?;
 
         Ok(PaymentIntentView {
             status: canceled.to_owned(),

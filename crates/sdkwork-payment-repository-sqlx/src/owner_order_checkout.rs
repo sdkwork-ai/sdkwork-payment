@@ -19,6 +19,8 @@ use sdkwork_payment_service::{
     PaymentRecordItem,
 };
 use sqlx::{PgPool, Postgres, Transaction};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{sleep, Instant};
 pub fn provider_account_binding(record: &PaymentProviderAccountRecord) -> ProviderAccountBinding {
     ProviderAccountBinding {
@@ -41,6 +43,62 @@ use crate::payment_attempt_context::{
 const PROVIDER_CHECKOUT_TTL_SECONDS: i64 = 900;
 const POSTGRES_CHECKOUT_LOCK_RETRY_MILLIS: u64 = 25;
 const POSTGRES_CHECKOUT_LOCK_TIMEOUT_SECONDS: u64 = 30;
+/// Longer than the advisory-lock deadline: a gate waiter is queued behind
+/// checkouts that themselves finish within the lock timeout plus PSP time.
+const POSTGRES_CHECKOUT_GATE_TIMEOUT_SECONDS: u64 = 90;
+
+/// Serializes checkout-lock acquisition so the advisory-lock transaction and
+/// its follow-up pool queries together can never exceed the pool capacity.
+///
+/// Each checkout pins one pooled connection for the advisory-lock transaction
+/// while its locked work takes a second connection from the same pool. If the
+/// pool ever fills with lock transactions alone, every holder waits forever
+/// for a work connection. Capping concurrent checkouts at half the pool
+/// capacity keeps at most `permits` lock connections plus `permits` work
+/// connections outstanding — always within `max_connections`.
+///
+/// Sized once per process: the payment capability runs on the process-shared
+/// authoritative PostgreSQL pool (`DATABASE_SPEC.md` process shared pool).
+fn checkout_connection_gate(pool: &PgPool) -> Result<Arc<Semaphore>, CommerceServiceError> {
+    static GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    let max_connections = pool.options().get_max_connections();
+    if max_connections < 2 {
+        return Err(CommerceServiceError::storage(
+            "payment checkout advisory locking requires a PostgreSQL pool with at least two connections",
+        ));
+    }
+    let permits = usize::try_from(max_connections / 2)
+        .unwrap_or(1)
+        .max(1);
+    Ok(GATE
+        .get_or_init(|| Arc::new(Semaphore::new(permits)))
+        .clone())
+}
+
+/// Acquires the checkout connection gate, bounding concurrent lock-holding
+/// checkouts so the lock transaction plus its pool work cannot exhaust the
+/// pool into self-deadlock. The wait itself is bounded: a caller that cannot
+/// obtain a gate permit fails with a retryable locked error instead of
+/// queueing indefinitely behind other checkouts.
+async fn acquire_checkout_connection_gate(
+    pool: &PgPool,
+) -> Result<OwnedSemaphorePermit, CommerceServiceError> {
+    let gate = checkout_connection_gate(pool)?;
+    let wait = tokio::time::timeout(
+        std::time::Duration::from_secs(POSTGRES_CHECKOUT_GATE_TIMEOUT_SECONDS),
+        Arc::clone(&gate).acquire_owned(),
+    )
+    .await;
+    match wait {
+        Ok(Ok(permit)) => Ok(permit),
+        Ok(Err(_)) => Err(CommerceServiceError::storage(
+            "payment checkout connection gate is closed",
+        )),
+        Err(_) => Err(CommerceServiceError::locked(
+            "payment checkout is busy: too many concurrent checkouts, retry shortly",
+        )),
+    }
+}
 #[derive(Clone, Copy)]
 pub struct OwnerOrderPaymentEnrichmentContext<'a> {
     pub deployment_registry: &'a PaymentProviderRegistry,
@@ -62,6 +120,7 @@ pub async fn cancel_owner_order_payments_with_provider_postgres(
     credentials: &ProviderCredentialBundle,
     command: CancelOrderPaymentsCommand,
 ) -> Result<(), CommerceServiceError> {
+    let _connection_gate = acquire_checkout_connection_gate(pool).await?;
     let lock_key = checkout_lock_key_from_parts(
         &command.tenant_id,
         command.organization_id.as_deref(),
@@ -157,6 +216,7 @@ pub async fn enrich_owner_order_payment_postgres(
     context: OwnerOrderPaymentEnrichmentContext<'_>,
     outcome: PayOwnerOrderOutcome,
 ) -> Result<PayOwnerOrderOutcome, CommerceServiceError> {
+    let _connection_gate = acquire_checkout_connection_gate(pool).await?;
     let lock_key = checkout_lock_key(&context);
     let lock_transaction = acquire_postgres_checkout_lock(pool, &lock_key).await?;
     let result = enrich_owner_order_payment_postgres_locked(pool, context, outcome).await;

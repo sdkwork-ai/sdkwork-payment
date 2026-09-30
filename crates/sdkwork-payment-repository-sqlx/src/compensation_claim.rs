@@ -1,10 +1,25 @@
 //! Compensation worker claim queries (补偿轮询认领).
 //!
-//! The payment compensation worker scans payments stuck in pending/processing
+//! The payment compensation worker scans attempts stuck in pending/processing
 //! and refunds stuck in submitted/processing, queries the PSP, and re-enters
-//! the notify processing framework with a synthetic event. Claims use
-//! `FOR UPDATE SKIP LOCKED` so multiple worker instances never process the
-//! same row; the scan window bounds PSP query load.
+//! the notify processing framework with a synthetic event.
+//!
+//! Claim guarantees, stated honestly:
+//! - The scan runs in a real transaction with `FOR UPDATE SKIP LOCKED`, so
+//!   workers sweeping at the same moment receive disjoint batches and never
+//!   both flip the same fresh row.
+//! - A claimed `pending` attempt or `submitted` refund is flipped to
+//!   `processing` inside the claiming transaction with a status guard, which
+//!   keeps it out of the next sweep while the worker queries the PSP.
+//! - Rows already in `processing` are re-claimed by later sweeps: their PSP
+//!   poll repeats, which is safe because every downstream apply is a
+//!   status-guarded, idempotent transition that fails closed on races. There
+//!   is deliberately no fake cross-sweep row lock — a pool-level `SKIP LOCKED`
+//!   outside a transaction releases at statement end and excludes nothing.
+//! - There is no upper age bound: a row past any window is still claimed, so
+//!   a refund cannot stay reserved forever just because a backlog delayed its
+//!   first sweep. `min_age_seconds` still keeps just-created rows (whose PSP
+//!   call may still be in flight) out of the scan.
 
 use sdkwork_contract_service::CommerceServiceError;
 use serde_json::Value;
