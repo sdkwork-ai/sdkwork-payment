@@ -34,6 +34,7 @@ import {
   formatAdminTimestamp,
   type PaymentBaseDataOption,
 } from "@sdkwork/payment-pc-admin-core";
+import { useDevConfigMessages } from "../i18n";
 import type {
   PaymentDevSandboxTriggerResult,
   PaymentDevWebhookSignatureTestResult,
@@ -119,6 +120,7 @@ interface SandboxTriggerPanelProps {
 }
 
 function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
+  const m = useDevConfigMessages();
   const [providerAccountId, setProviderAccountId] = React.useState("");
   const [eventType, setEventType] = React.useState("");
   const [amount, setAmount] = React.useState("");
@@ -136,11 +138,11 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
     event.preventDefault();
     setError(undefined);
     if (!providerAccountId) {
-      setError("Select a provider account first.");
+      setError(m.common.errorAccountRequired);
       return;
     }
     if (!eventType.trim()) {
-      setError("Event type is required.");
+      setError(m.webhook.errorEventTypeRequired);
       return;
     }
     try {
@@ -150,7 +152,7 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
         ...(outTradeNo.trim() ? { outTradeNo: outTradeNo.trim() } : {}),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to trigger sandbox event.");
+      setError(err instanceof Error ? err.message : m.webhook.errorTriggerFailed);
     }
   }
 
@@ -158,25 +160,24 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
     <section className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">
       <header className="mb-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Sandbox trigger
+          {m.webhook.sandboxHeader}
         </div>
         <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
-          Simulate a PSP webhook event for local/sandbox integration. Mirrors Stripe CLI
-          <code className="mx-1 rounded bg-[var(--sdk-color-bg-subtle)] px-1 text-xs">stripe trigger</code>.
-          Only development/sandbox accounts are eligible. Leave overrides blank to use the
-          provider&apos;s default sandbox payload template.
+          {m.webhook.sandboxIntroLead}
+          <code className="mx-1 rounded bg-[var(--sdk-color-bg-subtle)] px-1 text-xs">stripe trigger</code>
+          {m.webhook.sandboxIntroTail}
         </p>
       </header>
       <form className="space-y-3" onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <AdminFieldLabel label="Provider account" htmlFor="webhook-debugger-trigger-account" required>
+          <AdminFieldLabel label={m.common.providerAccount} htmlFor="webhook-debugger-trigger-account" required>
             <Select
               value={providerAccountId}
               onValueChange={setProviderAccountId}
               disabled={props.busy}
             >
               <SelectTrigger id="webhook-debugger-trigger-account">
-                <SelectValue placeholder={props.accounts.length === 0 ? "No eligible accounts" : "Select account..."} />
+                <SelectValue placeholder={props.accounts.length === 0 ? m.common.noEligibleAccounts : m.common.accountPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {props.accounts.map((account) => (
@@ -187,12 +188,12 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
               </SelectContent>
             </Select>
           </AdminFieldLabel>
-          <AdminFieldLabel label="Event type" htmlFor="webhook-debugger-trigger-event-type" required>
+          <AdminFieldLabel label={m.webhook.eventType} htmlFor="webhook-debugger-trigger-event-type" required>
             <Input
               id="webhook-debugger-trigger-event-type"
               value={eventType}
               onChange={(event) => setEventType(event.target.value)}
-              placeholder="e.g., payment_intent.succeeded"
+              placeholder={m.webhook.eventTypePlaceholder}
               disabled={props.busy}
               required
             />
@@ -211,31 +212,31 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
           ))}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <AdminFieldLabel label="Amount (optional)" htmlFor="webhook-debugger-trigger-amount">
+          <AdminFieldLabel label={m.webhook.amountOptional} htmlFor="webhook-debugger-trigger-amount">
             <Input
               id="webhook-debugger-trigger-amount"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
-              placeholder="e.g., 10.00"
+              placeholder={m.webhook.amountPlaceholder}
               disabled={props.busy}
             />
           </AdminFieldLabel>
           <BaseDataSelectField
             id="webhook-debugger-trigger-currency"
-            label="Currency (optional)"
+            label={m.webhook.currencyOptional}
             options={props.currencyOptions}
             value={currencyCode}
             maxLength={3}
-            placeholder="e.g., USD"
+            placeholder={m.webhook.currencyPlaceholder}
             disabled={props.busy}
             onChange={setCurrencyCode}
           />
-          <AdminFieldLabel label="Out trade no (optional)" htmlFor="webhook-debugger-trigger-out-trade-no">
+          <AdminFieldLabel label={m.webhook.outTradeNoOptional} htmlFor="webhook-debugger-trigger-out-trade-no">
             <Input
               id="webhook-debugger-trigger-out-trade-no"
               value={outTradeNo}
               onChange={(event) => setOutTradeNo(event.target.value)}
-              placeholder="Existing attempt out_trade_no"
+              placeholder={m.webhook.outTradeNoPlaceholder}
               disabled={props.busy}
             />
           </AdminFieldLabel>
@@ -259,19 +260,19 @@ function SandboxTriggerPanel(props: SandboxTriggerPanelProps) {
             }
           >
             <div className="font-medium">
-              {props.lastResult.ok ? "Sandbox event triggered" : "Sandbox trigger failed"}
+              {props.lastResult.ok ? m.webhook.triggerSuccess : m.webhook.triggerFailed}
             </div>
             <div className="mt-1 text-xs">
-              Provider: {props.lastResult.providerCode} · Environment: {props.lastResult.environment}
-              {props.lastResult.operationId ? ` · Operation: ${props.lastResult.operationId}` : ""}
-              {props.lastResult.status ? ` · Status: ${props.lastResult.status}` : ""}
+              {m.environment.providerLabel}: {props.lastResult.providerCode} · {m.environment.environmentLabel}: {props.lastResult.environment}
+              {props.lastResult.operationId ? ` · ${m.webhook.operationLabel}: ${props.lastResult.operationId}` : ""}
+              {props.lastResult.status ? ` · ${m.webhook.statusLabel}: ${props.lastResult.status}` : ""}
               {props.lastResult.diagnostic ? ` · ${props.lastResult.diagnostic}` : ""}
             </div>
           </div>
         ) : null}
         <div className="flex justify-end">
           <Button type="submit" disabled={props.busy || props.accounts.length === 0}>
-            {props.busy ? "Triggering..." : "Trigger sandbox event"}
+            {props.busy ? m.webhook.triggering : m.webhook.triggerSubmit}
           </Button>
         </div>
       </form>
@@ -293,6 +294,7 @@ interface SignatureTestPanelProps {
 }
 
 function SignatureTestPanel(props: SignatureTestPanelProps) {
+  const m = useDevConfigMessages();
   const [providerAccountId, setProviderAccountId] = React.useState("");
   const [payload, setPayload] = React.useState("");
   const [signature, setSignature] = React.useState("");
@@ -310,21 +312,21 @@ function SignatureTestPanel(props: SignatureTestPanelProps) {
     event.preventDefault();
     setError(undefined);
     if (!providerAccountId) {
-      setError("Select a provider account first.");
+      setError(m.common.errorAccountRequired);
       return;
     }
     if (!payload.trim()) {
-      setError("Raw payload is required.");
+      setError(m.webhook.errorPayloadRequired);
       return;
     }
     if (!signature.trim()) {
-      setError("Signature is required.");
+      setError(m.webhook.errorSignatureRequired);
       return;
     }
     try {
       await props.onTest(providerAccountId, payload, signature.trim(), timestamp.trim(), signatureHeader.trim());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to test webhook signature.");
+      setError(err instanceof Error ? err.message : m.webhook.errorTestFailed);
     }
   }
 
@@ -332,24 +334,24 @@ function SignatureTestPanel(props: SignatureTestPanelProps) {
     <section className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">
       <header className="mb-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Webhook signature test
+          {m.webhook.signatureHeader}
         </div>
         <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
-          Verify a raw payload + signature against the configured
+          {m.webhook.signatureIntroLead}
           <code className="mx-1 rounded bg-[var(--sdk-color-bg-subtle)] px-1 text-xs">webhook_secret_ref</code>
-          of the target provider account. Mirrors Stripe CLI
+          {m.webhook.signatureIntroTail}
           <code className="mx-1 rounded bg-[var(--sdk-color-bg-subtle)] px-1 text-xs">stripe listen --verify</code>.
         </p>
       </header>
       <form className="space-y-3" onSubmit={handleSubmit}>
-        <AdminFieldLabel label="Provider account" htmlFor="webhook-debugger-sig-account" required>
+        <AdminFieldLabel label={m.common.providerAccount} htmlFor="webhook-debugger-sig-account" required>
           <Select
             value={providerAccountId}
             onValueChange={setProviderAccountId}
             disabled={props.busy}
           >
             <SelectTrigger id="webhook-debugger-sig-account">
-              <SelectValue placeholder="Select account..." />
+              <SelectValue placeholder={m.common.accountPlaceholder} />
             </SelectTrigger>
             <SelectContent>
               {props.accounts.map((account) => (
@@ -360,44 +362,44 @@ function SignatureTestPanel(props: SignatureTestPanelProps) {
             </SelectContent>
           </Select>
         </AdminFieldLabel>
-        <AdminFieldLabel label="Raw payload" htmlFor="webhook-debugger-sig-payload" required>
+        <AdminFieldLabel label={m.webhook.rawPayload} htmlFor="webhook-debugger-sig-payload" required>
           <textarea
             id="webhook-debugger-sig-payload"
             className="min-h-[8rem] w-full rounded-md border border-[var(--sdk-color-border-default)] bg-[var(--sdk-color-surface-panel)] px-3 py-2 font-mono text-sm shadow-[var(--sdk-shadow-sm)] outline-none focus:ring-2 focus:ring-[var(--sdk-color-border-focus)]"
             value={payload}
             onChange={(event) => setPayload(event.target.value)}
-            placeholder="Paste the raw webhook request body..."
+            placeholder={m.webhook.rawPayloadPlaceholder}
             disabled={props.busy}
             required
           />
         </AdminFieldLabel>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <AdminFieldLabel label="Signature" htmlFor="webhook-debugger-sig-signature" required>
+          <AdminFieldLabel label={m.webhook.signature} htmlFor="webhook-debugger-sig-signature" required>
             <Input
               id="webhook-debugger-sig-signature"
               value={signature}
               onChange={(event) => setSignature(event.target.value)}
-              placeholder="e.g., t=...,v1=..."
+              placeholder={m.webhook.signaturePlaceholder}
               disabled={props.busy}
               required
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Timestamp (optional)" htmlFor="webhook-debugger-sig-timestamp">
+          <AdminFieldLabel label={m.webhook.timestampOptional} htmlFor="webhook-debugger-sig-timestamp">
             <Input
               id="webhook-debugger-sig-timestamp"
               value={timestamp}
               onChange={(event) => setTimestamp(event.target.value)}
-              placeholder="Unix timestamp (for replay protection)"
+              placeholder={m.webhook.timestampPlaceholder}
               disabled={props.busy}
             />
           </AdminFieldLabel>
         </div>
-        <AdminFieldLabel label="Signature header name override (optional)" htmlFor="webhook-debugger-sig-header-name">
+        <AdminFieldLabel label={m.webhook.headerNameOverride} htmlFor="webhook-debugger-sig-header-name">
           <Input
             id="webhook-debugger-sig-header-name"
             value={signatureHeader}
             onChange={(event) => setSignatureHeader(event.target.value)}
-            placeholder="e.g., Wechatpay-Signature (for non-standard headers)"
+            placeholder={m.webhook.headerNamePlaceholder}
             disabled={props.busy}
           />
         </AdminFieldLabel>
@@ -420,19 +422,19 @@ function SignatureTestPanel(props: SignatureTestPanelProps) {
             }
           >
             <div className="font-medium">
-              {props.lastResult.ok ? "Signature verified" : "Signature verification failed"}
+              {props.lastResult.ok ? m.webhook.verifySuccess : m.webhook.verifyFailed}
             </div>
             <div className="mt-1 text-xs">
-              Provider: {props.lastResult.providerCode}
-              {props.lastResult.algorithm ? ` · Algorithm: ${props.lastResult.algorithm}` : ""}
+              {m.common.provider}: {props.lastResult.providerCode}
+              {props.lastResult.algorithm ? ` · ${m.webhook.algorithmLabel}: ${props.lastResult.algorithm}` : ""}
               {props.lastResult.diagnostic ? ` · ${props.lastResult.diagnostic}` : ""}
-              {` · Tested at: ${formatAdminTimestamp(props.lastResult.testedAt)}`}
+              {` · ${m.webhook.testedAtLabel}: ${formatAdminTimestamp(props.lastResult.testedAt)}`}
             </div>
           </div>
         ) : null}
         <div className="flex justify-end">
           <Button type="submit" disabled={props.busy}>
-            {props.busy ? "Verifying..." : "Verify signature"}
+            {props.busy ? m.webhook.verifying : m.webhook.verifySubmit}
           </Button>
         </div>
       </form>
@@ -445,6 +447,7 @@ interface RecentEventsPanelProps {
 }
 
 function RecentEventsPanel(props: RecentEventsPanelProps) {
+  const m = useDevConfigMessages();
   if (props.events.length === 0) {
     return null;
   }
@@ -452,10 +455,10 @@ function RecentEventsPanel(props: RecentEventsPanelProps) {
     <section className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">
       <header className="mb-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Recent webhook events
+          {m.webhook.recentHeader}
         </div>
         <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
-          The latest 5 webhook events received by this tenant. View the Integration Logs tab for the full list and replay.
+          {m.webhook.recentIntro}
         </p>
       </header>
       <ul className="divide-y divide-[var(--sdk-color-border-subtle)]">

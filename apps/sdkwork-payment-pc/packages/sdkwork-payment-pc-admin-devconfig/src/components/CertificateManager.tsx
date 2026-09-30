@@ -41,6 +41,7 @@ import {
   SdkworkPaymentListPaginationControls,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useDevConfigMessages } from "../i18n";
 import type {
   PaymentCertificateDraft,
   PaymentCertificateKind,
@@ -57,34 +58,11 @@ export interface CertificateManagerProps {
   onLoadMore(): void;
 }
 
-const CERTIFICATE_TYPE_LABEL: Record<PaymentCertificateKind, string> = {
-  merchant_private_key: "Merchant private key",
-  provider_public_key: "Provider public key",
-  platform_certificate: "Platform certificate",
-  // The webhook_secret certificate kind carries the WeChat API v3 decryption
-  // key (callback resource decryption), so it is labeled "API v3 Key".
-  webhook_secret: "API v3 Key",
-};
-
-const CERTIFICATE_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: PaymentCertificateKind }> = [
-  { label: "Merchant private key", value: "merchant_private_key" },
-  { label: "Provider public key", value: "provider_public_key" },
-  { label: "Platform certificate", value: "platform_certificate" },
-  { label: "API v3 Key", value: "webhook_secret" },
-];
-
 const STATUS_VARIANT: Record<PaymentCertificateView["status"], "success" | "warning" | "danger" | "secondary"> = {
   active: "success",
   pending_rotation: "warning",
   expired: "danger",
   revoked: "secondary",
-};
-
-const STATUS_LABEL: Record<PaymentCertificateView["status"], string> = {
-  active: "Active",
-  pending_rotation: "Pending rotation",
-  expired: "Expired",
-  revoked: "Revoked",
 };
 
 const EXPIRY_WARNING_DAYS = 30;
@@ -93,7 +71,29 @@ const EXPIRY_WARNING_DAYS = 30;
 const MAX_CERTIFICATE_FILE_BYTES = 65536;
 
 export function CertificateManager(props: CertificateManagerProps) {
+  const m = useDevConfigMessages();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+
+  const certificateTypeLabel: Record<PaymentCertificateKind, string> = {
+    merchant_private_key: m.certificates.typeMerchantPrivateKey,
+    provider_public_key: m.certificates.typeProviderPublicKey,
+    platform_certificate: m.certificates.typePlatformCertificate,
+    // The webhook_secret certificate kind carries the WeChat API v3 decryption
+    // key (callback resource decryption), so it is labeled "API v3 Key".
+    webhook_secret: m.certificates.typeWebhookSecret,
+  };
+  const certificateTypeOptions: ReadonlyArray<{ label: string; value: PaymentCertificateKind }> = [
+    { label: m.certificates.typeMerchantPrivateKey, value: "merchant_private_key" },
+    { label: m.certificates.typeProviderPublicKey, value: "provider_public_key" },
+    { label: m.certificates.typePlatformCertificate, value: "platform_certificate" },
+    { label: m.certificates.typeWebhookSecret, value: "webhook_secret" },
+  ];
+  const statusLabel: Record<PaymentCertificateView["status"], string> = {
+    active: m.certificates.statusActive,
+    pending_rotation: m.certificates.statusPendingRotation,
+    expired: m.certificates.statusExpired,
+    revoked: m.certificates.statusRevoked,
+  };
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | undefined>();
   const [pendingDelete, setPendingDelete] = React.useState<PaymentCertificateView | null>(null);
@@ -105,7 +105,7 @@ export function CertificateManager(props: CertificateManagerProps) {
       await props.onCreate(draft);
       setDialogOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create certificate.");
+      setError(err instanceof Error ? err.message : m.certificates.errorCreateFailed);
     } finally {
       setSubmitting(false);
     }
@@ -117,7 +117,7 @@ export function CertificateManager(props: CertificateManagerProps) {
     try {
       await props.onDelete(pendingDelete.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete certificate.");
+      setError(err instanceof Error ? err.message : m.certificates.errorRegisterFailed);
     }
     setPendingDelete(null);
   }
@@ -127,10 +127,10 @@ export function CertificateManager(props: CertificateManagerProps) {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-            PEM certificate references
+            {m.certificates.header}
           </div>
           <div className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
-            Env var references only — plaintext PEM content never persists in DB.
+            {m.certificates.headerHint}
           </div>
         </div>
         <Button
@@ -138,18 +138,18 @@ export function CertificateManager(props: CertificateManagerProps) {
           size="sm"
           onClick={() => setDialogOpen(true)}
           disabled={props.busy}
-          title={props.busy ? "Cannot register while another operation is in progress" : "Register a new certificate reference"}
+          title={props.busy ? m.certificates.registerBusyTitle : m.certificates.registerTitle}
         >
-          Register certificate
+          {m.certificates.registerButton}
         </Button>
       </div>
 
       {props.certificates.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No certificates registered. Register a PEM reference to enable provider authentication.
+          {m.certificates.emptyState}
           <div className="mt-3">
             <Button type="button" variant="primary" size="sm" onClick={() => setDialogOpen(true)} disabled={props.busy}>
-              Register certificate
+              {m.certificates.registerButton}
             </Button>
           </div>
         </div>
@@ -168,40 +168,40 @@ export function CertificateManager(props: CertificateManagerProps) {
                     <span className="font-medium text-[var(--sdk-color-text)]">
                       {certificate.certificateNo}
                     </span>
-                    <Badge variant="outline">{CERTIFICATE_TYPE_LABEL[certificate.certificateType]}</Badge>
+                    <Badge variant="outline">{certificateTypeLabel[certificate.certificateType]}</Badge>
                     {certificate.providerCode ? (
                       <Badge variant="secondary">{certificate.providerCode}</Badge>
                     ) : null}
                     <Badge variant={STATUS_VARIANT[certificate.status]}>
-                      {STATUS_LABEL[certificate.status]}
+                      {statusLabel[certificate.status]}
                     </Badge>
                     {expiry.kind === "expired" ? (
-                      <Badge variant="danger">Expired {expiry.days}d ago</Badge>
+                      <Badge variant="danger">{m.certificates.expiredDaysAgo.replace("{days}", String(expiry.days))}</Badge>
                     ) : expiry.kind === "expiring" ? (
-                      <Badge variant="warning">Expires in {expiry.days}d</Badge>
+                      <Badge variant="warning">{m.certificates.expiresInDays.replace("{days}", String(expiry.days))}</Badge>
                     ) : null}
                   </div>
                   <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)] sm:grid-cols-3">
                     <div>
-                      <dt className="inline">Subject:</dt>{" "}
+                      <dt className="inline">{m.certificates.subjectLabel}</dt>{" "}
                       <dd className="inline">{certificate.subject ?? "—"}</dd>
                     </div>
                     <div>
-                      <dt className="inline">Issuer:</dt>{" "}
+                      <dt className="inline">{m.certificates.issuerLabel}</dt>{" "}
                       <dd className="inline">{certificate.issuer ?? "—"}</dd>
                     </div>
                     <div>
-                      <dt className="inline">Expires:</dt>{" "}
+                      <dt className="inline">{m.certificates.expiresLabel}</dt>{" "}
                       <dd className="inline">
                         {certificate.expiresAt ? formatAdminTimestamp(certificate.expiresAt) : "—"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="inline">Content:</dt>{" "}
-                      <dd className="inline">{certificate.hasContent ? "Encrypted" : "Missing"}</dd>
+                      <dt className="inline">{m.certificates.contentLabel}</dt>{" "}
+                      <dd className="inline">{certificate.hasContent ? m.certificates.contentEncrypted : m.certificates.contentMissing}</dd>
                     </div>
                     <div>
-                      <dt className="inline">Fingerprint:</dt>{" "}
+                      <dt className="inline">{m.certificates.fingerprintLabel}</dt>{" "}
                       <dd className="inline font-mono">
                         {certificate.fingerprint ? truncateFingerprint(certificate.fingerprint) : "—"}
                       </dd>
@@ -215,9 +215,9 @@ export function CertificateManager(props: CertificateManagerProps) {
                     size="sm"
                     onClick={() => setPendingDelete(certificate)}
                     disabled={props.busy}
-                    title="Delete this certificate reference"
+                    title={m.certificates.deleteButtonTitle}
                   >
-                    Delete
+                    {m.common.delete}
                   </Button>
                 </div>
               </li>
@@ -244,7 +244,7 @@ export function CertificateManager(props: CertificateManagerProps) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Register certificate reference</DialogTitle>
+            <DialogTitle>{m.certificates.dialogTitle}</DialogTitle>
           </DialogHeader>
           <CertificateForm
             onCancel={() => setDialogOpen(false)}
@@ -256,13 +256,13 @@ export function CertificateManager(props: CertificateManagerProps) {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete certificate reference?"
+        title={m.certificates.confirmDeleteTitle}
         description={
           pendingDelete
-            ? `Delete certificate ${pendingDelete.certificateNo}? The underlying PEM content in your secret store is not affected; only the reference is removed.`
+            ? m.certificates.confirmDeleteDescription.replace("{certificateNo}", pendingDelete.certificateNo)
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={m.common.delete}
         variant="danger"
         busy={props.busy}
         onConfirm={handleConfirmDelete}
@@ -288,6 +288,13 @@ interface CertificateFormState {
 }
 
 function CertificateForm(props: CertificateFormProps) {
+  const m = useDevConfigMessages();
+  const certificateTypeOptions: ReadonlyArray<{ label: string; value: PaymentCertificateKind }> = [
+    { label: m.certificates.typeMerchantPrivateKey, value: "merchant_private_key" },
+    { label: m.certificates.typeProviderPublicKey, value: "provider_public_key" },
+    { label: m.certificates.typePlatformCertificate, value: "platform_certificate" },
+    { label: m.certificates.typeWebhookSecret, value: "webhook_secret" },
+  ];
   const [state, setState] = React.useState<CertificateFormState>({
     certificateNo: "",
     providerCode: "",
@@ -304,7 +311,7 @@ function CertificateForm(props: CertificateFormProps) {
     event.preventDefault();
     setFormError(undefined);
     if (!state.certificateNo.trim() || !state.certificate.trim()) {
-      setFormError("Certificate no and PEM content are required.");
+      setFormError(m.certificates.errorRequired);
       return;
     }
     const draft: PaymentCertificateDraft = {
@@ -316,29 +323,29 @@ function CertificateForm(props: CertificateFormProps) {
     try {
       await props.onSubmit(draft);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to register certificate.");
+      setFormError(err instanceof Error ? err.message : m.certificates.errorRegisterFailed);
     }
   }
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <AdminFieldLabel label="Certificate No" htmlFor="cert-certificate-no" required>
+        <AdminFieldLabel label={m.certificates.certificateNo} htmlFor="cert-certificate-no" required>
           <Input
             id="cert-certificate-no"
             value={state.certificateNo}
             onChange={(event) => update("certificateNo", event.target.value)}
-            placeholder="e.g., alipay-public-key-prod"
+            placeholder={m.certificates.certificateNoPlaceholder}
             required
           />
         </AdminFieldLabel>
-        <AdminFieldLabel label="Type" htmlFor="cert-type" required>
+        <AdminFieldLabel label={m.certificates.type} htmlFor="cert-type" required>
           <Select value={state.certificateType} onValueChange={(value) => update("certificateType", value as PaymentCertificateKind)}>
             <SelectTrigger id="cert-type">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CERTIFICATE_TYPE_OPTIONS.map((option) => (
+              {certificateTypeOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -346,13 +353,13 @@ function CertificateForm(props: CertificateFormProps) {
             </SelectContent>
           </Select>
         </AdminFieldLabel>
-        <AdminFieldLabel label="Provider (optional)" htmlFor="cert-provider-code">
+        <AdminFieldLabel label={m.certificates.providerOptional} htmlFor="cert-provider-code">
           <Select value={state.providerCode} onValueChange={(value) => update("providerCode", value)}>
             <SelectTrigger id="cert-provider-code">
-              <SelectValue placeholder="Any provider" />
+              <SelectValue placeholder={m.certificates.anyProvider} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Any provider</SelectItem>
+              <SelectItem value="">{m.certificates.anyProvider}</SelectItem>
               {ADMIN_PROVIDER_FORM_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
@@ -362,13 +369,13 @@ function CertificateForm(props: CertificateFormProps) {
           </Select>
         </AdminFieldLabel>
       </div>
-      <AdminFieldLabel label="PEM Content" htmlFor="cert-pem-content" required>
+      <AdminFieldLabel label={m.certificates.pemContent} htmlFor="cert-pem-content" required>
         <Textarea
           id="cert-pem-content"
           className="min-h-32 resize-y font-mono"
           value={state.certificate}
           onChange={(event) => update("certificate", event.target.value)}
-          placeholder="Paste PEM content"
+          placeholder={m.certificates.pemPlaceholder}
           required
           autoComplete="new-password"
         />
@@ -387,11 +394,11 @@ function CertificateForm(props: CertificateFormProps) {
         </div>
       ) : null}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={props.onCancel} disabled={props.submitting} title="Cancel certificate registration">
-          Cancel
+        <Button type="button" variant="ghost" onClick={props.onCancel} disabled={props.submitting} title={m.certificates.cancelTitle}>
+          {m.common.cancel}
         </Button>
-        <Button type="submit" disabled={props.submitting} title="Register this certificate">
-          {props.submitting ? "Registering..." : "Register certificate"}
+        <Button type="submit" disabled={props.submitting} title={m.certificates.submitTitle}>
+          {props.submitting ? m.certificates.registering : m.certificates.registerButton}
         </Button>
       </div>
     </form>

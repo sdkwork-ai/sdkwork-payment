@@ -34,6 +34,7 @@ import {
   SdkworkPaymentListPaginationControls,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useDevConfigMessages } from "../i18n";
 import type {
   PaymentProviderCode,
   PaymentWebhookEventListFilter,
@@ -55,18 +56,6 @@ export interface IntegrationLogsProps {
   onReplay(eventId: string): Promise<void> | void;
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{
-  label: string;
-  value: PaymentWebhookEventView["status"] | "";
-}> = [
-  { label: "All statuses", value: "" },
-  { label: "Queued", value: "queued" },
-  { label: "Processing", value: "processing" },
-  { label: "Processed", value: "processed" },
-  { label: "Failed", value: "failed" },
-  { label: "Dead", value: "dead" },
-];
-
 const STATUS_VARIANT: Record<
   PaymentWebhookEventView["status"],
   "secondary" | "success" | "danger" | "warning"
@@ -78,16 +67,24 @@ const STATUS_VARIANT: Record<
   dead: "secondary",
 };
 
-const STATUS_LABEL: Record<PaymentWebhookEventView["status"], string> = {
-  queued: "Queued",
-  processing: "Processing",
-  processed: "Processed",
-  failed: "Failed",
-  dead: "Dead",
-};
-
 export function IntegrationLogs(props: IntegrationLogsProps) {
+  const m = useDevConfigMessages();
   const [providerCode, setProviderCode] = React.useState<PaymentProviderCode | "">("");
+  const statusLabel: Record<PaymentWebhookEventView["status"], string> = {
+    queued: m.logs.statusQueued,
+    processing: m.logs.statusProcessing,
+    processed: m.logs.statusProcessed,
+    failed: m.logs.statusFailed,
+    dead: m.logs.statusDead,
+  };
+  const statusOptions: ReadonlyArray<{ label: string; value: PaymentWebhookEventView["status"] | "" }> = [
+    { label: m.logs.statusAll, value: "" },
+    { label: m.logs.statusQueued, value: "queued" },
+    { label: m.logs.statusProcessing, value: "processing" },
+    { label: m.logs.statusProcessed, value: "processed" },
+    { label: m.logs.statusFailed, value: "failed" },
+    { label: m.logs.statusDead, value: "dead" },
+  ];
   const [status, setStatus] = React.useState<PaymentWebhookEventView["status"] | "">("");
   const [receivedFrom, setReceivedFrom] = React.useState("");
   const [receivedTo, setReceivedTo] = React.useState("");
@@ -115,15 +112,14 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
       <section className="rounded-md border border-[var(--sdk-color-border-subtle)] p-4">
         <header className="mb-3">
           <div className="text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-            Filter
+            {m.logs.filterHeader}
           </div>
           <p className="mt-1 text-xs text-[var(--sdk-color-text-secondary)]">
-            Filters are pushed to the server (per PAGINATION_SPEC.md §2). Use the date
-            range to scope webhook events to a specific integration window.
+            {m.logs.filterIntro}
           </p>
         </header>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <AdminFieldLabel label="Provider" htmlFor="integration-logs-filter-provider">
+          <AdminFieldLabel label={m.common.provider} htmlFor="integration-logs-filter-provider">
             <Select
               value={providerCode}
               onValueChange={(value) =>
@@ -132,7 +128,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
               disabled={props.busy}
             >
               <SelectTrigger id="integration-logs-filter-provider">
-                <SelectValue placeholder="All providers" />
+                <SelectValue placeholder={m.logs.providerPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {ADMIN_PROVIDER_FILTER_OPTIONS.map((option) => (
@@ -143,7 +139,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
               </SelectContent>
             </Select>
           </AdminFieldLabel>
-          <AdminFieldLabel label="Status" htmlFor="integration-logs-filter-status">
+          <AdminFieldLabel label={m.common.status} htmlFor="integration-logs-filter-status">
             <Select
               value={status}
               onValueChange={(value) =>
@@ -152,10 +148,10 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
               disabled={props.busy}
             >
               <SelectTrigger id="integration-logs-filter-status">
-                <SelectValue placeholder="All statuses" />
+                <SelectValue placeholder={m.logs.statusAll} />
               </SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map((option) => (
+                {statusOptions.map((option) => (
                   <SelectItem key={option.value || "all"} value={option.value || "all"}>
                     {option.label}
                   </SelectItem>
@@ -163,7 +159,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
               </SelectContent>
             </Select>
           </AdminFieldLabel>
-          <AdminFieldLabel label="Received from" htmlFor="integration-logs-filter-from">
+          <AdminFieldLabel label={m.logs.receivedFrom} htmlFor="integration-logs-filter-from">
             <Input
               id="integration-logs-filter-from"
               type="date"
@@ -172,7 +168,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
               disabled={props.busy}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Received to" htmlFor="integration-logs-filter-to">
+          <AdminFieldLabel label={m.logs.receivedTo} htmlFor="integration-logs-filter-to">
             <Input
               id="integration-logs-filter-to"
               type="date"
@@ -190,7 +186,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
             onClick={handleResetFilter}
             disabled={props.busy}
           >
-            Reset
+            {m.logs.reset}
           </Button>
           <Button
             type="button"
@@ -198,7 +194,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
             onClick={() => void handleApplyFilter()}
             disabled={props.busy}
           >
-            Apply filter
+            {m.logs.applyFilter}
           </Button>
         </div>
       </section>
@@ -214,13 +210,11 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
           }
         >
           <div className="font-medium">
-            {props.lastReplayResult.ok
-              ? "Webhook event replayed"
-              : "Webhook replay failed"}
+            {props.lastReplayResult.ok ? m.logs.replaySuccess : m.logs.replayFailed}
           </div>
           <div className="mt-1 text-xs">
-            Event ID: {props.lastReplayResult.eventId}
-            {` · Replayed at: ${formatAdminTimestamp(props.lastReplayResult.replayedAt)}`}
+            {m.logs.eventIdLabel} {props.lastReplayResult.eventId}
+            {` · ${m.logs.replayedAtLabel} ${formatAdminTimestamp(props.lastReplayResult.replayedAt)}`}
             {props.lastReplayResult.diagnostic
               ? ` · ${props.lastReplayResult.diagnostic}`
               : ""}
@@ -230,11 +224,10 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
 
       {props.events.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No webhook events match the current filter. Trigger a sandbox event from the
-          Webhook Debugger tab or wait for an inbound PSP webhook.
+          {m.logs.emptyState}
           <div className="mt-3">
             <Button type="button" variant="ghost" size="sm" onClick={handleResetFilter} disabled={props.busy}>
-              Clear filters
+              {m.logs.clearFilters}
             </Button>
           </div>
         </div>
@@ -253,27 +246,27 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
                   <span className="font-mono text-sm text-[var(--sdk-color-text)]">
                     {event.eventType}
                   </span>
-                  <Badge variant={STATUS_VARIANT[event.status]}>{STATUS_LABEL[event.status]}</Badge>
+                  <Badge variant={STATUS_VARIANT[event.status]}>{statusLabel[event.status]}</Badge>
                   {event.retries > 0 ? (
                     <Badge variant="secondary">
-                      Retries: {event.retries}
-                      {replayExhausted ? " (max)" : ""}
+                      {m.logs.retriesBadge.replace("{retries}", String(event.retries))}
+                      {replayExhausted ? m.logs.retriesMaxSuffix : ""}
                     </Badge>
                   ) : null}
                 </div>
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)] sm:grid-cols-3">
                   <div>
-                    <dt className="inline">Event ID:</dt>{" "}
+                    <dt className="inline">{m.logs.eventIdLabel}</dt>{" "}
                     <dd className="inline font-mono">
                       {event.eventId ?? event.id}
                     </dd>
                   </div>
                   <div>
-                    <dt className="inline">Received:</dt>{" "}
+                    <dt className="inline">{m.logs.receivedLabel}</dt>{" "}
                     <dd className="inline">{formatAdminTimestamp(event.receivedAt)}</dd>
                   </div>
                   <div>
-                    <dt className="inline">Processed:</dt>{" "}
+                    <dt className="inline">{m.logs.processedLabel}</dt>{" "}
                     <dd className="inline">
                       {event.processedAt ? formatAdminTimestamp(event.processedAt) : "—"}
                     </dd>
@@ -281,7 +274,7 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
                   {event.lastError ? (
                     <div className="sm:col-span-2">
                       <dt className="inline text-[var(--sdk-color-text-error)]">
-                        Last error:
+                        {m.logs.lastErrorLabel}
                       </dt>{" "}
                       <dd className="inline font-mono text-[var(--sdk-color-text-error)]">
                         {event.lastError}
@@ -299,12 +292,12 @@ export function IntegrationLogs(props: IntegrationLogsProps) {
                     title={
                       replayExhausted
                         ? event.status === "dead"
-                          ? "Event is dead — replay not allowed"
-                          : `Retry cap (${ADMIN_WEBHOOK_REPLAY_MAX_RETRIES}) reached`
-                        : "Replay this webhook event"
+                          ? m.logs.replayDeadTitle
+                          : m.logs.replayCapTitle.replace("{max}", String(ADMIN_WEBHOOK_REPLAY_MAX_RETRIES))
+                        : m.logs.replayTitle
                     }
                   >
-                    Replay
+                    {m.logs.replayButton}
                   </Button>
                 </div>
               </li>

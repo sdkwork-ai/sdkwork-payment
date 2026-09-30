@@ -30,6 +30,7 @@ import {
   PaymentAdminWorkspace,
   type PaymentBaseDataOption,
 } from "@sdkwork/payment-pc-admin-core";
+import { useDevConfigMessages } from "../i18n";
 import { CertificateManager } from "../components/CertificateManager";
 import { EnvironmentSwitcher } from "../components/EnvironmentSwitcher";
 import { IntegrationLogs } from "../components/IntegrationLogs";
@@ -58,6 +59,7 @@ export function PaymentDevConfigAdminWorkspace(
   props: PaymentDevConfigAdminWorkspaceProps,
 ) {
   const { controller } = props;
+  const m = useDevConfigMessages();
   const [state, setState] = React.useState<PaymentDevConfigAdminState>(() =>
     controller.getState(),
   );
@@ -191,7 +193,7 @@ export function PaymentDevConfigAdminWorkspace(
         data-slot="payment-devconfig-admin-workspace"
         description={props.description}
         error={state.lastError}
-        title={props.title ?? "Payment integration configuration"}
+        title={props.title ?? m.workspace.defaultTitle}
       >
         {props.section ? (
           sections[props.section]
@@ -202,18 +204,18 @@ export function PaymentDevConfigAdminWorkspace(
               setTab(value as PaymentDevConfigAdminSection)
             }
           >
-            <PaymentAdminTabsList aria-label="Payment developer tool sections">
+            <PaymentAdminTabsList aria-label={m.workspace.sectionsAriaLabel}>
               <PaymentAdminTabsTrigger value="environment">
-                Environment &amp; Test
+                {m.workspace.tabEnvironment}
               </PaymentAdminTabsTrigger>
               <PaymentAdminTabsTrigger value="webhook">
-                Webhook Debugger
+                {m.workspace.tabWebhook}
               </PaymentAdminTabsTrigger>
               <PaymentAdminTabsTrigger value="certificates">
-                Certificates
+                {m.workspace.tabCertificates}
               </PaymentAdminTabsTrigger>
               <PaymentAdminTabsTrigger value="logs">
-                Integration Logs
+                {m.workspace.tabLogs}
               </PaymentAdminTabsTrigger>
             </PaymentAdminTabsList>
 

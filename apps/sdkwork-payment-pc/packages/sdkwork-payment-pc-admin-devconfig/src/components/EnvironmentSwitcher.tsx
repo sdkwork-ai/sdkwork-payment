@@ -36,6 +36,7 @@ import {
   SdkworkPaymentListPaginationControls,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useDevConfigMessages } from "../i18n";
 import type {
   PaymentProviderAccountTestResult,
   PaymentProviderAccountView,
@@ -52,12 +53,6 @@ export interface EnvironmentSwitcherProps {
   onLoadMore(): void;
 }
 
-const ENV_LABEL: Record<PaymentProviderEnvironment, string> = {
-  development: "Development",
-  sandbox: "Sandbox",
-  production: "Production",
-};
-
 // production uses "danger" (red) to signal high-risk environment,
 // mirroring Stripe Dashboard Live mode indicator.
 const ENV_VARIANT: Record<PaymentProviderEnvironment, "secondary" | "warning" | "danger"> = {
@@ -72,12 +67,6 @@ const LAST_TEST_VARIANT: Record<string, "success" | "danger" | "secondary"> = {
   unknown: "secondary",
 };
 
-const LAST_TEST_LABEL: Record<string, string> = {
-  success: "Healthy",
-  failure: "Failed",
-  unknown: "Untested",
-};
-
 interface PendingSwitch {
   accountId: string;
   accountNo: string;
@@ -86,7 +75,19 @@ interface PendingSwitch {
 }
 
 export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
+  const m = useDevConfigMessages();
   const [pending, setPending] = React.useState<PendingSwitch | null>(null);
+
+  const envLabel: Record<PaymentProviderEnvironment, string> = {
+    development: m.environment.envDevelopment,
+    sandbox: m.environment.envSandbox,
+    production: m.environment.envProduction,
+  };
+  const lastTestLabel: Record<string, string> = {
+    success: m.environment.testHealthy,
+    failure: m.environment.testFailed,
+    unknown: m.environment.testUntested,
+  };
 
   function handleSelectChange(account: PaymentProviderAccountView, value: string) {
     const nextEnv = value as PaymentProviderEnvironment;
@@ -111,7 +112,7 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
     <div className="space-y-4" data-slot="env-switcher">
       {props.accounts.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No provider accounts available. Create one under the Provider admin tab first.
+          {m.environment.emptyState}
         </div>
       ) : (
         <ul className="divide-y divide-[var(--sdk-color-border-subtle)] rounded-md border border-[var(--sdk-color-border-subtle)]">
@@ -130,24 +131,24 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
                     {ADMIN_PROVIDER_LABEL[account.providerCode]}
                   </Badge>
                   <Badge variant="secondary">
-                    {account.accountMode === "partner" ? "Partner / ISV" : "Direct"}
+                    {account.accountMode === "partner" ? m.environment.modePartner : m.environment.modeDirect}
                   </Badge>
-                  <Badge variant={ENV_VARIANT[account.environment]} title={`${ENV_LABEL[account.environment]} environment`}>
-                    {ENV_LABEL[account.environment]}
+                  <Badge variant={ENV_VARIANT[account.environment]} title={m.environment.envBadgeTitle.replace("{env}", envLabel[account.environment])}>
+                    {envLabel[account.environment]}
                   </Badge>
                   <Badge variant={LAST_TEST_VARIANT[account.lastTestStatus ?? "unknown"]}>
                     {account.lastTestedAt
-                      ? `${LAST_TEST_LABEL[account.lastTestStatus ?? "unknown"]} · ${formatAdminTimestamp(account.lastTestedAt)}`
-                      : "Untested"}
+                      ? `${lastTestLabel[account.lastTestStatus ?? "unknown"]} · ${formatAdminTimestamp(account.lastTestedAt)}`
+                      : m.environment.testUntested}
                   </Badge>
                 </div>
                 <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 text-xs text-[var(--sdk-color-text-secondary)] sm:grid-cols-2">
                   <div>
-                    <dt className="inline">Merchant ID:</dt>{" "}
+                    <dt className="inline">{m.environment.merchantIdLabel}</dt>{" "}
                     <dd className="inline">{account.merchantId ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt className="inline">Cert expiry:</dt>{" "}
+                    <dt className="inline">{m.environment.certExpiryLabel}</dt>{" "}
                     <dd className="inline">
                       {account.certificateExpiresAt ? formatAdminTimestamp(account.certificateExpiresAt) : "—"}
                     </dd>
@@ -155,16 +156,16 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
                 </dl>
                 <div className="mt-2">
                   <SecretRefField
-                    label="Secret ref"
-                    value={account.hasPrimarySecret ? "Configured" : "Missing"}
+                    label={m.environment.secretRefLabel}
+                    value={account.hasPrimarySecret ? m.environment.secretConfigured : m.environment.secretMissing}
                     masked
-                    helperText="Credential values are write-only and are not returned by the backend."
+                    helperText={m.environment.secretHelper}
                   />
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Label htmlFor={`env-switch-${account.id}`} className="sr-only">
-                  Environment for {account.accountNo}
+                  {m.environment.environmentFor.replace("{accountNo}", account.accountNo)}
                 </Label>
                 <Select
                   value={account.environment}
@@ -175,9 +176,9 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="development">Development</SelectItem>
-                    <SelectItem value="sandbox">Sandbox</SelectItem>
-                    <SelectItem value="production">Production</SelectItem>
+                    <SelectItem value="development">{m.environment.envDevelopment}</SelectItem>
+                    <SelectItem value="sandbox">{m.environment.envSandbox}</SelectItem>
+                    <SelectItem value="production">{m.environment.envProduction}</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button
@@ -186,9 +187,9 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
                   size="sm"
                   onClick={() => props.onTest(account.id)}
                   disabled={props.busy}
-                  title={props.busy ? "Cannot test while another operation is in progress" : "Test credentials via the lowest-cost PSP API"}
+                  title={props.busy ? m.environment.testBusyTitle : m.environment.testTitle}
                 >
-                  Test
+                  {m.environment.testButton}
                 </Button>
               </div>
             </li>
@@ -213,16 +214,16 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
           }
         >
           <div className="font-medium">
-            {props.lastTestResult.ok ? "Credentials verified" : "Credential test failed"}
+            {props.lastTestResult.ok ? m.environment.resultVerified : m.environment.resultFailed}
           </div>
           <div className="mt-1 text-xs">
-            Provider: {props.lastTestResult.providerCode} · Environment:{" "}
+            {m.environment.providerLabel}: {props.lastTestResult.providerCode} · {m.environment.environmentLabel}:{" "}
             {props.lastTestResult.environment}
             {typeof props.lastTestResult.pspResponseTimeMs === "number"
-              ? ` · Latency: ${props.lastTestResult.pspResponseTimeMs}ms`
+              ? ` · ${m.environment.latencyLabel}: ${props.lastTestResult.pspResponseTimeMs}ms`
               : ""}
             {props.lastTestResult.pspResponseCode
-              ? ` · PSP code: ${props.lastTestResult.pspResponseCode}`
+              ? ` · ${m.environment.pspCodeLabel}: ${props.lastTestResult.pspResponseCode}`
               : ""}
             {props.lastTestResult.diagnostic ? ` · ${props.lastTestResult.diagnostic}` : ""}
           </div>
@@ -231,16 +232,17 @@ export function EnvironmentSwitcher(props: EnvironmentSwitcherProps) {
 
       <ConfirmDialog
         open={pending !== null}
-        title={switchingToProduction ? "Switch to Production?" : "Switch environment?"}
+        title={switchingToProduction ? m.environment.confirmSwitchToProductionTitle : m.environment.confirmSwitchTitle}
         description={
           pending
-            ? `Switch ${pending.accountNo} from ${ENV_LABEL[pending.fromEnv]} to ${ENV_LABEL[pending.toEnv]}?` +
-              (switchingToProduction
-                ? " Production environment handles real money. This action requires elevated backend permissions and will be audited."
-                : "")
+            ? m.environment.confirmSwitchDescription
+                .replace("{accountNo}", pending.accountNo)
+                .replace("{from}", envLabel[pending.fromEnv])
+                .replace("{to}", envLabel[pending.toEnv]) +
+              (switchingToProduction ? m.environment.confirmSwitchToProductionWarning : "")
             : ""
         }
-        confirmLabel="Switch"
+        confirmLabel={m.environment.confirmSwitchLabel}
         variant={switchingToProduction ? "danger" : "warning"}
         busy={props.busy}
         onConfirm={handleConfirmSwitch}

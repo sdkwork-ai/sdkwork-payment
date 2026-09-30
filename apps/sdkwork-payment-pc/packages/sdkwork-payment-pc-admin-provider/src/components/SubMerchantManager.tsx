@@ -149,7 +149,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
       return;
     }
     if (!formState.subMerchantNo.trim()) {
-      setError("Sub-merchant number is required.");
+      setError(t("Sub-merchant number is required."));
       return;
     }
     setSubmitting(true);
@@ -185,7 +185,7 @@ export function SubMerchantManager(props: SubMerchantManagerProps) {
       }
       closeDialog();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save sub-merchant.");
+      setError(err instanceof Error ? err.message : t("Failed to save sub-merchant."));
     } finally {
       setSubmitting(false);
     }
