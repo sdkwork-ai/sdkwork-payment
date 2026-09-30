@@ -1,7 +1,8 @@
 use axum::http::HeaderMap;
+#[cfg(test)]
+use sdkwork_utils_rust::command_headers::sdkwork_stable_command_request_hash;
 use sdkwork_utils_rust::command_headers::{
-    parse_sdkwork_write_command_headers, sdkwork_stable_canonical_json_request_hash,
-    sdkwork_stable_command_request_hash, sdkwork_stable_json_request_hash,
+    parse_sdkwork_write_command_headers, sdkwork_stable_json_request_hash,
     SdkWorkWriteCommandHeaderError, SdkWorkWriteCommandHeaders, SDKWORK_IDEMPOTENCY_KEY_HEADER,
     SDKWORK_REQUEST_HASH_HEADER, SDKWORK_REQUEST_NO_HEADER,
 };
@@ -13,21 +14,6 @@ pub(crate) const REQUEST_NO_HEADER: &str = SDKWORK_REQUEST_NO_HEADER;
 
 pub(crate) type AppWriteCommandHeaders = SdkWorkWriteCommandHeaders;
 pub(crate) type WriteCommandHeaderError = SdkWorkWriteCommandHeaderError;
-
-pub(crate) fn stable_command_request_hash(scope: &str, parts: &[&str]) -> String {
-    sdkwork_stable_command_request_hash(scope, parts)
-}
-
-pub(crate) fn stable_json_request_hash(
-    scope: &str,
-    value: &impl Serialize,
-) -> Result<String, WriteCommandHeaderError> {
-    sdkwork_stable_json_request_hash(scope, value)
-}
-
-pub(crate) fn stable_canonical_json_request_hash(scope: &str, value: &serde_json::Value) -> String {
-    sdkwork_stable_canonical_json_request_hash(scope, value)
-}
 
 /// Validates the idempotent-command headers for a backend write route.
 ///
@@ -43,7 +29,7 @@ pub(crate) fn validate_write_payload(
     fallback_request_no: impl FnOnce(&str) -> String,
 ) -> Result<AppWriteCommandHeaders, WriteCommandHeaderError> {
     let write_headers = parse_required_write_command_headers(headers, fallback_request_no)?;
-    let expected_hash = stable_json_request_hash(scope, body)?;
+    let expected_hash = sdkwork_stable_json_request_hash(scope, body)?;
     if expected_hash.trim() != write_headers.request_hash.trim() {
         return Err(WriteCommandHeaderError::InvalidHeader(
             "Sdkwork-Request-Hash does not match the command payload",
@@ -96,7 +82,8 @@ mod tests {
     fn write_headers_accept_contract_compliant_identity() {
         let scope = "scope";
         let body = serde_json::json!({"orderId":"o-1"});
-        let request_hash = stable_json_request_hash(scope, &body).expect("hash");
+        let request_hash =
+            sdkwork_stable_json_request_hash(scope, &body).expect("hash");
         let mut headers = HeaderMap::new();
         headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("idem-key-1"));
         headers.insert(REQUEST_HASH_HEADER, HeaderValue::from_str(&request_hash).expect("header value"));
@@ -111,8 +98,8 @@ mod tests {
 
     #[test]
     fn stable_command_request_hash_is_deterministic() {
-        let first = stable_command_request_hash("scope", &["100001", "request-1"]);
-        let second = stable_command_request_hash("scope", &["100001", "request-1"]);
+        let first = sdkwork_stable_command_request_hash("scope", &["100001", "request-1"]);
+        let second = sdkwork_stable_command_request_hash("scope", &["100001", "request-1"]);
         assert_eq!(first, second);
         assert!(!first.is_empty());
     }

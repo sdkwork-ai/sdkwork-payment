@@ -89,26 +89,27 @@ fn payment_provider_contract_exposes_required_commands() {
 fn validates_payment_wire_transitions() {
     assert!(validate_payment_wire_transition("pending", "canceled").is_ok());
     assert!(validate_payment_wire_transition("succeeded", "pending").is_err());
-    assert!(validate_payment_wire_transition("succeeded", "refunding").is_ok());
+    // Refund completeness is tracked on refund rows: a refund-derived state
+    // can never be written onto a payment row.
+    assert!(validate_payment_wire_transition("succeeded", "refunding").is_err());
+    assert!(validate_payment_wire_transition("created", "closed").is_ok());
 }
 
 #[test]
-fn payment_status_refunding_round_trips() {
-    assert_eq!(PaymentStatus::Refunding.as_wire(), "refunding");
-    assert_eq!(
-        PaymentStatus::from_wire("refunding").unwrap(),
-        PaymentStatus::Refunding
-    );
-    assert_eq!(
-        PaymentStatus::from_wire("processing").unwrap(),
-        PaymentStatus::Pending
-    );
+fn payment_status_wire_round_trips() {
+    assert_eq!(PaymentStatus::from_wire("processing").unwrap(), PaymentStatus::Pending);
+    assert_eq!(PaymentStatus::Closed.as_wire(), "canceled");
+    assert!(PaymentStatus::from_wire("refunded").is_err());
 }
 
 #[test]
 fn validates_refund_wire_transitions() {
     assert!(validate_refund_wire_transition(None, "submitted").is_ok());
+    // Creation anchors at the submitted state.
+    assert!(validate_refund_wire_transition(None, "succeeded").is_err());
     assert!(validate_refund_wire_transition(Some("succeeded"), "submitted").is_err());
+    // Synchronous PSP refunds (Alipay) land directly in the terminal state.
+    assert!(validate_refund_wire_transition(Some("submitted"), "succeeded").is_ok());
 }
 
 #[test]

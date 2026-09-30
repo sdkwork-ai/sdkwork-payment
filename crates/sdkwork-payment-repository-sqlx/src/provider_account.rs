@@ -55,12 +55,6 @@ pub fn ensure_provider_account_matches(
     }
     Ok(())
 }
-fn metadata_from_row(raw: Result<String, sqlx::Error>) -> Value {
-    match raw {
-        Ok(text) => serde_json::from_str(&text).unwrap_or(Value::Object(Default::default())),
-        Err(_) => Value::Object(Default::default()),
-    }
-}
 fn metadata_from_jsonb(raw: Result<Value, sqlx::Error>) -> Value {
     raw.unwrap_or(Value::Object(Default::default()))
 }

@@ -3,8 +3,7 @@ use axum::response::Response;
 
 use crate::api_response::validation;
 use sdkwork_utils_rust::command_headers::{
-    parse_sdkwork_write_command_headers, sdkwork_stable_canonical_json_request_hash,
-    sdkwork_stable_command_request_hash, sdkwork_stable_json_request_hash,
+    parse_sdkwork_write_command_headers, sdkwork_stable_json_request_hash,
     sdkwork_write_payload_with_route_param, SdkWorkWriteCommandHeaderError,
     SdkWorkWriteCommandHeaders, SDKWORK_IDEMPOTENCY_KEY_HEADER, SDKWORK_REQUEST_HASH_HEADER,
     SDKWORK_REQUEST_NO_HEADER,
@@ -17,21 +16,6 @@ pub(crate) const REQUEST_NO_HEADER: &str = SDKWORK_REQUEST_NO_HEADER;
 pub(crate) type AppWriteCommandHeaders = SdkWorkWriteCommandHeaders;
 pub(crate) type WriteCommandHeaderError = SdkWorkWriteCommandHeaderError;
 
-pub(crate) fn stable_command_request_hash(scope: &str, parts: &[&str]) -> String {
-    sdkwork_stable_command_request_hash(scope, parts)
-}
-
-pub(crate) fn stable_json_request_hash(
-    scope: &str,
-    value: &impl serde::Serialize,
-) -> Result<String, WriteCommandHeaderError> {
-    sdkwork_stable_json_request_hash(scope, value)
-}
-
-pub(crate) fn stable_canonical_json_request_hash(scope: &str, value: &serde_json::Value) -> String {
-    sdkwork_stable_canonical_json_request_hash(scope, value)
-}
-
 #[allow(clippy::result_large_err)]
 pub(crate) fn validate_write_payload(
     headers: &HeaderMap,
@@ -40,7 +24,7 @@ pub(crate) fn validate_write_payload(
     fallback_request_no: impl FnOnce(&str) -> String,
 ) -> Result<AppWriteCommandHeaders, WriteCommandHeaderError> {
     let write_headers = parse_required_write_command_headers(headers, fallback_request_no)?;
-    let expected_hash = stable_json_request_hash(scope, body)?;
+    let expected_hash = sdkwork_stable_json_request_hash(scope, body)?;
     if expected_hash.trim() != write_headers.request_hash.trim() {
         return Err(WriteCommandHeaderError::InvalidHeader(
             "Sdkwork-Request-Hash does not match the command payload",
@@ -146,19 +130,23 @@ mod tests {
 
     #[test]
     fn stable_command_request_hash_is_deterministic() {
-        let first = stable_command_request_hash("scope", &["100001", "request-1"]);
-        let second = stable_command_request_hash("scope", &["100001", "request-1"]);
+        use sdkwork_utils_rust::command_headers::sdkwork_stable_command_request_hash;
+        let first = sdkwork_stable_command_request_hash("scope", &["100001", "request-1"]);
+        let second = sdkwork_stable_command_request_hash("scope", &["100001", "request-1"]);
         assert_eq!(first, second);
         assert!(!first.is_empty());
     }
 
     #[test]
     fn stable_json_request_hash_matches_struct_and_value_payloads() {
+        use sdkwork_utils_rust::command_headers::{
+            sdkwork_stable_canonical_json_request_hash, sdkwork_stable_json_request_hash,
+        };
         use serde::{Deserialize, Serialize};
 
         let body_json = r#"{"methodKey":"wechat_pay","displayName":"WeChat Pay","providerCode":"wechat_pay","status":"active"}"#;
         let value: serde_json::Value = serde_json::from_str(body_json).expect("json");
-        let from_value = stable_canonical_json_request_hash("payment-method-upsert", &value);
+        let from_value = sdkwork_stable_canonical_json_request_hash("payment-method-upsert", &value);
 
         #[derive(Serialize, Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -171,7 +159,8 @@ mod tests {
         }
 
         let body: UpsertPaymentMethodBody = serde_json::from_str(body_json).expect("body");
-        let from_struct = stable_json_request_hash("payment-method-upsert", &body).expect("hash");
+        let from_struct =
+            sdkwork_stable_json_request_hash("payment-method-upsert", &body).expect("hash");
 
         assert_eq!(from_value, from_struct);
     }

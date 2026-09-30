@@ -21,6 +21,14 @@ pub struct PaymentIntentDraft {
     pub tenant_id: String,
 }
 
+/// Payment lifecycle wire states, exactly matching the attempt and intent
+/// CHECK constraints in `database/ddl/baseline/postgres/0001_payment_baseline.sql`.
+///
+/// Refund completeness is intentionally NOT a payment state: refunds are
+/// tracked on `commerce_refund` rows (reserve while `submitted`/`processing`),
+/// and a fully or partially refunded payment keeps its terminal capture state
+/// `succeeded` — the Stripe model. A refund can never mark a paid payment
+/// `failed`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PaymentStatus {
     Created,
@@ -28,8 +36,6 @@ pub enum PaymentStatus {
     Succeeded,
     Failed,
     Closed,
-    Refunding,
-    Refunded,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -116,8 +122,9 @@ impl PaymentStatus {
             "succeeded" | "success" | "paid" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
             "canceled" | "cancelled" | "closed" => Ok(Self::Closed),
-            "refunding" => Ok(Self::Refunding),
-            "refunded" => Ok(Self::Refunded),
+            "refunding" | "refunded" => Err(CommerceServiceError::validation(
+                "refund completeness is tracked on refund rows, not payment status",
+            )),
             other => Err(CommerceServiceError::validation(format!(
                 "unknown payment status: {other}"
             ))),
@@ -131,8 +138,6 @@ impl PaymentStatus {
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::Closed => "canceled",
-            Self::Refunding => "refunding",
-            Self::Refunded => "refunded",
         }
     }
 }
@@ -179,7 +184,14 @@ pub fn validate_refund_wire_transition(
 ) -> Result<(), CommerceServiceError> {
     let to_status = RefundStatus::from_wire(to)?;
     let Some(from) = from.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(());
+        // Creation anchors at the submitted state: a refund row can never be
+        // created directly in a terminal or in-flight state.
+        if matches!(to_status, RefundStatus::Requested) {
+            return Ok(());
+        }
+        return Err(CommerceServiceError::invalid_state(
+            "refund creation must start from the submitted state",
+        ));
     };
     let from_status = RefundStatus::from_wire(from)?;
     if from_status == to_status {
@@ -196,12 +208,12 @@ impl PaymentTransition {
     pub fn validate(&self) -> Result<(), CommerceServiceError> {
         match (&self.from, &self.to) {
             (PaymentStatus::Created, PaymentStatus::Pending)
+            // The SQL close guard accepts a `created` intent whose checkout
+            // never started; the wire machine matches it.
+            | (PaymentStatus::Created, PaymentStatus::Closed)
             | (PaymentStatus::Pending, PaymentStatus::Succeeded)
             | (PaymentStatus::Pending, PaymentStatus::Failed)
-            | (PaymentStatus::Pending, PaymentStatus::Closed)
-            | (PaymentStatus::Succeeded, PaymentStatus::Refunding)
-            | (PaymentStatus::Refunding, PaymentStatus::Refunded)
-            | (PaymentStatus::Refunding, PaymentStatus::Failed) => Ok(()),
+            | (PaymentStatus::Pending, PaymentStatus::Closed) => Ok(()),
             _ => Err(CommerceServiceError::invalid_state(
                 "invalid payment status transition",
             )),
@@ -217,12 +229,19 @@ impl RefundTransition {
     pub fn validate(&self) -> Result<(), CommerceServiceError> {
         match (&self.from, &self.to) {
             (RefundStatus::Requested, RefundStatus::Processing)
+            // Alipay `trade.refund` settles synchronously: a fresh refund can
+            // land directly in its terminal state from one PSP response.
+            | (RefundStatus::Requested, RefundStatus::Succeeded)
             | (RefundStatus::Requested, RefundStatus::Failed)
+            | (RefundStatus::Requested, RefundStatus::Closed)
             | (RefundStatus::Processing, RefundStatus::Succeeded)
             | (RefundStatus::Processing, RefundStatus::Failed)
             | (RefundStatus::Processing, RefundStatus::Closed)
+            // A PSP status query can reveal that a previously failed refund
+            // actually settled; a failed refund can also be abandoned.
             | (RefundStatus::Failed, RefundStatus::Processing)
-            | (RefundStatus::Requested, RefundStatus::Closed) => Ok(()),
+            | (RefundStatus::Failed, RefundStatus::Succeeded)
+            | (RefundStatus::Failed, RefundStatus::Closed) => Ok(()),
             _ => Err(CommerceServiceError::invalid_state(
                 "invalid refund status transition",
             )),

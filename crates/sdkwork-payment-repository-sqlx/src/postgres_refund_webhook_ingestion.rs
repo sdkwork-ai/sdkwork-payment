@@ -22,8 +22,7 @@ use crate::payment_attempt_context::{
 };
 use crate::postgres_refund::insert_refund_event;
 use crate::postgres_webhook_ingestion::{
-    ingest_provider_webhook_postgres, persist_webhook_event_postgres, IngestProviderWebhookCommand,
-    IngestProviderWebhookOutcome,
+    persist_webhook_event_postgres, IngestProviderWebhookCommand,
 };
 use crate::shared::{current_timestamp_string, store_error, string_cell};
 use crate::webhook_event_payload::{
@@ -42,7 +41,6 @@ const REFUND_EVENT_TYPE_STATUS_CHANGED: &str = "status_changed";
 const REFUND_STATUS_SUCCEEDED: &str = "succeeded";
 const REFUND_STATUS_PROCESSING: &str = "processing";
 const REFUND_STATUS_FAILED: &str = "failed";
-const REFUND_STATUS_CANCELED: &str = "canceled";
 
 /// Refund facts parsed from a provider refund notification payload.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -538,24 +536,53 @@ fn map_provider_refund_status_raw(raw_status: Option<&str>) -> Option<&'static s
 
 /// Validated refund state transition: returns the event type and from-status
 /// when the transition is allowed, or `None` for terminal-preserved replays.
+///
+/// Allowedness is delegated to the single domain validator
+/// (`validate_refund_wire_transition`) so webhook ingestion cannot drift from
+/// the repository and API enforcement; same-status redeliveries are replays
+/// and emit no event.
 fn refund_status_transition(current: &str, target: &str) -> Option<(&'static str, String)> {
-    match (current, target) {
-        (REFUND_STATUS_SUCCEEDED, _) => None,
-        (REFUND_STATUS_CANCELED, _) => None,
-        (_, REFUND_STATUS_SUCCEEDED) => {
-            Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned()))
+    if current.eq_ignore_ascii_case(target) {
+        return None;
+    }
+    if crate::shared::ensure_refund_status_transition(Some(current), target).is_err() {
+        return None;
+    }
+    Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned()))
+}
+
+#[cfg(test)]
+mod transition_tests {
+    #[test]
+    fn webhook_transitions_follow_the_domain_machine() {
+        use super::refund_status_transition;
+        // Terminal states are preserved across redeliveries.
+        for (current, target) in [
+            ("succeeded", "processing"),
+            ("succeeded", "failed"),
+            ("canceled", "succeeded"),
+            ("failed", "failed"),
+            ("processing", "processing"),
+        ] {
+            assert!(
+                refund_status_transition(current, target).is_none(),
+                "{current} -> {target} must be a preserved replay"
+            );
         }
-        (_, REFUND_STATUS_CANCELED) => Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned())),
-        (REFUND_STATUS_FAILED, REFUND_STATUS_PROCESSING) => {
-            Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned()))
+        // Legal transitions emit the status-changed event.
+        for (current, target) in [
+            ("submitted", "processing"),
+            ("submitted", "succeeded"),
+            ("submitted", "failed"),
+            ("processing", "succeeded"),
+            ("failed", "processing"),
+            ("failed", "succeeded"),
+        ] {
+            let (event, from) = refund_status_transition(current, target)
+                .unwrap_or_else(|| panic!("{current} -> {target} must be allowed"));
+            assert_eq!(from, current);
+            assert!(!event.is_empty());
         }
-        (REFUND_STATUS_FAILED, REFUND_STATUS_FAILED) => None,
-        (_, REFUND_STATUS_FAILED) => Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned())),
-        (REFUND_STATUS_PROCESSING, REFUND_STATUS_PROCESSING) => None,
-        (_, REFUND_STATUS_PROCESSING) => {
-            Some((REFUND_EVENT_TYPE_STATUS_CHANGED, current.to_owned()))
-        }
-        _ => None,
     }
 }
 
