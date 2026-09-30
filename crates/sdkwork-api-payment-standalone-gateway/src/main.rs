@@ -1,4 +1,4 @@
-use sdkwork_api_payment_assembly::assemble_api_router;
+use sdkwork_api_payment_assembly::{assemble_api_router, PaymentServiceHost};
 use sdkwork_iam_web_adapter::{
     build_web_framework_builder, iam_web_request_context_resolver_from_env,
 };
@@ -22,7 +22,7 @@ async fn main() {
     // The host owns the authoritative pool; the compensation worker shares it
     // (the checkout lock gate sizes itself from this pool's capacity).
     let host = std::sync::Arc::new(
-        sdkwork_payment_service_host::PaymentServiceHost::from_env()
+        PaymentServiceHost::from_env()
             .await
             .expect("payment service host bootstrap failed"),
     );

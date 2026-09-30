@@ -72,6 +72,15 @@
       "repository": "sdkwork-ai/sdkwork-web-framework",
       "refInput": "SDKWORK_WEB_FRAMEWORK_REF",
       "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "repo": "sdkwork-app-topology"
+    },
+    {
+      "id": "sdkwork-app-topology",
+      "repository": "sdkwork-ai/sdkwork-app-topology",
+      "refInput": "SDKWORK_APP_TOPOLOGY_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
     }
   ],
   "toolchains": {},

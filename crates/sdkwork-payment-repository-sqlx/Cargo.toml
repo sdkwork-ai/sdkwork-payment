@@ -11,7 +11,7 @@ publish.workspace = true
 workspace = true
 [lib]
 path = "src/lib.rs"
-
+name = "sdkwork_payment_repository_sqlx"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

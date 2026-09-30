@@ -2174,7 +2174,6 @@ dependencies = [
  "axum",
  "sdkwork-api-payment-assembly",
  "sdkwork-iam-web-adapter",
- "sdkwork-payment-service-host",
  "sdkwork-web-bootstrap",
  "tokio",
  "tower-http 0.5.2",

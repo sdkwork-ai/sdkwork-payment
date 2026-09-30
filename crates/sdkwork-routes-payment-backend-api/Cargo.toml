@@ -11,7 +11,7 @@ publish.workspace = true
 workspace = true
 [lib]
 path = "src/lib.rs"
-
+name = "sdkwork_routes_payment_backend_api"
 [dependencies]
 axum = { workspace = true }
 serde = { workspace = true }

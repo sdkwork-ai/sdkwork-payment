@@ -11,7 +11,7 @@ description = "Background compensation worker for sdkwork-payment: reconciles st
 workspace = true
 
 [lib]
-name = "payment_compensation_worker"
+name = "sdkwork_payment_compensation_worker"
 path = "src/lib.rs"
 
 [dependencies]

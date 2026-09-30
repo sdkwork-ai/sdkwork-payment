@@ -12,7 +12,7 @@ description = "SDKWork commerce payment and refund domain rules for local/privat
 workspace = true
 [lib]
 path = "src/lib.rs"
-
+name = "sdkwork_payment_service"
 [dependencies]
 sdkwork_contract_service.workspace = true
 serde_json.workspace = true

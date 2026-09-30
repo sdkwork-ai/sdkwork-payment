@@ -12,7 +12,7 @@ description = "Payment service provider adapters (Stripe, Alipay, WeChat Pay) fo
 workspace = true
 [lib]
 path = "src/lib.rs"
-
+name = "sdkwork_payment_providers"
 [dependencies]
 aes-gcm.workspace = true
 async-trait.workspace = true

@@ -13,6 +13,7 @@ pub use bootstrap::{
     federated_app_route_manifest, gateway_contract_fallback_config, ApiAssembly,
     BusinessRouterAssembly,
 };
+pub use sdkwork_payment_service_host::{payment_runtime_environment, PaymentServiceHost};
 
 pub async fn assemble_api_router_from_env() -> Result<ApiAssembly, String> {
     let host =
