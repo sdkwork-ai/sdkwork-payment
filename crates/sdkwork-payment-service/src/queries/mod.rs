@@ -203,12 +203,12 @@ pub struct PaymentRecordStatisticsQuery {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentRecordStatistics {
-    pub total_payments: i64,
-    pub pending_payments: i64,
-    pub success_payments: i64,
-    pub failed_payments: i64,
-    pub timeout_payments: i64,
-    pub closed_payments: i64,
+    pub total_count: i64,
+    pub pending_count: i64,
+    pub succeeded_count: i64,
+    pub failed_count: i64,
+    pub timeout_count: i64,
+    pub closed_count: i64,
 }
 
 impl PaymentRecordListQuery {

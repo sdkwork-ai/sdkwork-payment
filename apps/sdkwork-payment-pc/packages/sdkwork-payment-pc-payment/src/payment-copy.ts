@@ -135,14 +135,14 @@ export interface SdkworkPaymentMessages {
   stats: {
     actionablePayments: string;
     actionablePaymentsDescription: string;
-    closedPayments: string;
-    closedPaymentsDescription: string;
-    failedPayments: string;
-    failedPaymentsDescription: string;
-    pendingPayments: string;
-    pendingPaymentsDescription: string;
-    successPayments: string;
-    successPaymentsDescription: string;
+    closedCount: string;
+    closedCountDescription: string;
+    failedCount: string;
+    failedCountDescription: string;
+    pendingCount: string;
+    pendingCountDescription: string;
+    succeededCount: string;
+    succeededCountDescription: string;
     totalAttempts: string;
     totalAttemptsDescription: string;
   };
@@ -325,14 +325,14 @@ const EN_US_MESSAGES: SdkworkPaymentMessages = {
   stats: {
     actionablePayments: "Action required",
     actionablePaymentsDescription: "Attempts that still need user or backend follow-up.",
-    closedPayments: "Closed",
-    closedPaymentsDescription: "Attempts that were explicitly closed or expired.",
-    failedPayments: "Failed",
-    failedPaymentsDescription: "Attempts that failed before successful completion.",
-    pendingPayments: "Pending",
-    pendingPaymentsDescription: "Attempts that still need settlement confirmation.",
-    successPayments: "Successful",
-    successPaymentsDescription: "Payments confirmed by the active provider channel.",
+    closedCount: "Closed",
+    closedCountDescription: "Attempts that were explicitly closed or expired.",
+    failedCount: "Failed",
+    failedCountDescription: "Attempts that failed before successful completion.",
+    pendingCount: "Pending",
+    pendingCountDescription: "Attempts that still need settlement confirmation.",
+    succeededCount: "Successful",
+    succeededCountDescription: "Payments confirmed by the active provider channel.",
     totalAttempts: "Total attempts",
     totalAttemptsDescription: "Payment attempts created across the current workspace.",
   },
@@ -480,14 +480,14 @@ const ZH_CN_MESSAGES: SdkworkPaymentMessages = {
   stats: {
     actionablePayments: "\u5f85\u5904\u7406\u652f\u4ed8",
     actionablePaymentsDescription: "\u4ecd\u9700\u7528\u6237\u6216\u540e\u7aef\u8ddf\u8fdb\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
-    closedPayments: "\u5df2\u5173\u95ed\u652f\u4ed8",
-    closedPaymentsDescription: "\u5df2\u660e\u786e\u5173\u95ed\u6216\u5df2\u8fc7\u671f\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
-    failedPayments: "\u652f\u4ed8\u5931\u8d25",
-    failedPaymentsDescription: "\u5728\u6210\u529f\u4e4b\u524d\u5df2\u7ecf\u5931\u8d25\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
-    pendingPayments: "\u5f85\u652f\u4ed8",
-    pendingPaymentsDescription: "\u4ecd\u5728\u7b49\u5f85\u7ed3\u7b97\u786e\u8ba4\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
-    successPayments: "\u652f\u4ed8\u6210\u529f",
-    successPaymentsDescription: "\u5df2\u88ab\u6d3b\u8dc3\u652f\u4ed8\u6e20\u9053\u786e\u8ba4\u6210\u529f\u7684\u8bb0\u5f55\u3002",
+    closedCount: "\u5df2\u5173\u95ed\u652f\u4ed8",
+    closedCountDescription: "\u5df2\u660e\u786e\u5173\u95ed\u6216\u5df2\u8fc7\u671f\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
+    failedCount: "\u652f\u4ed8\u5931\u8d25",
+    failedCountDescription: "\u5728\u6210\u529f\u4e4b\u524d\u5df2\u7ecf\u5931\u8d25\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
+    pendingCount: "\u5f85\u652f\u4ed8",
+    pendingCountDescription: "\u4ecd\u5728\u7b49\u5f85\u7ed3\u7b97\u786e\u8ba4\u7684\u652f\u4ed8\u5c1d\u8bd5\u3002",
+    succeededCount: "\u652f\u4ed8\u6210\u529f",
+    succeededCountDescription: "\u5df2\u88ab\u6d3b\u8dc3\u652f\u4ed8\u6e20\u9053\u786e\u8ba4\u6210\u529f\u7684\u8bb0\u5f55\u3002",
     totalAttempts: "\u603b\u652f\u4ed8\u6b21\u6570",
     totalAttemptsDescription: "\u5f53\u524d\u5de5\u4f5c\u533a\u5185\u521b\u5efa\u7684\u652f\u4ed8\u5c1d\u8bd5\u603b\u6570\u3002",
   },

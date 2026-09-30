@@ -103,8 +103,8 @@ export class PaymentsReconciliationRunsApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerAccountId', value: params?.providerAccountId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_account_id', value: params?.providerAccountId, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: ReconciliationRun[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/reconciliation_runs`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -147,8 +147,8 @@ export class PaymentsWebhookEventsApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
-      { name: 'eventType', value: params?.eventType, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'event_type', value: params?.eventType, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: WebhookEvent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/webhook_events`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -185,8 +185,8 @@ export class PaymentsAttemptsApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
-      { name: 'paymentIntentId', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'payment_intent_id', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: PaymentAttempt[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/attempts`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -221,9 +221,9 @@ export class PaymentsCertificatesApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
-      { name: 'certificateType', value: params?.certificateType, style: 'form', explode: true, allowReserved: false },
-      { name: 'expiringWithinDays', value: params?.expiringWithinDays, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'certificate_type', value: params?.certificateType, style: 'form', explode: true, allowReserved: false },
+      { name: 'expiring_within_days', value: params?.expiringWithinDays, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: Certificate[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/certificates`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -283,8 +283,8 @@ export class PaymentsSubMerchantsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerAccountId', value: params?.providerAccountId, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_account_id', value: params?.providerAccountId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: SubMerchant[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/sub_merchants`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
@@ -356,7 +356,7 @@ export class PaymentsRouteRulesApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
-      { name: 'channelId', value: params?.channelId, style: 'form', explode: true, allowReserved: false },
+      { name: 'channel_id', value: params?.channelId, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: RouteRule[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/route_rules`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -423,9 +423,9 @@ export class PaymentsChannelsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
-      { name: 'methodId', value: params?.methodId, style: 'form', explode: true, allowReserved: false },
-      { name: 'sceneCode', value: params?.sceneCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'method_id', value: params?.methodId, style: 'form', explode: true, allowReserved: false },
+      { name: 'scene_code', value: params?.sceneCode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: PaymentChannel[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/channels`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
@@ -471,8 +471,8 @@ export class PaymentsProviderAccountsCredentialsApi {
   }
 
 
-/** Provider account credentials read (decrypted). */
-  async read(providerAccountId: string, requestOptions?: ApiRequestOptions): Promise<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }> {
+/** Provider account credentials read (masked previews). */
+  async retrieve(providerAccountId: string, requestOptions?: ApiRequestOptions): Promise<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }> {
     return this.client.request<{ providerAccountId?: string; primarySecret?: string; webhookSecret?: string; certificate?: string; }>(backendApiPath(`/payments/provider_accounts/${serializePathParameter(providerAccountId, { name: 'providerAccountId', style: 'simple', explode: false })}/credentials`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
   }
 
@@ -528,9 +528,9 @@ export class PaymentsProviderAccountsApi {
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
-      { name: 'providerCode', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
       { name: 'environment', value: params?.environment, style: 'form', explode: true, allowReserved: false },
-      { name: 'accountMode', value: params?.accountMode, style: 'form', explode: true, allowReserved: false },
+      { name: 'account_mode', value: params?.accountMode, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: ProviderAccount[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/provider_accounts`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
@@ -784,8 +784,8 @@ export class PaymentsIntentsApi {
       { name: 'sort', value: params?.sort, style: 'form', explode: true, allowReserved: false },
       { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
-      { name: 'ownerUserId', value: params?.ownerUserId, style: 'form', explode: true, allowReserved: false },
-      { name: 'orderId', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
+      { name: 'owner_user_id', value: params?.ownerUserId, style: 'form', explode: true, allowReserved: false },
+      { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: PaymentIntent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/intents`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }

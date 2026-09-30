@@ -83,7 +83,19 @@
         "x-sdkwork-api-surface": "app-api",
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.payments.intents.create",
-        "x-sdkwork-idempotent": true
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/intents/{paymentIntentId}": {
@@ -148,6 +160,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PaymentIntentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
           }
         ],
         "responses": {
@@ -201,6 +223,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PaymentIntentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
           }
         ],
         "responses": {
@@ -518,7 +550,8 @@
         "x-sdkwork-request-context": "WebRequestContext",
         "x-sdkwork-api-surface": "app-api",
         "x-sdkwork-server-request-id": true,
-        "x-sdkwork-permission": "commerce.payments.statistics.read"
+        "x-sdkwork-permission": "commerce.payments.statistics.read",
+        "parameters": []
       }
     },
     "/app/v3/api/payments/checkout/{paymentId}": {
@@ -737,7 +770,19 @@
         "x-sdkwork-api-surface": "app-api",
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.payments.create",
-        "x-sdkwork-idempotent": true
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/reconcile": {
@@ -795,7 +840,19 @@
         "x-sdkwork-api-surface": "app-api",
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.payments.reconcile",
-        "x-sdkwork-idempotent": true
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/payments/{paymentId}/close": {
@@ -808,6 +865,16 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/PaymentId"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
           }
         ],
         "responses": {
@@ -967,7 +1034,19 @@
         "x-sdkwork-api-surface": "app-api",
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.refunds.create",
-        "x-sdkwork-idempotent": true
+        "x-sdkwork-idempotent": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/app/v3/api/refunds/{refundId}": {
@@ -1614,37 +1693,43 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "totalPayments",
-          "pendingPayments",
-          "successPayments",
-          "failedPayments",
-          "timeoutPayments",
-          "closedPayments"
+          "totalCount",
+          "pendingCount",
+          "succeededCount",
+          "failedCount",
+          "timeoutCount",
+          "closedCount"
         ],
         "properties": {
-          "totalPayments": {
-            "type": "integer",
-            "format": "int64"
+          "totalCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           },
-          "pendingPayments": {
-            "type": "integer",
-            "format": "int64"
+          "pendingCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           },
-          "successPayments": {
-            "type": "integer",
-            "format": "int64"
+          "succeededCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           },
-          "failedPayments": {
-            "type": "integer",
-            "format": "int64"
+          "failedCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           },
-          "timeoutPayments": {
-            "type": "integer",
-            "format": "int64"
+          "timeoutCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           },
-          "closedPayments": {
-            "type": "integer",
-            "format": "int64"
+          "closedCount": {
+            "type": "string",
+            "format": "int64",
+            "x-sdkwork-int64-string": true
           }
         }
       },

@@ -172,7 +172,7 @@
     {
       "method": "GET",
       "path": "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials",
-      "operationId": "providerAccounts.credentials.read",
+      "operationId": "providerAccounts.credentials.retrieve",
       "source": {
         "routeCrate": "sdkwork-routes-payment-backend-api",
         "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"

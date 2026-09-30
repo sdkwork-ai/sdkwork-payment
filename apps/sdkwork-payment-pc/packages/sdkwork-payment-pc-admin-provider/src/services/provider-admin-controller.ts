@@ -476,7 +476,7 @@ export function createPaymentProviderAdminController(
     /** Decrypts and returns the account's active credentials for display,
      *  copy, and download in the admin workspace. */
     async readProviderAccountCredentials(id) {
-      const response = await service.providerAccounts.credentials.read(id);
+      const response = await service.providerAccounts.credentials.retrieve(id);
       return {
         providerAccountId: String(response.providerAccountId ?? id),
         primarySecret: response.primarySecret ?? "",

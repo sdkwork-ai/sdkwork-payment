@@ -103,28 +103,52 @@ pub async fn load_default_notify_domain_postgres(
 }
 
 /// Lists active notify domains for the admin surface (exact org + platform).
+///
+/// PAGINATION_SPEC §2: `offset`/`limit` push down to SQL and the same
+/// round trip returns the filtered total; the process never materializes the
+/// whole table to slice it.
 pub async fn list_notify_domains_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
     organization_id: Option<&str>,
-) -> Result<Vec<NotifyDomainView>, CommerceServiceError> {
+    offset: i64,
+    limit: i64,
+) -> Result<NotifyDomainListPage, CommerceServiceError> {
     let rows = sqlx::query(
         r#"
         SELECT id, tenant_id, organization_id, protocol, hostname, port,
-               is_default, status, sort_order
+               is_default, status, sort_order,
+               COUNT(*) OVER() AS total_count
         FROM commerce_payment_notify_domain
         WHERE tenant_id = CAST($1 AS TEXT)
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $2 IS NULL))
           AND deleted_at IS NULL
         ORDER BY organization_id = '0' DESC, sort_order ASC, id ASC
+        LIMIT $3 OFFSET $4
         "#,
     )
     .bind(tenant_id)
     .bind(organization_id.unwrap_or("0"))
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
     .await
     .map_err(|error| store_error("failed to list notify domains", error))?;
-    Ok(rows.iter().map(notify_domain_from_row).collect())
+    let total_items = rows
+        .first()
+        .and_then(|row| row.try_get::<i64, _>("total_count").ok())
+        .unwrap_or(0);
+    Ok(NotifyDomainListPage {
+        items: rows.iter().map(notify_domain_from_row).collect(),
+        total_items,
+    })
+}
+
+/// One page of the admin notify-domain list plus the filtered total.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct NotifyDomainListPage {
+    pub items: Vec<NotifyDomainView>,
+    pub total_items: i64,
 }
 
 /// Creates or updates a notify domain. Setting a domain default clears the

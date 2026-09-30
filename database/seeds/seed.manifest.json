@@ -17,8 +17,7 @@
         "002_production_templates.sql",
         "006_upgrade_bootstrap_templates.sql",
         "005_production_sandbox_template.sql",
-        "008_production_recharge_checkout_wechat_pay.sql",
-        "001_bootstrap.sql"
+        "008_production_recharge_checkout_wechat_pay.sql"
       ]
     },
     "production": {

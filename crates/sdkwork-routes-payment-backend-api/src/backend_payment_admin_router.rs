@@ -42,7 +42,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendPaymentMethodView>;
     fn list_provider_accounts<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn upsert_provider_account<'a>(
         &'a self,
@@ -80,7 +80,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
     ) -> CommerceBackendPaymentAdminFuture<'a, ()>;
     fn list_route_rules<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn upsert_route_rule<'a>(
         &'a self,
@@ -106,11 +106,11 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
     ) -> CommerceBackendPaymentAdminFuture<'a, ()>;
     fn list_attempts<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn list_webhook_events<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn replay_webhook_event<'a>(
         &'a self,
@@ -119,7 +119,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
     ) -> CommerceBackendPaymentAdminFuture<'a, WebhookReplayResult>;
     fn list_reconciliation_runs<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn create_reconciliation_run<'a>(
         &'a self,
@@ -130,10 +130,79 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
 struct BackendPaymentAdminState {
     store: Arc<dyn CommerceBackendPaymentAdminStore>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BackendTenantScope {
     pub tenant_id: String,
     pub organization_id: Option<String>,
+}
+
+/// Declared list filters for the backend admin lists, exactly mirroring the
+/// OpenAPI query parameters (snake_case wire). Each store applies the subset
+/// its list declares; every equality filter binds as
+/// `($N::text IS NULL OR column = $N)` and `sort` maps a per-list whitelist.
+#[derive(Debug, Clone, Default)]
+pub struct BackendFilteredListQuery {
+    pub scope: BackendTenantScope,
+    pub offset: i64,
+    pub limit: i64,
+    pub status: Option<String>,
+    pub provider_code: Option<String>,
+    pub environment: Option<String>,
+    pub account_mode: Option<String>,
+    pub payment_intent_id: Option<String>,
+    pub event_type: Option<String>,
+    pub provider_account_id: Option<String>,
+    pub channel_id: Option<String>,
+    pub q: Option<String>,
+    pub sort: Option<String>,
+}
+
+/// Common filtered-query construction for the admin list handlers.
+fn filtered_list_query(
+    subject_tenant_id: String,
+    subject_organization_id: Option<String>,
+    page: OffsetListPageParams,
+) -> BackendFilteredListQuery {
+    BackendFilteredListQuery {
+        scope: BackendTenantScope {
+            tenant_id: subject_tenant_id,
+            organization_id: subject_organization_id,
+        },
+        offset: page.offset,
+        limit: page.page_size,
+        ..BackendFilteredListQuery::default()
+    }
+}
+
+/// Renders `AND ($N::text IS NULL OR column = $N)` for one equality filter.
+/// `column` must come from the caller's const whitelist, never from input.
+fn push_eq_clause(clauses: &mut Vec<String>, column: &'static str, index: usize) {
+    clauses.push(format!(
+        "AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+    ));
+}
+
+/// Resolves the ORDER BY clause for a filtered list: a whitelisted sort field
+/// with optional `-` descending prefix, otherwise the list default. Always
+/// appends the `id` tie-breaker required by PAGINATION_SPEC §3.
+fn filtered_order_clause(sort: Option<&str>, allowed: &[&'static str], default: &str) -> String {
+    let Some(sort) = sort.map(str::trim).filter(|value| !value.is_empty()) else {
+        return format!(" ORDER BY {default}");
+    };
+    let (descending, field) = match sort.strip_prefix('-') {
+        Some(rest) => (true, rest.trim()),
+        None => (false, sort),
+    };
+    if !allowed.contains(&field) {
+        return format!(" ORDER BY {default}");
+    }
+    let direction = if descending { "DESC" } else { "ASC" };
+    format!(" ORDER BY {field} {direction}, id {direction}")
+}
+
+/// Binds one optional text filter value if present, returning the bind.
+fn optional_filter_bind(value: &Option<String>) -> Option<String> {
+    value.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned)
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +222,93 @@ struct BackendListQueryParams {
     #[serde(default, rename = "page_size")]
     page_size: Option<i64>,
 }
+/// Per-list declared query filters (snake_case wire, OpenAPI parity).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BackendAttemptListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
+    #[serde(default)]
+    payment_intent_id: Option<String>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BackendWebhookEventListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
+    #[serde(default)]
+    event_type: Option<String>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BackendReconciliationListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
+    #[serde(default)]
+    provider_account_id: Option<String>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BackendProviderAccountListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
+    #[serde(default)]
+    environment: Option<String>,
+    #[serde(default)]
+    account_mode: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+}
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BackendRouteRuleListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    channel_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BackendChannelListParams {
     #[serde(default)]
@@ -541,12 +697,42 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     }
     fn list_provider_accounts<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let rows = sqlx::query(
+            let provider_code = optional_filter_bind(&query.provider_code);
+            let environment = optional_filter_bind(&query.environment);
+            let account_mode = optional_filter_bind(&query.account_mode);
+            let status = optional_filter_bind(&query.status);
+            let q = optional_filter_bind(&query.q);
+            let mut next_index = 5usize;
+            let mut where_extra = String::new();
+            for (present, column) in [
+                (provider_code.is_some(), "provider_code"),
+                (environment.is_some(), "environment"),
+                (account_mode.is_some(), "account_mode"),
+                (status.is_some(), "status"),
+            ] {
+                if present {
+                    let index = next_index;
+                    next_index += 1;
+                    where_extra.push_str(&format!(
+                        " AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+                    ));
+                }
+            }
+            if q.is_some() {
+                let index = next_index;
+                next_index += 1;
+                where_extra.push_str(&format!(
+                    " AND (account_no ILIKE '%' || CAST(${index} AS TEXT) || '%' OR merchant_id ILIKE '%' || CAST(${index} AS TEXT) || '%' OR COALESCE(account_name, '') ILIKE '%' || CAST(${index} AS TEXT) || '%')"
+                ));
+            }
+            let sql = format!(
                 r#"
+                SELECT account.*, COUNT(*) OVER() AS total_count
+                FROM (
                 SELECT id, account_no, provider_code, merchant_id, account_name,
                        account_name_i18n, account_mode,
                        partner_provider_account_id, environment, country_code,
@@ -557,23 +743,32 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at,
                        EXISTS (SELECT 1 FROM commerce_payment_provider_credential credential WHERE credential.provider_account_id = commerce_payment_provider_account.id AND credential.tenant_id = commerce_payment_provider_account.tenant_id AND credential.credential_kind = 'primary_secret' AND credential.status = 'active' AND credential.deleted_at IS NULL) AS has_primary_secret,
                        EXISTS (SELECT 1 FROM commerce_payment_provider_credential credential WHERE credential.provider_account_id = commerce_payment_provider_account.id AND credential.tenant_id = commerce_payment_provider_account.tenant_id AND credential.credential_kind = 'webhook_secret' AND credential.status = 'active' AND credential.deleted_at IS NULL) AS has_webhook_secret,
-                       EXISTS (SELECT 1 FROM commerce_payment_provider_credential credential WHERE credential.provider_account_id = commerce_payment_provider_account.id AND credential.tenant_id = commerce_payment_provider_account.tenant_id AND credential.credential_kind = 'certificate' AND credential.status = 'active' AND credential.deleted_at IS NULL) AS has_certificate,
-                       COUNT(*) OVER() AS total_count
+                       EXISTS (SELECT 1 FROM commerce_payment_provider_credential credential WHERE credential.provider_account_id = commerce_payment_provider_account.id AND credential.tenant_id = commerce_payment_provider_account.tenant_id AND credential.credential_kind = 'certificate' AND credential.status = 'active' AND credential.deleted_at IS NULL) AS has_certificate
                 FROM commerce_payment_provider_account
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
-                  AND deleted_at IS NULL
-                ORDER BY created_at DESC, id DESC
-                LIMIT $3 OFFSET $4
+                  AND deleted_at IS NULL{where_extra}
+                ) account
+                {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
-            )
-            .bind(&scope.tenant_id)
-            .bind(scope.organization_id.as_deref())
-            .bind(query.limit)
-            .bind(query.offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| CommerceServiceError::storage(format!("failed to list provider accounts: {error}")))?;
+                filtered_order_clause(query.sort.as_deref(), &["created_at", "status", "provider_code"], "created_at DESC, id DESC"),
+                next_index = next_index,
+                offset_index = next_index + 1,
+            );
+            let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&scope.tenant_id)
+                .bind(scope.organization_id.as_deref())
+                .bind(query.limit);
+            for bind in [provider_code, environment, account_mode, status, q] {
+                if bind.is_some() {
+                    statement = statement.bind(bind);
+                }
+            }
+            let rows = statement
+                .bind(query.offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|error| CommerceServiceError::storage(format!("failed to list provider accounts: {error}")))?;
             let total_items = pg_total_count(&rows);
             let items = rows
                 .iter()
@@ -1129,11 +1324,34 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     }
     fn list_route_rules<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let rows = sqlx::query(
+            let status = optional_filter_bind(&query.status);
+            let channel_id = optional_filter_bind(&query.channel_id);
+            let q = optional_filter_bind(&query.q);
+            let mut next_index = 5usize;
+            let mut where_extra = String::new();
+            for (present, column) in
+                [(status.is_some(), "status"), (channel_id.is_some(), "channel_id")]
+            {
+                if present {
+                    let index = next_index;
+                    next_index += 1;
+                    where_extra.push_str(&format!(
+                        " AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+                    ));
+                }
+            }
+            if q.is_some() {
+                let index = next_index;
+                next_index += 1;
+                where_extra.push_str(&format!(
+                    " AND (rule_no ILIKE '%' || CAST(${index} AS TEXT) || '%' OR id ILIKE '%' || CAST(${index} AS TEXT) || '%')"
+                ));
+            }
+            let sql = format!(
                 r#"
                 SELECT id, rule_no, priority, purchase_type, country_code, currency_code, client_platform,
                        amount_min, amount_max, user_segment, risk_level, channel_id, status, starts_at,
@@ -1142,17 +1360,31 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 FROM commerce_payment_route_rule
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
-                ORDER BY priority ASC, created_at ASC
-                LIMIT $3 OFFSET $4
+                  AND deleted_at IS NULL{where_extra}
+                {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
-            )
-            .bind(&scope.tenant_id)
-            .bind(scope.organization_id.as_deref())
-            .bind(query.limit)
-            .bind(query.offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| CommerceServiceError::storage(format!("failed to list route rules: {error}")))?;
+                filtered_order_clause(
+                    query.sort.as_deref(),
+                    &["priority", "created_at", "status"],
+                    "priority ASC, created_at ASC",
+                ),
+                next_index = next_index,
+                offset_index = next_index + 1,
+            );
+            let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&scope.tenant_id)
+                .bind(scope.organization_id.as_deref())
+                .bind(query.limit);
+            for bind in [status, channel_id, q] {
+                if bind.is_some() {
+                    statement = statement.bind(bind);
+                }
+            }
+            let rows = statement
+                .bind(query.offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|error| CommerceServiceError::storage(format!("failed to list route rules: {error}")))?;
             let total_items = pg_total_count(&rows);
             let items = rows.iter().map(map_route_rule_pg).collect();
             Ok(BackendJsonListPage { items, total_items })
@@ -1249,23 +1481,26 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let domains = sdkwork_payment_repository_sqlx::list_notify_domains_postgres(
+            let page = sdkwork_payment_repository_sqlx::list_notify_domains_postgres(
                 &self.pool,
                 &scope.tenant_id,
                 scope.organization_id.as_deref(),
+                query.offset,
+                query.limit,
             )
             .await
             .map_err(|error| {
                 CommerceServiceError::storage(format!("failed to list notify domains: {error:?}"))
             })?;
-            let items = domains
+            let items = page
+                .items
                 .into_iter()
                 .map(|domain| {
                     serde_json::to_value(domain).unwrap_or_else(|_| serde_json::Value::Null)
                 })
                 .collect::<Vec<_>>();
             Ok(BackendJsonListPage {
-                total_items: items.len() as i64,
+                total_items: page.total_items,
                 items,
             })
         })
@@ -1320,28 +1555,67 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     }
     fn list_attempts<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let rows = sqlx::query(
+            let status = optional_filter_bind(&query.status);
+            let provider_code = optional_filter_bind(&query.provider_code);
+            let payment_intent_id = optional_filter_bind(&query.payment_intent_id);
+            let q = optional_filter_bind(&query.q);
+            let mut next_index = 5usize;
+            let mut where_extra = String::new();
+            for (present, column) in [
+                (status.is_some(), "status"),
+                (provider_code.is_some(), "provider_code"),
+                (payment_intent_id.is_some(), "payment_intent_id"),
+            ] {
+                if present {
+                    let index = next_index;
+                    next_index += 1;
+                    where_extra.push_str(&format!(
+                        " AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+                    ));
+                }
+            }
+            // Free-text q matches the merchant-facing keys.
+            if q.is_some() {
+                let index = next_index;
+                next_index += 1;
+                where_extra.push_str(&format!(
+                    " AND (id ILIKE '%' || CAST(${index} AS TEXT) || '%' OR out_trade_no ILIKE '%' || CAST(${index} AS TEXT) || '%' OR provider_transaction_id ILIKE '%' || CAST(${index} AS TEXT) || '%')"
+                ));
+            }
+            let sql = format!(
                 r#"
                 SELECT id, payment_intent_id, attempt_no, provider_code, channel_id, amount, currency_code,
                        status, provider_transaction_id, created_at, COUNT(*) OVER() AS total_count
                 FROM commerce_payment_attempt
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
-                ORDER BY created_at DESC, id DESC
-                LIMIT $3 OFFSET $4
+                  AND deleted_at IS NULL{where_extra}
+                {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
-            )
-            .bind(&scope.tenant_id)
-            .bind(scope.organization_id.as_deref())
-            .bind(query.limit)
-            .bind(query.offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| CommerceServiceError::storage(format!("failed to list attempts: {error}")))?;
+                filtered_order_clause(query.sort.as_deref(), &["created_at", "status", "provider_code"], "created_at DESC, id DESC"),
+                next_index = next_index,
+                offset_index = next_index + 1,
+            );
+            // The dynamic fragments come only from const column whitelists
+            // and the filtered_order_clause whitelist; every value binds.
+            let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&scope.tenant_id)
+                .bind(scope.organization_id.as_deref())
+                .bind(query.limit);
+            for bind in [status, provider_code, payment_intent_id, q] {
+                if bind.is_some() {
+                    statement = statement.bind(bind);
+                }
+            }
+            let rows = statement
+                .bind(query.offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|error| CommerceServiceError::storage(format!("failed to list attempts: {error}")))?;
             let total_items = pg_total_count(&rows);
             let items = rows.iter().map(map_attempt_pg).collect();
             Ok(BackendJsonListPage { items, total_items })
@@ -1349,28 +1623,66 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     }
     fn list_webhook_events<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let rows = sqlx::query(
+            let status = optional_filter_bind(&query.status);
+            let provider_code = optional_filter_bind(&query.provider_code);
+            let event_type = optional_filter_bind(&query.event_type);
+            let q = optional_filter_bind(&query.q);
+            let mut next_index = 5usize;
+            let mut where_extra = String::new();
+            for (present, column) in [
+                (status.is_some(), "status"),
+                (provider_code.is_some(), "provider_code"),
+                (event_type.is_some(), "event_type"),
+            ] {
+                if present {
+                    let index = next_index;
+                    next_index += 1;
+                    where_extra.push_str(&format!(
+                        " AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+                    ));
+                }
+            }
+            if q.is_some() {
+                let index = next_index;
+                next_index += 1;
+                where_extra.push_str(&format!(
+                    " AND (event_id ILIKE '%' || CAST(${index} AS TEXT) || '%' OR provider_code ILIKE '%' || CAST(${index} AS TEXT) || '%')"
+                ));
+            }
+            let sql = format!(
                 r#"
                 SELECT id, event_id, provider_code, event_type, status, received_at, processed_at, retries,
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_webhook_event
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
-                ORDER BY received_at DESC, id DESC
-                LIMIT $3 OFFSET $4
+                  AND deleted_at IS NULL{where_extra}
+                {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
-            )
-            .bind(&scope.tenant_id)
-            .bind(scope.organization_id.as_deref())
-            .bind(query.limit)
-            .bind(query.offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| CommerceServiceError::storage(format!("failed to list webhook events: {error}")))?;
+                filtered_order_clause(query.sort.as_deref(), &["received_at", "status", "provider_code"], "received_at DESC, id DESC"),
+                next_index = next_index,
+                offset_index = next_index + 1,
+            );
+            // The dynamic fragments come only from const column whitelists
+            // and the filtered_order_clause whitelist; every value binds.
+            let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&scope.tenant_id)
+                .bind(scope.organization_id.as_deref())
+                .bind(query.limit);
+            for bind in [status, provider_code, event_type, q] {
+                if bind.is_some() {
+                    statement = statement.bind(bind);
+                }
+            }
+            let rows = statement
+                .bind(query.offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|error| CommerceServiceError::storage(format!("failed to list webhook events: {error}")))?;
             let total_items = pg_total_count(&rows);
             let items = rows.iter().map(map_webhook_event_pg).collect();
             Ok(BackendJsonListPage { items, total_items })
@@ -1403,11 +1715,37 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     }
     fn list_reconciliation_runs<'a>(
         &'a self,
-        query: BackendTenantListQuery,
+        query: BackendFilteredListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
         Box::pin(async move {
             let scope = query.scope;
-            let rows = sqlx::query(
+            let status = optional_filter_bind(&query.status);
+            let provider_code = optional_filter_bind(&query.provider_code);
+            let provider_account_id = optional_filter_bind(&query.provider_account_id);
+            let q = optional_filter_bind(&query.q);
+            let mut next_index = 5usize;
+            let mut where_extra = String::new();
+            for (present, column) in [
+                (status.is_some(), "status"),
+                (provider_code.is_some(), "provider_code"),
+                (provider_account_id.is_some(), "provider_account_id"),
+            ] {
+                if present {
+                    let index = next_index;
+                    next_index += 1;
+                    where_extra.push_str(&format!(
+                        " AND (${index}::text IS NULL OR {column} = CAST(${index} AS TEXT))"
+                    ));
+                }
+            }
+            if q.is_some() {
+                let index = next_index;
+                next_index += 1;
+                where_extra.push_str(&format!(
+                    " AND (run_no ILIKE '%' || CAST(${index} AS TEXT) || '%' OR id ILIKE '%' || CAST(${index} AS TEXT) || '%')"
+                ));
+            }
+            let sql = format!(
                 r#"
                 SELECT id, run_no, provider_code, provider_account_id, reconciliation_type, period_start,
                        period_end, status, matched_count, mismatched_count, currency_code, created_at,
@@ -1415,17 +1753,27 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 FROM commerce_payment_reconciliation_run
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
-                ORDER BY created_at DESC, id DESC
-                LIMIT $3 OFFSET $4
+                  AND deleted_at IS NULL{where_extra}
+                {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
-            )
-            .bind(&scope.tenant_id)
-            .bind(scope.organization_id.as_deref())
-            .bind(query.limit)
-            .bind(query.offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| CommerceServiceError::storage(format!("failed to list reconciliation runs: {error}")))?;
+                filtered_order_clause(query.sort.as_deref(), &["created_at", "status", "provider_code"], "created_at DESC, id DESC"),
+                next_index = next_index,
+                offset_index = next_index + 1,
+            );
+            let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(&scope.tenant_id)
+                .bind(scope.organization_id.as_deref())
+                .bind(query.limit);
+            for bind in [status, provider_code, provider_account_id, q] {
+                if bind.is_some() {
+                    statement = statement.bind(bind);
+                }
+            }
+            let rows = statement
+                .bind(query.offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|error| CommerceServiceError::storage(format!("failed to list reconciliation runs: {error}")))?;
             let total_items = pg_total_count(&rows);
             let items = rows.iter().map(map_reconciliation_run_pg).collect();
             Ok(BackendJsonListPage { items, total_items })
@@ -1685,7 +2033,7 @@ async fn update_method(
 }
 async fn list_provider_accounts(
     State(state): State<BackendPaymentAdminState>,
-    Query(params): Query<BackendListQueryParams>,
+    Query(params): Query<BackendProviderAccountListParams>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
 ) -> Response {
@@ -1695,14 +2043,13 @@ async fn list_provider_accounts(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
-    let query = BackendTenantListQuery {
-        scope: BackendTenantScope {
-            tenant_id: subject.tenant_id,
-            organization_id: subject.organization_id,
-        },
-        offset: page_params.offset,
-        limit: page_params.page_size,
-    };
+    let mut query = filtered_list_query(subject.tenant_id, subject.organization_id, page_params);
+    query.provider_code = params.provider_code;
+    query.environment = params.environment;
+    query.account_mode = params.account_mode;
+    query.status = params.status;
+    query.q = params.q;
+    query.sort = params.sort;
     match state.store.list_provider_accounts(query).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => backend_payment_error_response(
@@ -2134,7 +2481,7 @@ async fn delete_channel(
 }
 async fn list_route_rules(
     State(state): State<BackendPaymentAdminState>,
-    Query(params): Query<BackendListQueryParams>,
+    Query(params): Query<BackendRouteRuleListParams>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
 ) -> Response {
@@ -2144,14 +2491,11 @@ async fn list_route_rules(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
-    let query = BackendTenantListQuery {
-        scope: BackendTenantScope {
-            tenant_id: subject.tenant_id,
-            organization_id: subject.organization_id,
-        },
-        offset: page_params.offset,
-        limit: page_params.page_size,
-    };
+    let mut query = filtered_list_query(subject.tenant_id, subject.organization_id, page_params);
+    query.status = params.status;
+    query.channel_id = params.channel_id;
+    query.q = params.q;
+    query.sort = params.sort;
     match state.store.list_route_rules(query).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => {
@@ -2384,7 +2728,7 @@ async fn upsert_notify_domain_inner(
 
 async fn list_attempts(
     State(state): State<BackendPaymentAdminState>,
-    Query(params): Query<BackendListQueryParams>,
+    Query(params): Query<BackendAttemptListParams>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
 ) -> Response {
@@ -2394,14 +2738,12 @@ async fn list_attempts(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
-    let query = BackendTenantListQuery {
-        scope: BackendTenantScope {
-            tenant_id: subject.tenant_id,
-            organization_id: subject.organization_id,
-        },
-        offset: page_params.offset,
-        limit: page_params.page_size,
-    };
+    let mut query = filtered_list_query(subject.tenant_id, subject.organization_id, page_params);
+    query.status = params.status;
+    query.provider_code = params.provider_code;
+    query.payment_intent_id = params.payment_intent_id;
+    query.q = params.q;
+    query.sort = params.sort;
     match state.store.list_attempts(query).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => {
@@ -2411,7 +2753,7 @@ async fn list_attempts(
 }
 async fn list_webhook_events(
     State(state): State<BackendPaymentAdminState>,
-    Query(params): Query<BackendListQueryParams>,
+    Query(params): Query<BackendWebhookEventListParams>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
 ) -> Response {
@@ -2421,14 +2763,12 @@ async fn list_webhook_events(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
-    let query = BackendTenantListQuery {
-        scope: BackendTenantScope {
-            tenant_id: subject.tenant_id,
-            organization_id: subject.organization_id,
-        },
-        offset: page_params.offset,
-        limit: page_params.page_size,
-    };
+    let mut query = filtered_list_query(subject.tenant_id, subject.organization_id, page_params);
+    query.status = params.status;
+    query.provider_code = params.provider_code;
+    query.event_type = params.event_type;
+    query.q = params.q;
+    query.sort = params.sort;
     match state.store.list_webhook_events(query).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => {
@@ -2479,7 +2819,7 @@ async fn replay_webhook_event(
 }
 async fn list_reconciliation_runs(
     State(state): State<BackendPaymentAdminState>,
-    Query(params): Query<BackendListQueryParams>,
+    Query(params): Query<BackendReconciliationListParams>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
 ) -> Response {
@@ -2489,14 +2829,12 @@ async fn list_reconciliation_runs(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
-    let query = BackendTenantListQuery {
-        scope: BackendTenantScope {
-            tenant_id: subject.tenant_id,
-            organization_id: subject.organization_id,
-        },
-        offset: page_params.offset,
-        limit: page_params.page_size,
-    };
+    let mut query = filtered_list_query(subject.tenant_id, subject.organization_id, page_params);
+    query.status = params.status;
+    query.provider_code = params.provider_code;
+    query.provider_account_id = params.provider_account_id;
+    query.q = params.q;
+    query.sort = params.sort;
     match state.store.list_reconciliation_runs(query).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => backend_payment_error_response(

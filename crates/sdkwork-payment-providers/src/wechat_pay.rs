@@ -15,6 +15,7 @@ use x509_parser::parse_x509_certificate;
 
 use crate::adapter::{
     metadata_string, normalized_optional, require_non_empty, require_positive_amount,
+    require_url_safe_trade_no,
     PaymentAdapterFuture, PaymentAdapterOperation, PaymentCancelPaymentIntentRequest,
     PaymentCreateIntentRequest, PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest,
     PaymentNormalizedWebhookEvent, PaymentProviderAdapter, PaymentProviderCapabilities,
@@ -537,8 +538,13 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
         request: PaymentQueryPaymentIntentRequest,
     ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome> {
         Box::pin(async move {
-            let out_trade_no = require_non_empty(
-                request.payment_intent_id.as_deref(),
+            let out_trade_no = require_url_safe_trade_no(
+                require_non_empty(
+                    request.payment_intent_id.as_deref(),
+                    PaymentAdapterOperation::QueryPaymentIntent,
+                    "payment_intent_id",
+                )?
+                .as_str(),
                 PaymentAdapterOperation::QueryPaymentIntent,
                 "payment_intent_id",
             )?;
@@ -558,8 +564,13 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
         request: PaymentCancelPaymentIntentRequest,
     ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome> {
         Box::pin(async move {
-            let out_trade_no = require_non_empty(
-                request.payment_intent_id.as_deref(),
+            let out_trade_no = require_url_safe_trade_no(
+                require_non_empty(
+                    request.payment_intent_id.as_deref(),
+                    PaymentAdapterOperation::CancelPaymentIntent,
+                    "payment_intent_id",
+                )?
+                .as_str(),
                 PaymentAdapterOperation::CancelPaymentIntent,
                 "payment_intent_id",
             )?;
@@ -634,8 +645,13 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
         request: PaymentQueryRefundRequest,
     ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome> {
         Box::pin(async move {
-            let out_refund_no = require_non_empty(
-                request.refund_no.as_deref(),
+            let out_refund_no = require_url_safe_trade_no(
+                require_non_empty(
+                    request.refund_no.as_deref(),
+                    PaymentAdapterOperation::QueryRefund,
+                    "refund_no",
+                )?
+                .as_str(),
                 PaymentAdapterOperation::QueryRefund,
                 "refund_no",
             )?;

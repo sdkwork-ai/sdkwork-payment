@@ -6,6 +6,7 @@ packages:
   - "sdks/sdkwork-payment-app-sdk/sdkwork-payment-app-sdk-typescript"
   - "sdks/sdkwork-payment-backend-sdk/sdkwork-payment-backend-sdk-typescript"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-contracts"
+  - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-desktop-auth"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-runtime"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-sdk-ports"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-sdk-adapter"
@@ -27,6 +28,7 @@ packages:
   - "../sdkwork-ui/sdkwork-ui-pc-react"
   - "../sdkwork-sdk-commons/sdkwork-sdk-common-typescript"
   - "../sdkwork-utils/packages/sdkwork-utils-typescript"
+  - "../sdkwork-app-topology"
 
 catalog:
   react: ^19.2.8

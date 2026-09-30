@@ -819,7 +819,7 @@ async fn ensure_postgres_account_refund_capability(
     provider_account_id: &str,
 ) -> Result<(), CommerceServiceError> {
     let value = sqlx::query_scalar::<_, Value>(
-        "SELECT capabilities FROM commerce_payment_provider_account WHERE id = $1 AND tenant_id = $2 AND (organization_id = $3 OR organization_id = '0' OR organization_id = '0') AND status IN ('active','inactive','deprecated') AND deleted_at IS NULL LIMIT 1",
+        "SELECT capabilities FROM commerce_payment_provider_account WHERE id = $1 AND tenant_id = $2 AND (organization_id = $3 OR organization_id = '0') AND status IN ('active','inactive','deprecated') AND deleted_at IS NULL LIMIT 1",
     )
     .bind(provider_account_id)
     .bind(&subject.tenant_id)

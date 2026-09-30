@@ -87,12 +87,12 @@ describe("sdkwork-payment-pc-payment headless helpers", () => {
 
     expect(summary).toEqual({
       actionablePayments: 2,
-      closedPayments: 1,
-      failedPayments: 1,
+      closedCount: 1,
+      failedCount: 1,
       successfulPayments: 1,
       timedOutPayments: 1,
       totalAmountCny: 1074,
-      totalPayments: 6,
+      totalCount: 6,
     });
   });
 });

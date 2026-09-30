@@ -282,8 +282,9 @@ function mapReplayResult(value: unknown, eventId: string): WebhookReplayResult |
   }
   const record = value as Record<string, unknown>;
   // The replay endpoint returns SdkWorkCommandData { accepted, resourceId?, status? }.
-  // We synthesize ok from accepted and inject eventId/diagnostic for the UI.
-  const accepted = typeof record.accepted === "boolean" ? record.accepted : true;
+  // A malformed payload must NOT read as success: accepted defaults to false
+  // and the UI surfaces the failure instead of a green toast.
+  const accepted = typeof record.accepted === "boolean" ? record.accepted : false;
   return {
     ok: accepted,
     eventId: asString(record.eventId ?? record.event_id) ?? eventId,

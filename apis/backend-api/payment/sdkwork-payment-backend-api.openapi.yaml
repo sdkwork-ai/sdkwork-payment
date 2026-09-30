@@ -57,7 +57,7 @@
             }
           },
           {
-            "name": "ownerUserId",
+            "name": "owner_user_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -65,7 +65,7 @@
             }
           },
           {
-            "name": "orderId",
+            "name": "order_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -976,7 +976,7 @@
             "$ref": "#/components/parameters/Q"
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -1003,7 +1003,7 @@
             }
           },
           {
-            "name": "accountMode",
+            "name": "account_mode",
             "in": "query",
             "required": false,
             "schema": {
@@ -1400,9 +1400,9 @@
         "tags": [
           "payments"
         ],
-        "summary": "Provider account credentials read (decrypted).",
-        "description": "Decrypts and returns the active write-only credentials (primary secret, webhook secret, certificate) for the admin workspace view/copy/download. Restricted to operators who can manage credentials.",
-        "operationId": "providerAccounts.credentials.read",
+        "summary": "Provider account credentials read (masked previews).",
+        "description": "Returns masked previews (**** + last four characters) of the account active credentials for operator confirmation. Plaintext secrets are never returned; replacement happens only through the credentials rotate command. Requires the credential rotation permission.",
+        "operationId": "providerAccounts.credentials.retrieve",
         "parameters": [
           {
             "name": "providerAccountId",
@@ -1574,7 +1574,7 @@
             "$ref": "#/components/parameters/Q"
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -1582,7 +1582,7 @@
             }
           },
           {
-            "name": "methodId",
+            "name": "method_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -1590,7 +1590,7 @@
             }
           },
           {
-            "name": "sceneCode",
+            "name": "scene_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -1924,7 +1924,7 @@
             }
           },
           {
-            "name": "channelId",
+            "name": "channel_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -2227,7 +2227,7 @@
             "$ref": "#/components/parameters/Q"
           },
           {
-            "name": "providerAccountId",
+            "name": "provider_account_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -2235,7 +2235,7 @@
             }
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -2618,7 +2618,7 @@
             "$ref": "#/components/parameters/Q"
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -2626,7 +2626,7 @@
             }
           },
           {
-            "name": "certificateType",
+            "name": "certificate_type",
             "in": "query",
             "required": false,
             "schema": {
@@ -2640,7 +2640,7 @@
             }
           },
           {
-            "name": "expiringWithinDays",
+            "name": "expiring_within_days",
             "in": "query",
             "required": false,
             "schema": {
@@ -2942,7 +2942,7 @@
             }
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -2950,7 +2950,7 @@
             }
           },
           {
-            "name": "paymentIntentId",
+            "name": "payment_intent_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -3042,7 +3042,7 @@
             }
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -3050,7 +3050,7 @@
             }
           },
           {
-            "name": "eventType",
+            "name": "event_type",
             "in": "query",
             "required": false,
             "schema": {
@@ -3229,7 +3229,7 @@
             }
           },
           {
-            "name": "providerCode",
+            "name": "provider_code",
             "in": "query",
             "required": false,
             "schema": {
@@ -3237,7 +3237,7 @@
             }
           },
           {
-            "name": "providerAccountId",
+            "name": "provider_account_id",
             "in": "query",
             "required": false,
             "schema": {

@@ -23,6 +23,7 @@ sdkwork_payment_repository_sqlx.workspace = true
 sdkwork_payment_providers.workspace = true
 sdkwork_iam_context_service.workspace = true
 sdkwork_payment_service_host.workspace = true
+tracing.workspace = true
 sdkwork-database-sqlx.workspace = true
 sdkwork-web-core.workspace = true
 sdkwork-web-axum.workspace = true

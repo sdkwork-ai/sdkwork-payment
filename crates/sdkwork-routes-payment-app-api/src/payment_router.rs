@@ -141,12 +141,14 @@ struct AppCommercePaymentAttemptRecordResponse {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaymentStatisticsResponse {
-    total_payments: i64,
-    pending_payments: i64,
-    success_payments: i64,
-    failed_payments: i64,
-    timeout_payments: i64,
-    closed_payments: i64,
+    // Count fields per the OpenAPI PaymentStatistics contract: explicit
+    // `*Count` naming distinguishes them from monetary amounts.
+    total_count: i64,
+    pending_count: i64,
+    succeeded_count: i64,
+    failed_count: i64,
+    timeout_count: i64,
+    closed_count: i64,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1095,12 +1097,12 @@ fn map_payment_attempt_record(value: PaymentRecordItem) -> AppCommercePaymentAtt
 }
 fn map_payment_statistics(value: PaymentRecordStatistics) -> PaymentStatisticsResponse {
     PaymentStatisticsResponse {
-        total_payments: value.total_payments,
-        pending_payments: value.pending_payments,
-        success_payments: value.success_payments,
-        failed_payments: value.failed_payments,
-        timeout_payments: value.timeout_payments,
-        closed_payments: value.closed_payments,
+        total_count: value.total_count,
+        pending_count: value.pending_count,
+        succeeded_count: value.succeeded_count,
+        failed_count: value.failed_count,
+        timeout_count: value.timeout_count,
+        closed_count: value.closed_count,
     }
 }
 fn map_payment_status_code(status: &str) -> &'static str {

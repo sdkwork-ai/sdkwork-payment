@@ -9,6 +9,7 @@ export const PAYMENT_PC_ADMIN_CAPABILITY_PACKAGES = [
   "@sdkwork/payment-pc-admin-devconfig",
   "@sdkwork/payment-pc-admin-channel",
   "@sdkwork/payment-pc-admin-monitor",
+  "@sdkwork/payment-pc-admin-notify-domain",
 ] as const;
 
 export type PaymentPcAdminCapabilityPackage = (typeof PAYMENT_PC_ADMIN_CAPABILITY_PACKAGES)[number];
@@ -68,6 +69,13 @@ export function createSdkworkPaymentPcAdminModuleRegistry(): readonly PaymentPcA
       packageName: "@sdkwork/payment-pc-admin-monitor",
       permissionPrefix: "commerce.payments.intents",
       routeBasePath: "/admin/payments/monitor",
+    },
+    {
+      capability: "notify-domain",
+      id: "payment-notify-domain",
+      packageName: "@sdkwork/payment-pc-admin-notify-domain",
+      permissionPrefix: "commerce.payments.notify_domains",
+      routeBasePath: "/admin/payments/notify-domains",
     },
   ] as const;
 }

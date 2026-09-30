@@ -121,12 +121,12 @@ export interface SdkworkPaymentSummaryDigestInput {
 
 export interface SdkworkPaymentStatusDigest {
   actionablePayments: number;
-  closedPayments: number;
-  failedPayments: number;
+  closedCount: number;
+  failedCount: number;
   successfulPayments: number;
   timedOutPayments: number;
   totalAmountCny: number;
-  totalPayments: number;
+  totalCount: number;
 }
 
 function normalizeBasePath(basePath: string | undefined): string {
@@ -147,7 +147,7 @@ export function summarizeSdkworkPayments(
 ): SdkworkPaymentStatusDigest {
   return payments.reduce<SdkworkPaymentStatusDigest>(
     (summary, payment) => {
-      summary.totalPayments += 1;
+      summary.totalCount += 1;
       summary.totalAmountCny += toSafeNumber(payment.amountCny);
 
       if (payment.status === "default" || payment.status === "pending") {
@@ -159,7 +159,7 @@ export function summarizeSdkworkPayments(
       }
 
       if (payment.status === "failed") {
-        summary.failedPayments += 1;
+        summary.failedCount += 1;
       }
 
       if (payment.status === "timeout") {
@@ -167,19 +167,19 @@ export function summarizeSdkworkPayments(
       }
 
       if (payment.status === "closed") {
-        summary.closedPayments += 1;
+        summary.closedCount += 1;
       }
 
       return summary;
     },
     {
       actionablePayments: 0,
-      closedPayments: 0,
-      failedPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
       successfulPayments: 0,
       timedOutPayments: 0,
       totalAmountCny: 0,
-      totalPayments: 0,
+      totalCount: 0,
     },
   );
 }

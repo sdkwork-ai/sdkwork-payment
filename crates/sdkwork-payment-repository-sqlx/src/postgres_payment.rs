@@ -111,12 +111,12 @@ FROM commerce_order o
 
 const FETCH_PAYMENT_STATISTICS: &str = r#"
 SELECT
-    COUNT(*)::BIGINT AS total_payments,
-    COALESCE(SUM(CASE WHEN record_status = 'pending' THEN 1 ELSE 0 END), 0)::BIGINT AS pending_payments,
-    COALESCE(SUM(CASE WHEN record_status = 'success' THEN 1 ELSE 0 END), 0)::BIGINT AS success_payments,
-    COALESCE(SUM(CASE WHEN record_status = 'failed' THEN 1 ELSE 0 END), 0)::BIGINT AS failed_payments,
-    COALESCE(SUM(CASE WHEN record_status = 'timeout' THEN 1 ELSE 0 END), 0)::BIGINT AS timeout_payments,
-    COALESCE(SUM(CASE WHEN record_status = 'closed' THEN 1 ELSE 0 END), 0)::BIGINT AS closed_payments
+    COUNT(*)::BIGINT AS total_count,
+    COALESCE(SUM(CASE WHEN record_status = 'pending' THEN 1 ELSE 0 END), 0)::BIGINT AS pending_count,
+    COALESCE(SUM(CASE WHEN record_status = 'success' THEN 1 ELSE 0 END), 0)::BIGINT AS succeeded_count,
+    COALESCE(SUM(CASE WHEN record_status = 'failed' THEN 1 ELSE 0 END), 0)::BIGINT AS failed_count,
+    COALESCE(SUM(CASE WHEN record_status = 'timeout' THEN 1 ELSE 0 END), 0)::BIGINT AS timeout_count,
+    COALESCE(SUM(CASE WHEN record_status = 'closed' THEN 1 ELSE 0 END), 0)::BIGINT AS closed_count
 FROM (
     SELECT
         CASE
@@ -332,22 +332,22 @@ WHERE o.tenant_id = CAST($1 AS TEXT)
 
         let Some(row) = row else {
             return Ok(PaymentRecordStatistics {
-                total_payments: 0,
-                pending_payments: 0,
-                success_payments: 0,
-                failed_payments: 0,
-                timeout_payments: 0,
-                closed_payments: 0,
+                total_count: 0,
+                pending_count: 0,
+                succeeded_count: 0,
+                failed_count: 0,
+                timeout_count: 0,
+                closed_count: 0,
             });
         };
 
         Ok(PaymentRecordStatistics {
-            total_payments: row.try_get("total_payments").unwrap_or(0),
-            pending_payments: row.try_get("pending_payments").unwrap_or(0),
-            success_payments: row.try_get("success_payments").unwrap_or(0),
-            failed_payments: row.try_get("failed_payments").unwrap_or(0),
-            timeout_payments: row.try_get("timeout_payments").unwrap_or(0),
-            closed_payments: row.try_get("closed_payments").unwrap_or(0),
+            total_count: row.try_get("total_count").unwrap_or(0),
+            pending_count: row.try_get("pending_count").unwrap_or(0),
+            succeeded_count: row.try_get("succeeded_count").unwrap_or(0),
+            failed_count: row.try_get("failed_count").unwrap_or(0),
+            timeout_count: row.try_get("timeout_count").unwrap_or(0),
+            closed_count: row.try_get("closed_count").unwrap_or(0),
         })
     }
 

@@ -60,7 +60,7 @@ export const BACKEND_PAYMENT_METHOD_TREE = {
     update: true,
     test: true,
     delete: true,
-    credentials: { rotate: true, read: true },
+    credentials: { rotate: true, retrieve: true },
   },
   channels: {
     list: true,

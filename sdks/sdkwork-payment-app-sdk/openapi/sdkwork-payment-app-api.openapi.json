@@ -1567,40 +1567,40 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "totalPayments",
-          "pendingPayments",
-          "successPayments",
-          "failedPayments",
-          "timeoutPayments",
-          "closedPayments"
+          "totalCount",
+          "pendingCount",
+          "succeededCount",
+          "failedCount",
+          "timeoutCount",
+          "closedCount"
         ],
         "properties": {
-          "totalPayments": {
+          "totalCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true
           },
-          "pendingPayments": {
+          "pendingCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true
           },
-          "successPayments": {
+          "succeededCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true
           },
-          "failedPayments": {
+          "failedCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true
           },
-          "timeoutPayments": {
+          "timeoutCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true
           },
-          "closedPayments": {
+          "closedCount": {
             "type": "string",
             "format": "int64",
             "x-sdkwork-int64-string": true

@@ -55,6 +55,8 @@ struct BackendPaymentIntentState {
 pub struct BackendPaymentIntentListQuery {
     pub tenant_scope: TenantScope,
     pub status: Option<String>,
+    pub owner_user_id: Option<String>,
+    pub order_id: Option<String>,
     pub offset: i64,
     pub limit: i64,
 }
@@ -64,6 +66,10 @@ pub struct BackendPaymentIntentListQuery {
 struct BackendPaymentIntentListQueryParams {
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    owner_user_id: Option<String>,
+    #[serde(default)]
+    order_id: Option<String>,
     #[serde(default)]
     page: Option<i64>,
     #[serde(default, rename = "page_size")]
@@ -130,14 +136,18 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
                 WHERE tenant_id = CAST($1 AS TEXT)
                   AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
                   AND ($4::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($4::text))
+                  AND ($5::text IS NULL OR owner_user_id = CAST($5 AS TEXT))
+                  AND ($6::text IS NULL OR order_id = CAST($6 AS TEXT))
                 ORDER BY created_at DESC, id DESC
-                LIMIT $5 OFFSET $6
+                LIMIT $7 OFFSET $8
                 "#,
             )
             .bind(&query.tenant_scope.tenant_id)
             .bind(query.tenant_scope.organization_id.as_deref())
             .bind(query.tenant_scope.organization_id.as_deref())
             .bind(query.status.as_deref())
+            .bind(query.owner_user_id.as_deref())
+            .bind(query.order_id.as_deref())
             .bind(query.limit)
             .bind(query.offset)
             .fetch_all(&self.pool)
@@ -222,6 +232,8 @@ async fn list_payment_intents(
             organization_id: subject.organization_id,
         },
         status: params.status,
+        owner_user_id: params.owner_user_id,
+        order_id: params.order_id,
         offset: page_params.offset,
         limit: page_params.page_size,
     };

@@ -1,8 +1,8 @@
 export interface PaymentStatistics {
-  totalPayments: string;
-  pendingPayments: string;
-  successPayments: string;
-  failedPayments: string;
-  timeoutPayments: string;
-  closedPayments: string;
+  totalCount: string;
+  pendingCount: string;
+  succeededCount: string;
+  failedCount: string;
+  timeoutCount: string;
+  closedCount: string;
 }

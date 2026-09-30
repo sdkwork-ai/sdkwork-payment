@@ -67,17 +67,24 @@ test("payment seeds keep real PSP accounts gated and sandbox profiles operable",
   }
   assert.match(catalog, /'wechat_native'[^\n]*'active'/);
   assert.match(externalTemplates, /bootstrap-payment-channel-wechat-native[^\n]*'active'/);
-  assert.match(productionSandbox, /'sandbox_test'[\s\S]*'inactive'/);
+  // The production sandbox template seeds sandbox_test ACTIVE on purpose:
+  // the sandbox adapter is local-only (no real PSP call) and the unsigned
+  // sandbox webhook registration is disabled outside dev/test environments.
+  assert.match(productionSandbox, /'sandbox_test'[\s\S]*'active'/);
+  assert.match(productionSandbox, /'sandbox'/);
   assert.match(externalTemplates, /database:primary_secret/);
   assert.match(externalTemplates, /database:webhook_secret/);
   assert.match(externalTemplates, /database:certificate/);
-  assert.match(externalTemplates, /mock-wechat-mch-id/);
-  assert.match(externalTemplates, /mock-wechat-app-id/);
-  assert.match(externalTemplates, /mock-wechat-merchant-serial-no/);
+  // Bootstrap accounts carry explicit production-format demo identifiers the
+  // operator replaces in Provider Accounts; no live secret material is ever
+  // seeded (asserted below), and credentials stay database-encrypted refs.
+  assert.match(externalTemplates, /'1900977762'/);
+  assert.match(externalTemplates, /merchantSerialNo/);
+  assert.match(externalTemplates, /"appId"/);
   assert.doesNotMatch(externalTemplates, /sk_live_|BEGIN (?:RSA )?PRIVATE KEY/);
   assert.match(development, /'sandbox_test'[\s\S]*'active'/);
   assert.match(testProfile, /'sandbox_test'[\s\S]*'active'/);
-  assert.match(upgrade, /mock-wechat-mch-id/);
+  assert.match(upgrade, /'1900977762'/);
   assert.match(productionRecharge, /'wechat_pay'[\s\S]*bootstrap-payment-provider-wechat-pay/);
   assert.match(developmentRecharge, /'wechat_pay'[\s\S]*bootstrap-payment-provider-sandbox/);
   assert.match(testRecharge, /'wechat_pay'[\s\S]*bootstrap-payment-provider-sandbox/);

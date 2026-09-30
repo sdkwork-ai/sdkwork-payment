@@ -84,12 +84,12 @@ describe("sdkwork-payment-pc-payment service", () => {
             retrieve: vi.fn().mockResolvedValue({
           code: 0,
           data: {
-            closedPayments: 1,
-            failedPayments: 1,
-            pendingPayments: 1,
-            successPayments: 1,
-            timeoutPayments: 0,
-            totalPayments: 4,
+            closedCount: 1,
+            failedCount: 1,
+            pendingCount: 1,
+            succeededCount: 1,
+            timeoutCount: 0,
+            totalCount: 4,
           },
             }),
           },
@@ -153,21 +153,21 @@ describe("sdkwork-payment-pc-payment service", () => {
       clientType: "WEB",
     });
     expect(dashboard.statistics).toEqual({
-      closedPayments: 1,
-      failedPayments: 1,
-      pendingPayments: 1,
-      successPayments: 1,
-      timeoutPayments: 0,
-      totalPayments: 4,
+      closedCount: 1,
+      failedCount: 1,
+      pendingCount: 1,
+      succeededCount: 1,
+      timeoutCount: 0,
+      totalCount: 4,
     });
     expect(dashboard.digest).toEqual({
       actionablePayments: 1,
-      closedPayments: 0,
-      failedPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
       successfulPayments: 1,
       timedOutPayments: 0,
       totalAmountCny: 998,
-      totalPayments: 2,
+      totalCount: 2,
     });
     expect(dashboard.methods[0]).toMatchObject({
       code: "WECHAT_PAY",
@@ -405,7 +405,7 @@ describe("sdkwork-payment-pc-payment service", () => {
     const dashboard = await service.getDashboard();
 
     expect(dashboard.records).toEqual([]);
-    expect(dashboard.statistics.totalPayments).toBe(0);
+    expect(dashboard.statistics.totalCount).toBe(0);
     expect(dashboard.methods).toEqual([]);
   });
 
@@ -417,12 +417,12 @@ describe("sdkwork-payment-pc-payment service", () => {
             retrieve: vi.fn().mockResolvedValue({
               code: 0,
               data: {
-                closedPayments: 1,
-                failedPayments: 0,
-                pendingPayments: 0,
-                successPayments: 0,
-                timeoutPayments: 0,
-                totalPayments: 1,
+                closedCount: 1,
+                failedCount: 0,
+                pendingCount: 0,
+                succeededCount: 0,
+                timeoutCount: 0,
+                totalCount: 1,
               },
             }),
           },

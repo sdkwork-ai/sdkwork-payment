@@ -130,19 +130,19 @@ function SdkworkPaymentPageContent({
       icon: ReceiptText,
       label: copy.stats.totalAttempts,
       tone: "brand" as const,
-      value: state.dashboard.statistics.totalPayments,
+      value: state.dashboard.statistics.totalCount,
     },
     {
       icon: QrCode,
-      label: copy.stats.successPayments,
+      label: copy.stats.succeededCount,
       tone: "success" as const,
-      value: state.dashboard.statistics.successPayments,
+      value: state.dashboard.statistics.succeededCount,
     },
     {
       icon: ScanLine,
-      label: copy.stats.pendingPayments,
+      label: copy.stats.pendingCount,
       tone: "warning" as const,
-      value: state.dashboard.statistics.pendingPayments,
+      value: state.dashboard.statistics.pendingCount,
     },
   ];
 

@@ -583,9 +583,12 @@ async fn sum_refunded_amount_in_tx(
     command: &CreateOwnerRefundCommand,
     currency_code: &str,
 ) -> Result<i64, CommerceServiceError> {
-    let rows = sqlx::query(
+    // Money columns store minor-unit integers in NUMERIC(18,2), so the SUM
+    // happens in SQL over BIGINT casts and only the final total crosses back
+    // to Rust — one row instead of one row per refund.
+    let row = sqlx::query(
         r#"
-        SELECT CAST(amount AS BIGINT)::TEXT AS amount
+        SELECT COALESCE(SUM(CAST(amount AS BIGINT)), 0)::TEXT AS reserved_total
         FROM commerce_refund
         WHERE tenant_id = CAST($1 AS TEXT)
           AND order_id = CAST($2 AS TEXT)
@@ -599,16 +602,23 @@ async fn sum_refunded_amount_in_tx(
     .bind(&command.order_id)
     .bind(command.organization_id.as_deref())
     .bind(currency_code)
-    .fetch_all(&mut **tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|error| store_error("failed to sum refunded amount", error))?;
 
-    rows.iter().try_fold(0_i64, |acc, row| {
-        let amount = string_cell(row, "amount");
-        let minor = money_to_minor_units(&amount)?;
-        acc.checked_add(minor)
-            .ok_or_else(|| CommerceServiceError::validation("refunded amount sum overflows i64"))
-    })
+    let reserved_total: String = row
+        .try_get("reserved_total")
+        .map_err(|error| store_error("failed to read refunded amount sum", error))?;
+    let digits = reserved_total.trim().trim_start_matches('-');
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return Err(CommerceServiceError::validation(
+            "refunded amount sum is not a minor-unit integer",
+        ));
+    }
+    let parsed: i64 = digits.parse().map_err(|_| {
+        CommerceServiceError::validation("refunded amount sum overflows i64")
+    })?;
+    Ok(if reserved_total.trim().starts_with('-') { -parsed } else { parsed })
 }
 
 async fn find_refund_by_idempotency_in_tx(

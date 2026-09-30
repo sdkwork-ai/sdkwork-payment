@@ -28,12 +28,12 @@ import {
 } from "./payment";
 
 export interface SdkworkPaymentStatistics {
-  closedPayments: number;
-  failedPayments: number;
-  pendingPayments: number;
-  successPayments: number;
-  timeoutPayments: number;
-  totalPayments: number;
+  closedCount: number;
+  failedCount: number;
+  pendingCount: number;
+  succeededCount: number;
+  timeoutCount: number;
+  totalCount: number;
 }
 
 export interface SdkworkPaymentDashboardData {
@@ -176,12 +176,12 @@ interface RemotePaymentDetail extends RemotePaymentStatus {
 }
 
 interface RemotePaymentStatistics {
-  closedPayments?: number | string;
-  failedPayments?: number | string;
-  pendingPayments?: number | string;
-  successPayments?: number | string;
-  timeoutPayments?: number | string;
-  totalPayments?: number | string;
+  closedCount?: number | string;
+  failedCount?: number | string;
+  pendingCount?: number | string;
+  succeededCount?: number | string;
+  timeoutCount?: number | string;
+  totalCount?: number | string;
 }
 
 type SdkworkPaymentCopyContext = Pick<SdkworkPaymentMessages, "common" | "productType" | "status">;
@@ -475,12 +475,12 @@ function mapDetail(
 
 function mapStatistics(statistics: RemotePaymentStatistics | null | undefined): SdkworkPaymentStatistics {
   return {
-    closedPayments: toSdkworkPaymentNumber(statistics?.closedPayments),
-    failedPayments: toSdkworkPaymentNumber(statistics?.failedPayments),
-    pendingPayments: toSdkworkPaymentNumber(statistics?.pendingPayments),
-    successPayments: toSdkworkPaymentNumber(statistics?.successPayments),
-    timeoutPayments: toSdkworkPaymentNumber(statistics?.timeoutPayments),
-    totalPayments: toSdkworkPaymentNumber(statistics?.totalPayments),
+    closedCount: toSdkworkPaymentNumber(statistics?.closedCount),
+    failedCount: toSdkworkPaymentNumber(statistics?.failedCount),
+    pendingCount: toSdkworkPaymentNumber(statistics?.pendingCount),
+    succeededCount: toSdkworkPaymentNumber(statistics?.succeededCount),
+    timeoutCount: toSdkworkPaymentNumber(statistics?.timeoutCount),
+    totalCount: toSdkworkPaymentNumber(statistics?.totalCount),
   };
 }
 
@@ -491,12 +491,12 @@ function createEmptyDashboard(clientType: SdkworkPaymentClientType): SdkworkPaym
     methods: [],
     records: [],
     statistics: {
-      closedPayments: 0,
-      failedPayments: 0,
-      pendingPayments: 0,
-      successPayments: 0,
-      timeoutPayments: 0,
-      totalPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      succeededCount: 0,
+      timeoutCount: 0,
+      totalCount: 0,
     },
   };
 }

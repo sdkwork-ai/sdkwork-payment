@@ -13,12 +13,12 @@ function createPaymentDashboard() {
     clientType: "WEB" as const,
     digest: {
       actionablePayments: 1,
-      closedPayments: 0,
-      failedPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
       successfulPayments: 1,
       timedOutPayments: 0,
       totalAmountCny: 699,
-      totalPayments: 2,
+      totalCount: 2,
     },
     methods: [
       {
@@ -55,12 +55,12 @@ function createPaymentDashboard() {
       },
     ],
     statistics: {
-      closedPayments: 0,
-      failedPayments: 0,
-      pendingPayments: 1,
-      successPayments: 1,
-      timeoutPayments: 0,
-      totalPayments: 2,
+      closedCount: 0,
+      failedCount: 0,
+      pendingCount: 1,
+      succeededCount: 1,
+      timeoutCount: 0,
+      totalCount: 2,
     },
   };
 }
@@ -70,22 +70,22 @@ function createEmptyDashboard() {
     clientType: "WEB" as const,
     digest: {
       actionablePayments: 0,
-      closedPayments: 0,
-      failedPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
       successfulPayments: 0,
       timedOutPayments: 0,
       totalAmountCny: 0,
-      totalPayments: 0,
+      totalCount: 0,
     },
     methods: [],
     records: [],
     statistics: {
-      closedPayments: 0,
-      failedPayments: 0,
-      pendingPayments: 0,
-      successPayments: 0,
-      timeoutPayments: 0,
-      totalPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      succeededCount: 0,
+      timeoutCount: 0,
+      totalCount: 0,
     },
   };
 }
@@ -166,20 +166,20 @@ describe("sdkwork-payment-pc-payment intl", () => {
         <SdkworkPaymentStatGrid
           digest={{
             actionablePayments: 2,
-            closedPayments: 1,
-            failedPayments: 1,
+            closedCount: 1,
+            failedCount: 1,
             successfulPayments: 3,
             timedOutPayments: 0,
             totalAmountCny: 999,
-            totalPayments: 7,
+            totalCount: 7,
           }}
           statistics={{
-            closedPayments: 1,
-            failedPayments: 1,
-            pendingPayments: 2,
-            successPayments: 3,
-            timeoutPayments: 0,
-            totalPayments: 7,
+            closedCount: 1,
+            failedCount: 1,
+            pendingCount: 2,
+            succeededCount: 3,
+            timeoutCount: 0,
+            totalCount: 7,
           }}
         />
       </SdkworkThemeProvider>,
@@ -196,20 +196,20 @@ describe("sdkwork-payment-pc-payment intl", () => {
           <SdkworkPaymentStatGrid
             digest={{
               actionablePayments: 2,
-              closedPayments: 1,
-              failedPayments: 1,
+              closedCount: 1,
+              failedCount: 1,
               successfulPayments: 3,
               timedOutPayments: 0,
               totalAmountCny: 999,
-              totalPayments: 7,
+              totalCount: 7,
             }}
             statistics={{
-              closedPayments: 1,
-              failedPayments: 1,
-              pendingPayments: 2,
-              successPayments: 3,
-              timeoutPayments: 0,
-              totalPayments: 7,
+              closedCount: 1,
+              failedCount: 1,
+              pendingCount: 2,
+              succeededCount: 3,
+              timeoutCount: 0,
+              totalCount: 7,
             }}
           />
         </SdkworkPaymentIntlProvider>

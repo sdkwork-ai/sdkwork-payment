@@ -18,12 +18,12 @@ function createPaymentDashboard() {
     clientType: "WEB" as const,
     digest: {
       actionablePayments: 0,
-      closedPayments: 0,
-      failedPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
       successfulPayments: 0,
       timedOutPayments: 0,
       totalAmountCny: 0,
-      totalPayments: 0,
+      totalCount: 0,
     },
     methods: [
       {
@@ -44,12 +44,12 @@ function createPaymentDashboard() {
     ],
     records: [],
     statistics: {
-      closedPayments: 0,
-      failedPayments: 0,
-      pendingPayments: 0,
-      successPayments: 0,
-      timeoutPayments: 0,
-      totalPayments: 0,
+      closedCount: 0,
+      failedCount: 0,
+      pendingCount: 0,
+      succeededCount: 0,
+      timeoutCount: 0,
+      totalCount: 0,
     },
   };
 }

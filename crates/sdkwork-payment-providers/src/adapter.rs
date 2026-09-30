@@ -180,6 +180,33 @@ pub(crate) fn require_non_empty(
     Ok(value.to_owned())
 }
 
+/// Validates a merchant trade/reference number that will be interpolated
+/// into a WeChat Pay V3 URL path (`out-trade-no/{...}` / `refunds/{...}`).
+/// WeChat allows 1-64 `[A-Za-z0-9-_]` characters; rejecting everything else
+/// keeps a crafted number from steering a signed request at a different
+/// endpoint (mirrors Stripe's resource-id guard).
+pub(crate) fn require_url_safe_trade_no(
+    value: &str,
+    operation: PaymentAdapterOperation,
+    field: &str,
+) -> ProviderResult<String> {
+    let trimmed = value.trim();
+    let valid_length = (1..=64).contains(&trimmed.len());
+    let valid_characters = trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if valid_length && valid_characters {
+        Ok(trimmed.to_owned())
+    } else {
+        Err(crate::error::ProviderError::invalid_request(
+            operation,
+            format!(
+                "{field} must be 1 to 64 letters, digits, hyphens, or underscores"
+            ),
+        ))
+    }
+}
+
 pub(crate) fn normalized_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())

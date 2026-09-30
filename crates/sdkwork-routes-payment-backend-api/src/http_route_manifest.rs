@@ -141,7 +141,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         HttpMethod::Get,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials",
         "payments",
-        "providerAccounts.credentials.read",
+        "providerAccounts.credentials.retrieve",
     )
     .with_required_permission("commerce.payments.provider_accounts.credentials.rotate"),
     HttpRoute::dual_token(

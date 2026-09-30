@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
+use tracing;
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -148,6 +149,8 @@ struct SubMerchantListQuery {
     #[serde(default, rename = "page_size")]
     page_size: Option<i64>,
     provider_account_id: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
     status: Option<String>,
     q: Option<String>,
 }
@@ -853,12 +856,9 @@ async fn trigger_sandbox_event(
     // as a real PSP webhook (out-trade-no resolution → status machine → event
     // record), so the simulated payment takes effect immediately instead of
     // waiting for a queue consumer that does not exist.
-    let IntegrationPool::Postgres(pool) = &state.pool else {
-        return validation(
-            ctx,
-            "payment dev endpoints require the postgres integration pool",
-        );
-    };
+    // IntegrationPool carries exactly the authoritative Postgres pool; the
+    // irrefutable bind documents that there is no second engine.
+    let IntegrationPool::Postgres(pool) = &state.pool;
     let ingest_command = IngestProviderWebhookCommand {
         provider_code: account.provider_code.clone(),
         provider_event_id: event_id.clone(),
@@ -1261,7 +1261,9 @@ async fn check_attempt_status(
         Ok(subject) => subject,
         Err(response) => return response,
     };
-    let write = match validate_command(ctx, &headers, "check-attempt-status", &body) {
+    // Command headers are enforced even though this endpoint derives no
+    // operation id from them.
+    let _write = match validate_command(ctx, &headers, "check-attempt-status", &body) {
         Ok(write) => write,
         Err(response) => return response,
     };
@@ -1270,18 +1272,9 @@ async fn check_attempt_status(
         Err(response) => return response,
     };
 
-    let IntegrationPool::Postgres(pool) = &state.pool else {
-        return validation(
-            ctx,
-            "payment dev endpoints require the postgres integration pool",
-        );
-    };
-    let organization_id = subject
-        .organization_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("0");
+    // IntegrationPool carries exactly the authoritative Postgres pool; the
+    // irrefutable bind documents that there is no second engine.
+    let IntegrationPool::Postgres(pool) = &state.pool;
     let attempt = match load_test_attempt_for_check(pool, &subject, &payment_intent_id).await {
         Ok(Some(attempt)) => attempt,
         Ok(None) => {
@@ -1405,6 +1398,10 @@ async fn check_attempt_status(
             Err(error) => {
                 // A terminal local state (e.g. already closed) is a normal
                 // outcome, not a failure: report the current state.
+                tracing::debug!(
+                    error = %error.message(),
+                    "attempt status check settle skipped"
+                );
                 let _ = tx.rollback().await;
                 return success_item(
                     ctx,
@@ -1650,9 +1647,8 @@ async fn load_test_order_diagnostic(
     subject: &AppRuntimeSubject,
     order_id: &str,
 ) -> Option<String> {
-    let IntegrationPool::Postgres(pool) = pool else {
-        return None;
-    };
+    // IntegrationPool carries exactly the authoritative Postgres pool.
+    let IntegrationPool::Postgres(pool) = pool;
     let row = sqlx::query(
         "SELECT status, to_char(CAST(expired_at AS TIMESTAMPTZ) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expired_at FROM commerce_order WHERE tenant_id = CAST($1 AS TEXT) AND organization_id = CAST($2 AS TEXT) AND id = CAST($3 AS TEXT) LIMIT 1",
     )
@@ -1682,9 +1678,8 @@ async fn load_test_payment_method_diagnostic(
     subject: &AppRuntimeSubject,
     method_key: &str,
 ) -> Option<String> {
-    let IntegrationPool::Postgres(pool) = pool else {
-        return None;
-    };
+    // IntegrationPool carries exactly the authoritative Postgres pool.
+    let IntegrationPool::Postgres(pool) = pool;
     let rows = sqlx::query(
         "SELECT m.status AS method_status, m.organization_id AS method_org, \
                 c.id AS channel_id, c.status AS channel_status, \
@@ -2229,8 +2224,8 @@ async fn query_sub_merchants(
 ) -> Result<(Vec<Value>, i64), sdkwork_contract_service::CommerceServiceError> {
     match pool {
         IntegrationPool::Postgres(pool) => {
-            let rows = sqlx::query("SELECT sm.id, sm.provider_account_id, sm.external_sub_merchant_id, sm.sub_appid, sm.sub_mch_id, sm.display_name, sm.status, CAST(sm.metadata AS TEXT) AS metadata, CAST(sm.created_at AS TEXT) AS created_at, CAST(sm.updated_at AS TEXT) AS updated_at, pa.provider_code, COUNT(*) OVER() AS total_count FROM commerce_payment_sub_merchant sm JOIN commerce_payment_provider_account pa ON pa.id = sm.provider_account_id AND pa.tenant_id = sm.tenant_id WHERE sm.tenant_id = CAST($1 AS TEXT) AND sm.organization_id = CAST($2 AS TEXT) AND sm.deleted_at IS NULL AND ($3 IS NULL OR sm.provider_account_id = CAST($3 AS TEXT)) AND ($4 IS NULL OR sm.status = CAST($4 AS TEXT)) AND ($5 IS NULL OR sm.external_sub_merchant_id ILIKE '%' || CAST($5 AS TEXT) || '%' OR COALESCE(sm.display_name, '') ILIKE '%' || CAST($5 AS TEXT) || '%') ORDER BY sm.updated_at DESC, sm.id DESC LIMIT $6 OFFSET $7")
-                .bind(&subject.tenant_id).bind(&subject.organization_id).bind(&query.provider_account_id).bind(&query.status).bind(&query.q).bind(page.page_size).bind(page.offset)
+            let rows = sqlx::query("SELECT sm.id, sm.provider_account_id, sm.external_sub_merchant_id, sm.sub_appid, sm.sub_mch_id, sm.display_name, sm.status, CAST(sm.metadata AS TEXT) AS metadata, CAST(sm.created_at AS TEXT) AS created_at, CAST(sm.updated_at AS TEXT) AS updated_at, pa.provider_code, COUNT(*) OVER() AS total_count FROM commerce_payment_sub_merchant sm JOIN commerce_payment_provider_account pa ON pa.id = sm.provider_account_id AND pa.tenant_id = sm.tenant_id WHERE sm.tenant_id = CAST($1 AS TEXT) AND sm.organization_id = CAST($2 AS TEXT) AND sm.deleted_at IS NULL AND ($3 IS NULL OR sm.provider_account_id = CAST($3 AS TEXT)) AND ($4 IS NULL OR sm.status = CAST($4 AS TEXT)) AND ($5 IS NULL OR sm.external_sub_merchant_id ILIKE '%' || CAST($5 AS TEXT) || '%' OR COALESCE(sm.display_name, '') ILIKE '%' || CAST($5 AS TEXT) || '%') AND ($6 IS NULL OR pa.provider_code = CAST($6 AS TEXT)) ORDER BY sm.updated_at DESC, sm.id DESC LIMIT $7 OFFSET $8")
+                .bind(&subject.tenant_id).bind(&subject.organization_id).bind(&query.provider_account_id).bind(&query.status).bind(&query.q).bind(&query.provider_code).bind(page.page_size).bind(page.offset)
                 .fetch_all(pool).await.map_err(storage)?;
             let total = pg_total(&rows);
             Ok((rows.into_iter().map(map_sub_merchant_pg).collect(), total))
@@ -2443,7 +2438,7 @@ async fn load_resource(
     id: &str,
     kind: ResourceKind,
 ) -> Result<Option<Value>, sdkwork_contract_service::CommerceServiceError> {
-    let (table, columns) = match kind {
+    let (table, _columns) = match kind {
         ResourceKind::SubMerchant => ("commerce_payment_sub_merchant", "id, provider_account_id, external_sub_merchant_id, sub_appid, sub_mch_id, display_name, status, metadata, created_at, updated_at, (SELECT provider_code FROM commerce_payment_provider_account pa WHERE pa.id = provider_account_id AND pa.tenant_id = commerce_payment_sub_merchant.tenant_id LIMIT 1) AS provider_code"),
         ResourceKind::Certificate => ("commerce_payment_certificate", "id, certificate_no, provider_code, kind, content_ref, fingerprint_sha256, valid_until, issuer_cn, subject_cn, status, metadata, created_at, updated_at"),
     };

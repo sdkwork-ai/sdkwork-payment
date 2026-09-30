@@ -26,22 +26,6 @@ use sdkwork_payment_service_host::PaymentServiceHost;
 use sdkwork_web_core::HttpRouteManifest;
 use std::sync::Arc;
 
-#[cfg(test)]
-pub(crate) fn ensure_test_payment_credential_cipher() {
-    use sdkwork_payment_providers::{
-        install_payment_credential_cipher, payment_credential_cipher_is_installed,
-        LocalFilePaymentCredentialCipher,
-    };
-
-    if payment_credential_cipher_is_installed() {
-        return;
-    }
-    let cipher = LocalFilePaymentCredentialCipher::from_key_material(vec![11; 64])
-        .expect("test credential cipher");
-    let _ = install_payment_credential_cipher(Arc::new(cipher));
-    assert!(payment_credential_cipher_is_installed());
-}
-
 /// C17 修复：网关装配入口，构造 payment backend-api 的完整 framework router。
 pub async fn gateway_mount(host: Arc<PaymentServiceHost>) -> Router {
     build_payment_backend_router_with_framework(host).await

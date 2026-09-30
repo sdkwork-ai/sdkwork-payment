@@ -58,7 +58,7 @@ describe("createPaymentMonitorAdminController", () => {
 
     expect(intentsList).toHaveBeenCalledTimes(2);
     expect(intentsList).toHaveBeenLastCalledWith(expect.objectContaining({
-      page_size: 20,
+      pageSize: 20,
       providerCode: "sandbox",
       status: "failed",
     }));
