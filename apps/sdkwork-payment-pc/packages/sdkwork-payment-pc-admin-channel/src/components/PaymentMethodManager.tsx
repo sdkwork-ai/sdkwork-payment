@@ -41,6 +41,7 @@ import {
   type PaymentBaseDataOption,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useChannelAdminMessages } from "../i18n";
 import type {
   PaymentEntityStatus,
   PaymentMethodDraft,
@@ -72,18 +73,24 @@ const STATUS_VARIANT: Record<PaymentEntityStatus, "success" | "secondary" | "dan
   deprecated: "danger",
 };
 
-const SCOPE_LABEL: Record<PaymentMethodScope, string> = {
-  global: "Global",
-  tenant: "Tenant",
-  organization: "Organization",
-};
-
 export function PaymentMethodManager(props: PaymentMethodManagerProps) {
+  const m = useChannelAdminMessages();
   const [dialog, setDialog] = React.useState<
     | { kind: "closed" }
     | { kind: "create" }
     | { kind: "edit"; method: PaymentMethodView }
   >({ kind: "closed" });
+
+  const scopeLabel: Record<PaymentMethodScope, string> = {
+    global: m.common.scopeGlobal,
+    tenant: m.common.scopeTenant,
+    organization: m.common.scopeOrganization,
+  };
+  const statusLabel: Record<PaymentEntityStatus, string> = {
+    active: m.common.statusActive,
+    inactive: m.common.statusInactive,
+    deprecated: m.common.statusDeprecated,
+  };
 
   async function handleCreate(draft: PaymentMethodDraft) {
     await props.onCreate(draft);
@@ -106,15 +113,15 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
           size="sm"
           onClick={() => setDialog({ kind: "create" })}
           disabled={props.busy}
-          title={props.busy ? "Cannot create a payment method while another operation is in progress" : "Create a new payment method"}
+          title={props.busy ? m.method.createBusyTitle : m.method.createTitle}
         >
-          Create payment method
+          {m.method.createButton}
         </Button> : null}
       </div>
 
       {props.methods.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No payment methods configured. Create one to start accepting payments.
+          {m.method.emptyState}
           {/* Empty-state inline create button: guides users to create a payment method directly */}
           {props.canCreate ? <div className="mt-3">
             <Button
@@ -124,7 +131,7 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
               onClick={() => setDialog({ kind: "create" })}
               disabled={props.busy}
             >
-              Create payment method
+              {m.method.createButton}
             </Button>
           </div> : null}
         </div>
@@ -155,8 +162,8 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
                     </span>
                     <Badge variant="outline" title={method.methodKey}>{method.methodKey}</Badge>
                     <Badge variant="secondary">{ADMIN_PROVIDER_LABEL[method.providerCode]}</Badge>
-                    <Badge variant="outline">{SCOPE_LABEL[method.scope]}</Badge>
-                    <Badge variant={STATUS_VARIANT[method.status]}>{method.status}</Badge>
+                    <Badge variant="outline">{scopeLabel[method.scope]}</Badge>
+                    <Badge variant={STATUS_VARIANT[method.status]}>{statusLabel[method.status]}</Badge>
                   </div>
                   {adminPaymentMethodKeyOption(method.methodKey)?.description ? (
                     <p className="mt-1.5 max-w-4xl text-xs leading-relaxed text-[var(--sdk-color-text-muted)]">
@@ -165,15 +172,15 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
                   ) : null}
                   <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)] lg:grid-cols-3">
                     <div>
-                      <dt className="inline">Currency:</dt>{" "}
+                      <dt className="inline">{m.method.currencyLabel}</dt>{" "}
                       <dd className="inline font-medium text-[var(--sdk-color-text-primary)]">{method.currencyCode}</dd>
                     </div>
                     <div>
-                      <dt className="inline">Country:</dt>{" "}
+                      <dt className="inline">{m.method.countryLabel}</dt>{" "}
                       <dd className="inline">{method.countryCode ?? "--"}</dd>
                     </div>
                     <div>
-                      <dt className="inline">Sort order:</dt>{" "}
+                      <dt className="inline">{m.method.sortOrderLabel}</dt>{" "}
                       <dd className="inline tabular-nums">{method.sortOrder}</dd>
                     </div>
                   </dl>
@@ -185,9 +192,9 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
                   variant="ghost"
                   size="sm"
                   onClick={() => props.onSelect(method)}
-                  title="Cannot select while another operation is in progress"
+                  title={m.method.selectTitle}
                 >
-                  Select
+                  {m.common.select}
                 </Button>
                 {props.canUpdate ? <Button
                   type="button"
@@ -195,9 +202,9 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
                   size="sm"
                   onClick={() => setDialog({ kind: "edit", method })}
                   disabled={props.busy}
-                  title="Cannot edit while another operation is in progress"
+                  title={m.method.editTitle}
                 >
-                  Edit
+                  {m.common.edit}
                 </Button> : null}
               </div>
             </li>
@@ -223,7 +230,7 @@ export function PaymentMethodManager(props: PaymentMethodManagerProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {dialog.kind === "create" ? "Create payment method" : "Edit payment method"}
+              {dialog.kind === "create" ? m.method.createDialogTitle : m.method.editDialogTitle}
             </DialogTitle>
           </DialogHeader>
           {dialog.kind === "create" || dialog.kind === "edit" ? (
@@ -255,19 +262,8 @@ interface PaymentMethodFormProps {
   onSubmit(draft: PaymentMethodDraft | PaymentMethodUpdateDraft): Promise<void> | void;
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
-  { label: "Active", value: "active" },
-  { label: "Inactive", value: "inactive" },
-  { label: "Deprecated", value: "deprecated" },
-];
-
-const SCOPE_OPTIONS: ReadonlyArray<{ label: string; value: PaymentMethodScope }> = [
-  { label: "Global", value: "global" },
-  { label: "Tenant", value: "tenant" },
-  { label: "Organization", value: "organization" },
-];
-
 function PaymentMethodForm(props: PaymentMethodFormProps) {
+  const m = useChannelAdminMessages();
   const { mode, initial } = props;
   const [methodKey, setMethodKey] = React.useState(initial?.methodKey ?? "");
   const [displayName, setDisplayName] = React.useState(initial?.displayName ?? "");
@@ -280,6 +276,17 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
   const [countryCode, setCountryCode] = React.useState(initial?.countryCode ?? "");
   const [sortOrder, setSortOrder] = React.useState(String(initial?.sortOrder ?? 0));
   const [error, setError] = React.useState<string | undefined>();
+
+  const statusOptions: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
+    { label: m.common.statusActive, value: "active" },
+    { label: m.common.statusInactive, value: "inactive" },
+    { label: m.common.statusDeprecated, value: "deprecated" },
+  ];
+  const scopeOptions: ReadonlyArray<{ label: string; value: PaymentMethodScope }> = [
+    { label: m.common.scopeGlobal, value: "global" },
+    { label: m.common.scopeTenant, value: "tenant" },
+    { label: m.common.scopeOrganization, value: "organization" },
+  ];
 
   // When provider changes in create mode, reset method_key if it doesn't
   // belong to the new provider, and auto-suggest a display name.
@@ -308,16 +315,16 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
     event.preventDefault();
     setError(undefined);
     if (mode === "create" && !methodKey.trim()) {
-      setError("Method key is required.");
+      setError(m.method.errorMethodKeyRequired);
       return;
     }
     if (!displayName.trim()) {
-      setError("Display name is required.");
+      setError(m.method.errorDisplayNameRequired);
       return;
     }
     const sortOrderNum = Number.parseInt(sortOrder, 10);
     if (Number.isNaN(sortOrderNum)) {
-      setError("Sort order must be an integer.");
+      setError(m.method.errorSortOrderInteger);
       return;
     }
     try {
@@ -343,14 +350,14 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
         } as PaymentMethodUpdateDraft);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save payment method.");
+      setError(err instanceof Error ? err.message : m.method.errorSaveFailed);
     }
   }
 
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AdminFieldLabel label="Provider" htmlFor="method-form-provider">
+        <AdminFieldLabel label={m.method.provider} htmlFor="method-form-provider">
           <Select
             value={providerCode}
             onValueChange={(value) => handleProviderChange(value as PaymentProviderCode)}
@@ -371,13 +378,13 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
           </Select>
         </AdminFieldLabel>
         {mode === "create" ? (
-          <AdminFieldLabel label="Payment method" htmlFor="method-form-key" required>
+          <AdminFieldLabel label={m.method.paymentMethod} htmlFor="method-form-key" required>
             <Select
               value={methodKey}
               onValueChange={handleMethodKeyChange}
             >
               <SelectTrigger id="method-form-key">
-                <SelectValue placeholder="Select a payment method..." />
+                <SelectValue placeholder={m.method.methodPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {adminPaymentMethodKeysForProvider(providerCode).map((option) => (
@@ -392,7 +399,7 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
             </Select>
           </AdminFieldLabel>
         ) : (
-          <AdminFieldLabel label="Payment method" htmlFor="method-form-key-readonly">
+          <AdminFieldLabel label={m.method.paymentMethod} htmlFor="method-form-key-readonly">
             <Input
               id="method-form-key-readonly"
               value={adminPaymentMethodKeyOption(methodKey)?.label ?? methodKey}
@@ -407,17 +414,17 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
           {adminPaymentMethodKeyOption(methodKey)?.description}
         </p>
       ) : null}
-      <AdminFieldLabel label="Display name" htmlFor="method-form-display-name" required>
+      <AdminFieldLabel label={m.method.displayName} htmlFor="method-form-display-name" required>
         <Input
           id="method-form-display-name"
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
-          placeholder="User-facing name (e.g., Alipay WAP)"
+          placeholder={m.method.displayNamePlaceholder}
           required
         />
       </AdminFieldLabel>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AdminFieldLabel label="Status" htmlFor="method-form-status">
+        <AdminFieldLabel label={m.common.status} htmlFor="method-form-status">
           <Select
             value={status}
             onValueChange={(value) => setStatus(value as PaymentEntityStatus)}
@@ -426,7 +433,7 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {STATUS_OPTIONS.map((option) => (
+              {statusOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -436,7 +443,7 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
         </AdminFieldLabel>
       </div>
       {mode === "create" ? (
-        <AdminFieldLabel label="Scope" htmlFor="method-form-scope">
+        <AdminFieldLabel label={m.method.scope} htmlFor="method-form-scope">
           <Select
             value={scope}
             onValueChange={(value) => setScope(value as PaymentMethodScope)}
@@ -445,7 +452,7 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {SCOPE_OPTIONS.map((option) => (
+              {scopeOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -455,13 +462,13 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
         </AdminFieldLabel>
       ) : (
         <p className="text-xs text-[var(--sdk-color-text-muted)]">
-          Scope is immutable after creation.
+          {m.method.scopeImmutable}
         </p>
       )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <BaseDataSelectField
           id="method-form-currency"
-          label="Currency"
+          label={m.common.currency}
           options={props.currencyOptions}
           value={currencyCode}
           maxLength={3}
@@ -470,14 +477,14 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
         />
         <BaseDataSelectField
           id="method-form-country"
-          label="Country"
+          label={m.common.country}
           options={props.countryOptions}
           value={countryCode}
           maxLength={2}
           placeholder="CN"
           onChange={setCountryCode}
         />
-        <AdminFieldLabel label="Sort order" htmlFor="method-form-sort">
+        <AdminFieldLabel label={m.common.sortOrder} htmlFor="method-form-sort">
           <Input
             id="method-form-sort"
             type="number"
@@ -497,10 +504,10 @@ function PaymentMethodForm(props: PaymentMethodFormProps) {
       ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={props.onCancel}>
-          Cancel
+          {m.common.cancel}
         </Button>
         <Button type="submit">
-          {mode === "create" ? "Create" : "Save changes"}
+          {mode === "create" ? m.common.create : m.common.saveChanges}
         </Button>
       </div>
     </form>

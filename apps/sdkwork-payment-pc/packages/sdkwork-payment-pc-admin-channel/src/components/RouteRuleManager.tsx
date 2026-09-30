@@ -42,6 +42,7 @@ import {
   type PaymentBaseDataOption,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useChannelAdminMessages } from "../i18n";
 import type {
   PaymentChannelView,
   PaymentEntityStatus,
@@ -73,13 +74,8 @@ const STATUS_VARIANT: Record<PaymentEntityStatus, "success" | "secondary" | "dan
   deprecated: "danger",
 };
 
-const STATUS_OPTIONS: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
-  { label: "Active", value: "active" },
-  { label: "Inactive", value: "inactive" },
-  { label: "Deprecated", value: "deprecated" },
-];
-
 export function RouteRuleManager(props: RouteRuleManagerProps) {
+  const m = useChannelAdminMessages();
   const [dialog, setDialog] = React.useState<
     | { kind: "closed" }
     | { kind: "create" }
@@ -87,6 +83,12 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
   >({ kind: "closed" });
   const [pendingDelete, setPendingDelete] = React.useState<PaymentRouteRuleView | null>(null);
   const [error, setError] = React.useState<string | undefined>();
+
+  const statusLabel: Record<PaymentEntityStatus, string> = {
+    active: m.common.statusActive,
+    inactive: m.common.statusInactive,
+    deprecated: m.common.statusDeprecated,
+  };
 
   async function handleCreate(draft: PaymentRouteRuleDraft) {
     await props.onCreate(draft);
@@ -107,7 +109,7 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
     try {
       await props.onDelete(pendingDelete.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete route rule.");
+      setError(err instanceof Error ? err.message : m.routeRule.errorDeleteFailed);
     }
     setPendingDelete(null);
   }
@@ -122,18 +124,17 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
           disabled={props.busy || props.channels.length === 0}
           title={
             props.channels.length === 0
-              ? "Create a payment channel first — rules route to channels"
-              : "Create a new routing rule"
+              ? m.routeRule.createDisabledTitle
+              : m.routeRule.createTitle
           }
         >
-          Create route rule
+          {m.routeRule.createButton}
         </Button> : null}
       </div>
 
       {props.routeRules.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No routing rules configured. Without rules, payments will be rejected (no
-          matching channel). Create one to start routing payments.
+          {m.routeRule.emptyState}
           {/* Empty-state inline create button: disabled when no channels exist, mirroring the header button logic */}
           {props.canCreate ? <div className="mt-3">
             <Button
@@ -143,7 +144,7 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
               onClick={() => setDialog({ kind: "create" })}
               disabled={props.busy || props.channels.length === 0}
             >
-              Create route rule
+              {m.routeRule.createButton}
             </Button>
           </div> : null}
         </div>
@@ -153,11 +154,11 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
           {[...props.routeRules]
             .sort((a, b) => a.priority - b.priority)
             .map((rule) => {
-            const channel = props.channels.find((c) => c.id === rule.channelId);
+            const channel = props.channels.find((item) => item.id === rule.channelId);
             return (
               <li key={rule.id} className="grid gap-3 p-4 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-start">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-md border border-[var(--sdk-color-border-default)] bg-[var(--sdk-color-surface-panel-muted)] px-2 text-sm font-bold tabular-nums text-[var(--sdk-color-text-primary)]" title="Lower priority numbers run first">
+                  <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-md border border-[var(--sdk-color-border-default)] bg-[var(--sdk-color-surface-panel-muted)] px-2 text-sm font-bold tabular-nums text-[var(--sdk-color-text-primary)]" title={m.routeRule.priorityHint}>
                     {rule.priority}
                   </span>
                   {channel ? (
@@ -167,44 +168,44 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
                 <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-[var(--sdk-color-text-primary)]">{rule.ruleNo}</span>
-                    <Badge variant={STATUS_VARIANT[rule.status]}>{rule.status}</Badge>
+                    <Badge variant={STATUS_VARIANT[rule.status]}>{statusLabel[rule.status]}</Badge>
                     {channel ? (
                       <span className="inline-flex items-center gap-1.5 text-xs text-[var(--sdk-color-text-secondary)]">
                         <PaymentSceneIcon sceneCode={channel.sceneCode} size="xs" />
                         {channel.channelName ?? channel.channelNo}
                       </span>
                     ) : (
-                      <span className="text-xs text-[var(--sdk-color-text-muted)]">Missing channel · {rule.channelId}</span>
+                      <span className="text-xs text-[var(--sdk-color-text-muted)]">{m.routeRule.missingChannel.replace("{channelId}", rule.channelId)}</span>
                     )}
                   </div>
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-[var(--sdk-color-text-secondary)] sm:grid-cols-3">
                   {rule.purchaseType ? (
                     <div>
-                      <dt className="inline">Purchase type:</dt>{" "}
+                      <dt className="inline">{m.routeRule.purchaseTypeLabel}</dt>{" "}
                       <dd className="inline">{rule.purchaseType}</dd>
                     </div>
                   ) : null}
                   {rule.countryCode ? (
                     <div>
-                      <dt className="inline">Country:</dt>{" "}
+                      <dt className="inline">{m.routeRule.countryLabel}</dt>{" "}
                       <dd className="inline">{rule.countryCode}</dd>
                     </div>
                   ) : null}
                   {rule.currencyCode ? (
                     <div>
-                      <dt className="inline">Currency:</dt>{" "}
+                      <dt className="inline">{m.routeRule.currencyLabel}</dt>{" "}
                       <dd className="inline">{rule.currencyCode}</dd>
                     </div>
                   ) : null}
                   {rule.clientPlatform ? (
                     <div>
-                      <dt className="inline">Client platform:</dt>{" "}
+                      <dt className="inline">{m.routeRule.clientPlatformLabel}</dt>{" "}
                       <dd className="inline">{rule.clientPlatform}</dd>
                     </div>
                   ) : null}
                   {rule.amountMin || rule.amountMax ? (
                     <div>
-                      <dt className="inline">Amount:</dt>{" "}
+                      <dt className="inline">{m.routeRule.amountLabel}</dt>{" "}
                       <dd className="inline">
                         {rule.amountMin ?? "*"} ~ {rule.amountMax ?? "*"}
                       </dd>
@@ -212,20 +213,22 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
                   ) : null}
                   {rule.userSegment ? (
                     <div>
-                      <dt className="inline">User segment:</dt>{" "}
+                      <dt className="inline">{m.routeRule.userSegmentLabel}</dt>{" "}
                       <dd className="inline">{rule.userSegment}</dd>
                     </div>
                   ) : null}
                   {rule.riskLevel ? (
                     <div>
-                      <dt className="inline">Risk level:</dt>{" "}
+                      <dt className="inline">{m.routeRule.riskLevelLabel}</dt>{" "}
                       <dd className="inline">{rule.riskLevel}</dd>
                     </div>
                   ) : null}
                 </dl>
                 {rule.startsAt || rule.endsAt ? (
                   <div className="text-xs text-[var(--sdk-color-text-muted)]">
-                    Valid window: {rule.startsAt ?? "now"} → {rule.endsAt ?? "forever"}
+                    {m.routeRule.validWindow
+                      .replace("{starts}", rule.startsAt ?? m.routeRule.validWindowNow)
+                      .replace("{ends}", rule.endsAt ?? m.routeRule.validWindowForever)}
                   </div>
                 ) : null}
                 </div>
@@ -236,9 +239,9 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
                     size="sm"
                     onClick={() => setDialog({ kind: "edit", rule })}
                     disabled={props.busy}
-                    title="Cannot edit while another operation is in progress"
+                    title={m.routeRule.editBusyTitle}
                   >
-                    Edit
+                    {m.common.edit}
                   </Button> : null}
                   {props.canDelete ? <Button
                     type="button"
@@ -246,9 +249,9 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
                     size="sm"
                     onClick={() => setPendingDelete(rule)}
                     disabled={props.busy}
-                    title="Cannot delete while another operation is in progress"
+                    title={m.routeRule.deleteBusyTitle}
                   >
-                    Delete
+                    {m.common.delete}
                   </Button> : null}
                 </div>
               </li>
@@ -275,7 +278,7 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {dialog.kind === "create" ? "Create route rule" : "Edit route rule"}
+              {dialog.kind === "create" ? m.routeRule.createDialogTitle : m.routeRule.editDialogTitle}
             </DialogTitle>
           </DialogHeader>
           {dialog.kind === "create" || dialog.kind === "edit" ? (
@@ -307,13 +310,13 @@ export function RouteRuleManager(props: RouteRuleManagerProps) {
 
       <ConfirmDialog
         open={props.canDelete && pendingDelete !== null}
-        title="Delete route rule?"
+        title={m.routeRule.confirmDeleteTitle}
         description={
           pendingDelete
-            ? `Delete route rule ${pendingDelete.ruleNo}? This permanently removes the rule. Payments matching this rule's conditions will fall through to the next matching rule (if any).`
+            ? m.routeRule.confirmDeleteDescription.replace("{ruleNo}", pendingDelete.ruleNo)
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={m.routeRule.confirmDeleteLabel}
         variant="danger"
         busy={props.busy}
         onConfirm={handleConfirmDelete}
@@ -336,6 +339,7 @@ interface RouteRuleFormProps {
 }
 
 function RouteRuleForm(props: RouteRuleFormProps) {
+  const m = useChannelAdminMessages();
   const { mode, initial } = props;
   const [ruleNo, setRuleNo] = React.useState(initial?.ruleNo ?? "");
   const [priority, setPriority] = React.useState(String(initial?.priority ?? 0));
@@ -353,6 +357,12 @@ function RouteRuleForm(props: RouteRuleFormProps) {
   const [endsAt, setEndsAt] = React.useState(initial?.endsAt?.slice(0, 16) ?? "");
   const [error, setError] = React.useState<string | undefined>();
 
+  const statusOptions: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
+    { label: m.common.statusActive, value: "active" },
+    { label: m.common.statusInactive, value: "inactive" },
+    { label: m.common.statusDeprecated, value: "deprecated" },
+  ];
+
   React.useEffect(() => {
     if (!channelId && props.channels.length > 0) {
       setChannelId(props.channels[0].id);
@@ -363,20 +373,20 @@ function RouteRuleForm(props: RouteRuleFormProps) {
     event.preventDefault();
     setError(undefined);
     if (mode === "create" && !ruleNo.trim()) {
-      setError("Rule number is required.");
+      setError(m.routeRule.errorRuleNumberRequired);
       return;
     }
     if (!channelId) {
-      setError("Select a target channel.");
+      setError(m.routeRule.errorChannelRequired);
       return;
     }
     const priorityNum = Number.parseInt(priority, 10);
     if (Number.isNaN(priorityNum)) {
-      setError("Priority must be an integer.");
+      setError(m.routeRule.errorPriorityInteger);
       return;
     }
     if ((amountMin && !isAmountValid(amountMin)) || (amountMax && !isAmountValid(amountMax))) {
-      setError("Amount fields must match pattern like 100 or 99.99.");
+      setError(m.routeRule.errorAmountPattern);
       return;
     }
     const startsAtIso = startsAt ? new Date(startsAt).toISOString() : undefined;
@@ -417,32 +427,32 @@ function RouteRuleForm(props: RouteRuleFormProps) {
         } as PaymentRouteRuleUpdateDraft);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save route rule.");
+      setError(err instanceof Error ? err.message : m.routeRule.errorSaveFailed);
     }
   }
 
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       {mode === "create" ? (
-        <AdminFieldLabel label="Rule number" htmlFor="rule-form-no" required>
+        <AdminFieldLabel label={m.routeRule.ruleNumber} htmlFor="rule-form-no" required>
           <Input
             id="rule-form-no"
             value={ruleNo}
             onChange={(event) => setRuleNo(event.target.value)}
-            placeholder="e.g., rule_alipay_wap_cny_001"
+            placeholder={m.routeRule.ruleNumberPlaceholder}
             required
           />
         </AdminFieldLabel>
       ) : (
         <p className="text-xs text-[var(--sdk-color-text-muted)]">
-          Rule number is immutable after creation.
+          {m.routeRule.ruleNumberImmutable}
         </p>
       )}
 
-      <AdminFieldLabel label="Target channel" htmlFor="rule-form-channel" required>
+      <AdminFieldLabel label={m.routeRule.targetChannel} htmlFor="rule-form-channel" required>
         <Select value={channelId} onValueChange={setChannelId}>
           <SelectTrigger id="rule-form-channel">
-            <SelectValue placeholder="Select channel..." />
+            <SelectValue placeholder={m.routeRule.channelPlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {props.channels.map((channel) => (
@@ -455,16 +465,16 @@ function RouteRuleForm(props: RouteRuleFormProps) {
       </AdminFieldLabel>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AdminFieldLabel label="Priority" htmlFor="rule-form-priority">
+        <AdminFieldLabel label={m.common.priority} htmlFor="rule-form-priority">
           <Input
             id="rule-form-priority"
             type="number"
             value={priority}
             onChange={(event) => setPriority(event.target.value)}
-            placeholder="0 (lower = higher priority)"
+            placeholder={m.routeRule.priorityPlaceholder}
           />
         </AdminFieldLabel>
-        <AdminFieldLabel label="Status" htmlFor="rule-form-status">
+        <AdminFieldLabel label={m.common.status} htmlFor="rule-form-status">
           <Select
             value={status}
             onValueChange={(value) => setStatus(value as PaymentEntityStatus)}
@@ -473,7 +483,7 @@ function RouteRuleForm(props: RouteRuleFormProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {STATUS_OPTIONS.map((option) => (
+              {statusOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -485,28 +495,28 @@ function RouteRuleForm(props: RouteRuleFormProps) {
 
       <fieldset className="space-y-3 rounded-md border border-[var(--sdk-color-border-subtle)] p-3">
         <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Match conditions (all optional — empty = match all)
+          {m.routeRule.matchConditionsLegend}
         </legend>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <AdminFieldLabel label="Purchase type" htmlFor="rule-form-purchase-type">
+          <AdminFieldLabel label={m.routeRule.purchaseType} htmlFor="rule-form-purchase-type">
             <Input
               id="rule-form-purchase-type"
               value={purchaseType}
               onChange={(event) => setPurchaseType(event.target.value)}
-              placeholder="e.g., goods, digital, subscription"
+              placeholder={m.routeRule.purchaseTypePlaceholder}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Client platform" htmlFor="rule-form-platform">
+          <AdminFieldLabel label={m.routeRule.clientPlatform} htmlFor="rule-form-platform">
             <Input
               id="rule-form-platform"
               value={clientPlatform}
               onChange={(event) => setClientPlatform(event.target.value)}
-              placeholder="e.g., ios, android, web, mini_program"
+              placeholder={m.routeRule.clientPlatformPlaceholder}
             />
           </AdminFieldLabel>
           <BaseDataSelectField
             id="rule-form-country"
-            label="Country"
+            label={m.common.country}
             options={props.countryOptions}
             value={countryCode}
             maxLength={2}
@@ -515,43 +525,43 @@ function RouteRuleForm(props: RouteRuleFormProps) {
           />
           <BaseDataSelectField
             id="rule-form-currency"
-            label="Currency"
+            label={m.common.currency}
             options={props.currencyOptions}
             value={currencyCode}
             maxLength={3}
             placeholder="CNY"
             onChange={setCurrencyCode}
           />
-          <AdminFieldLabel label="Amount min" htmlFor="rule-form-amount-min">
+          <AdminFieldLabel label={m.routeRule.amountMin} htmlFor="rule-form-amount-min">
             <Input
               id="rule-form-amount-min"
               value={amountMin}
               onChange={(event) => setAmountMin(event.target.value)}
-              placeholder="0.00"
+              placeholder={m.routeRule.amountMinPlaceholder}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Amount max" htmlFor="rule-form-amount-max">
+          <AdminFieldLabel label={m.routeRule.amountMax} htmlFor="rule-form-amount-max">
             <Input
               id="rule-form-amount-max"
               value={amountMax}
               onChange={(event) => setAmountMax(event.target.value)}
-              placeholder="999999.99"
+              placeholder={m.routeRule.amountMaxPlaceholder}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="User segment" htmlFor="rule-form-segment">
+          <AdminFieldLabel label={m.routeRule.userSegment} htmlFor="rule-form-segment">
             <Input
               id="rule-form-segment"
               value={userSegment}
               onChange={(event) => setUserSegment(event.target.value)}
-              placeholder="e.g., vip, new_user, enterprise"
+              placeholder={m.routeRule.userSegmentPlaceholder}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Risk level" htmlFor="rule-form-risk">
+          <AdminFieldLabel label={m.routeRule.riskLevel} htmlFor="rule-form-risk">
             <Input
               id="rule-form-risk"
               value={riskLevel}
               onChange={(event) => setRiskLevel(event.target.value)}
-              placeholder="e.g., low, medium, high"
+              placeholder={m.routeRule.riskLevelPlaceholder}
             />
           </AdminFieldLabel>
         </div>
@@ -559,10 +569,10 @@ function RouteRuleForm(props: RouteRuleFormProps) {
 
       <fieldset className="space-y-3 rounded-md border border-[var(--sdk-color-border-subtle)] p-3">
         <legend className="px-1 text-xs font-semibold uppercase tracking-wider text-[var(--sdk-color-text-muted)]">
-          Validity window (optional)
+          {m.routeRule.validityWindowLegend}
         </legend>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <AdminFieldLabel label="Starts at" htmlFor="rule-form-starts">
+          <AdminFieldLabel label={m.routeRule.startsAt} htmlFor="rule-form-starts">
             <Input
               id="rule-form-starts"
               type="datetime-local"
@@ -570,7 +580,7 @@ function RouteRuleForm(props: RouteRuleFormProps) {
               onChange={(event) => setStartsAt(event.target.value)}
             />
           </AdminFieldLabel>
-          <AdminFieldLabel label="Ends at" htmlFor="rule-form-ends">
+          <AdminFieldLabel label={m.routeRule.endsAt} htmlFor="rule-form-ends">
             <Input
               id="rule-form-ends"
               type="datetime-local"
@@ -591,10 +601,10 @@ function RouteRuleForm(props: RouteRuleFormProps) {
       ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={props.onCancel}>
-          Cancel
+          {m.common.cancel}
         </Button>
         <Button type="submit">
-          {mode === "create" ? "Create rule" : "Save changes"}
+          {mode === "create" ? m.routeRule.createSubmit : m.common.saveChanges}
         </Button>
       </div>
     </form>

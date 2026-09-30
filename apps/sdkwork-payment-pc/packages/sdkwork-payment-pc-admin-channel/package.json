@@ -11,14 +11,18 @@
       "default": "./src/index.tsx"
     }
   },
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@sdkwork/i18n-pc-react": "workspace:*",
+    "@sdkwork/payment-contracts": "workspace:*",
     "@sdkwork/payment-pc-admin-core": "workspace:*",
     "@sdkwork/payment-service": "workspace:*",
-    "@sdkwork/payment-contracts": "workspace:*",
     "@sdkwork/ui-pc-react": "workspace:*"
   },
   "devDependencies": {

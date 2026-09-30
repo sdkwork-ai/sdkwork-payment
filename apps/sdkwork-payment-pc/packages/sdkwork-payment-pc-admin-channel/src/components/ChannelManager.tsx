@@ -41,6 +41,7 @@ import {
   type PaymentBaseDataOption,
 } from "@sdkwork/payment-pc-admin-core";
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
+import { useChannelAdminMessages } from "../i18n";
 import type {
   PaymentChannelDraft,
   PaymentChannelView,
@@ -65,42 +66,33 @@ export interface ChannelManagerProps {
   onLoadMore(): void;
 }
 
-const SCENE_LABEL: Record<PaymentSceneCode, string> = {
-  app: "App",
-  web: "Web",
-  mini_program: "Mini Program",
-  api: "API",
-};
-
 const STATUS_VARIANT: Record<PaymentEntityStatus, "success" | "secondary" | "danger"> = {
   active: "success",
   inactive: "secondary",
   deprecated: "danger",
 };
 
-const SCENE_OPTIONS: ReadonlyArray<{ label: string; value: PaymentSceneCode }> = [
-  { label: "App", value: "app" },
-  { label: "Web", value: "web" },
-  { label: "Mini Program", value: "mini_program" },
-  { label: "API", value: "api" },
-];
-
-const STATUS_OPTIONS: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
-  { label: "Active", value: "active" },
-  { label: "Inactive", value: "inactive" },
-  { label: "Deprecated", value: "deprecated" },
-];
-
 export function ChannelManager(props: ChannelManagerProps) {
+  const m = useChannelAdminMessages();
   const [open, setOpen] = React.useState(false);
+
+  const sceneLabel: Record<PaymentSceneCode, string> = {
+    app: m.common.sceneApp,
+    web: m.common.sceneWeb,
+    mini_program: m.common.sceneMiniProgram,
+    api: m.common.sceneApi,
+  };
+  const statusLabel: Record<PaymentEntityStatus, string> = {
+    active: m.common.statusActive,
+    inactive: m.common.statusInactive,
+    deprecated: m.common.statusDeprecated,
+  };
 
   return (
     <div className="space-y-4" data-slot="channel-manager">
       <div className="flex items-center justify-between">
         <p className="text-xs text-[var(--sdk-color-text-muted)]">
-          Channels link a payment method to a provider account under a specific scene.
-          Once created, channels cannot be edited or deleted via the API — set the
-          status carefully at creation time.
+          {m.channel.intro}
         </p>
         {props.canCreate ? <Button
           type="button"
@@ -109,18 +101,17 @@ export function ChannelManager(props: ChannelManagerProps) {
           disabled={props.busy || props.methods.length === 0 || props.providerAccounts.length === 0}
           title={
             props.methods.length === 0 || props.providerAccounts.length === 0
-              ? "Create a payment method and provider account first"
-              : "Create a new payment channel"
+              ? m.channel.createDisabledTitle
+              : m.channel.createTitle
           }
         >
-          Create channel
+          {m.channel.createButton}
         </Button> : null}
       </div>
 
       {props.channels.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--sdk-color-border-subtle)] p-8 text-center text-sm text-[var(--sdk-color-text-secondary)]">
-          No payment channels configured. Create one to bridge a payment method with a
-          provider account.
+          {m.channel.emptyState}
           {/* Empty-state inline create button: disabled when a payment method or provider account is missing, mirroring the header button logic */}
           {props.canCreate ? <div className="mt-3">
             <Button
@@ -130,28 +121,28 @@ export function ChannelManager(props: ChannelManagerProps) {
               onClick={() => setOpen(true)}
               disabled={props.busy || props.methods.length === 0 || props.providerAccounts.length === 0}
             >
-              Create channel
+              {m.channel.createButton}
             </Button>
           </div> : null}
         </div>
       ) : (
         <ul className="divide-y divide-[var(--sdk-color-border-subtle)] rounded-md border border-[var(--sdk-color-border-subtle)]">
           {props.channels.map((channel) => {
-            const method = props.methods.find((m) => m.id === channel.methodId);
-            const providerAccount = props.providerAccounts.find((p) => p.id === channel.providerAccountId);
+            const method = props.methods.find((item) => item.id === channel.methodId);
+            const providerAccount = props.providerAccounts.find((item) => item.id === channel.providerAccountId);
             return (
               <li key={channel.id} className="flex flex-col gap-3 p-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <div className="flex shrink-0 items-center -space-x-1.5" aria-label="Payment method to provider route">
+                  <div className="flex shrink-0 items-center -space-x-1.5" aria-label={m.channel.routeAriaLabel}>
                     <PaymentMethodIcon
-                      label={method ? adminPaymentMethodKeyOption(method.methodKey)?.label ?? method.displayName : "Payment method"}
+                      label={method ? adminPaymentMethodKeyOption(method.methodKey)?.label ?? method.displayName : m.channel.methodFallback}
                       methodKey={method?.methodKey ?? channel.methodId}
                       providerCode={method?.providerCode ?? channel.providerCode}
                       size="md"
                     />
                     <PaymentProviderIcon
                       className="ring-2 ring-[var(--sdk-color-surface-panel)]"
-                      label={providerAccount?.providerCode ?? channel.providerCode ?? "Payment provider"}
+                      label={providerAccount?.providerCode ?? channel.providerCode ?? m.channel.providerFallback}
                       providerCode={providerAccount?.providerCode ?? channel.providerCode ?? "unknown"}
                       size="md"
                     />
@@ -162,8 +153,8 @@ export function ChannelManager(props: ChannelManagerProps) {
                         {channel.channelName ?? channel.channelNo}
                       </span>
                       <Badge variant="outline" className="font-mono">{channel.channelNo}</Badge>
-                      <Badge variant={STATUS_VARIANT[channel.status]}>{channel.status}</Badge>
-                      <Badge variant="outline">Priority {channel.priority}</Badge>
+                      <Badge variant={STATUS_VARIANT[channel.status]}>{statusLabel[channel.status]}</Badge>
+                      <Badge variant="outline">{m.channel.priorityBadge.replace("{priority}", String(channel.priority))}</Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--sdk-color-text-secondary)]">
                       <span className="font-medium text-[var(--sdk-color-text-primary)]">
@@ -179,9 +170,9 @@ export function ChannelManager(props: ChannelManagerProps) {
                 <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                   <span className="inline-flex items-center gap-1.5 text-xs text-[var(--sdk-color-text-secondary)]">
                     <PaymentSceneIcon sceneCode={channel.sceneCode} size="xs" />
-                    {SCENE_LABEL[channel.sceneCode]}
+                    {sceneLabel[channel.sceneCode]}
                   </span>
-                  <Badge variant="outline">{channel.currencyCode} · {channel.countryCode || "Global"}</Badge>
+                  <Badge variant="outline">{channel.currencyCode} · {channel.countryCode || m.common.global}</Badge>
                 </div>
               </li>
             );
@@ -201,7 +192,7 @@ export function ChannelManager(props: ChannelManagerProps) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create payment channel</DialogTitle>
+            <DialogTitle>{m.channel.dialogTitle}</DialogTitle>
           </DialogHeader>
           <ChannelForm
             methods={props.methods}
@@ -230,6 +221,7 @@ interface ChannelFormProps {
 }
 
 function ChannelForm(props: ChannelFormProps) {
+  const m = useChannelAdminMessages();
   const [channelNo, setChannelNo] = React.useState("");
   const [channelName, setChannelName] = React.useState("");
   const [methodId, setMethodId] = React.useState("");
@@ -241,6 +233,18 @@ function ChannelForm(props: ChannelFormProps) {
   const [priority, setPriority] = React.useState("0");
   const [sortOrder, setSortOrder] = React.useState("0");
   const [error, setError] = React.useState<string | undefined>();
+
+  const sceneOptions: ReadonlyArray<{ label: string; value: PaymentSceneCode }> = [
+    { label: m.common.sceneApp, value: "app" },
+    { label: m.common.sceneWeb, value: "web" },
+    { label: m.common.sceneMiniProgram, value: "mini_program" },
+    { label: m.common.sceneApi, value: "api" },
+  ];
+  const statusOptions: ReadonlyArray<{ label: string; value: PaymentEntityStatus }> = [
+    { label: m.common.statusActive, value: "active" },
+    { label: m.common.statusInactive, value: "inactive" },
+    { label: m.common.statusDeprecated, value: "deprecated" },
+  ];
 
   React.useEffect(() => {
     if (!methodId && props.methods.length > 0) {
@@ -256,7 +260,7 @@ function ChannelForm(props: ChannelFormProps) {
 
   // Auto-fill currencyCode and countryCode from selected method when method changes.
   React.useEffect(() => {
-    const method = props.methods.find((m) => m.id === methodId);
+    const method = props.methods.find((item) => item.id === methodId);
     if (method) {
       setCurrencyCode(method.currencyCode);
       if (method.countryCode) {
@@ -269,25 +273,25 @@ function ChannelForm(props: ChannelFormProps) {
     event.preventDefault();
     setError(undefined);
     if (!channelNo.trim()) {
-      setError("Channel number is required.");
+      setError(m.channel.errorChannelNumberRequired);
       return;
     }
     if (!methodId) {
-      setError("Select a payment method.");
+      setError(m.channel.errorMethodRequired);
       return;
     }
     if (!providerAccountId) {
-      setError("Select a provider account.");
+      setError(m.channel.errorProviderRequired);
       return;
     }
     const priorityNum = Number.parseInt(priority, 10);
     const sortOrderNum = Number.parseInt(sortOrder, 10);
     if (Number.isNaN(priorityNum) || Number.isNaN(sortOrderNum)) {
-      setError("Priority and sort order must be integers.");
+      setError(m.channel.errorPriorityInteger);
       return;
     }
-    const method = props.methods.find((m) => m.id === methodId);
-    const providerAccount = props.providerAccounts.find((p) => p.id === providerAccountId);
+    const method = props.methods.find((item) => item.id === methodId);
+    const providerAccount = props.providerAccounts.find((item) => item.id === providerAccountId);
     const draft: PaymentChannelDraft = {
       channelNo: channelNo.trim(),
       channelName: channelName.trim() || undefined,
@@ -304,35 +308,35 @@ function ChannelForm(props: ChannelFormProps) {
     try {
       await props.onSubmit(draft);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create channel.");
+      setError(err instanceof Error ? err.message : m.channel.errorCreateFailed);
     }
   }
 
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AdminFieldLabel label="Channel number" htmlFor="channel-form-no" required>
+        <AdminFieldLabel label={m.channel.channelNumber} htmlFor="channel-form-no" required>
           <Input
             id="channel-form-no"
             value={channelNo}
             onChange={(event) => setChannelNo(event.target.value)}
-            placeholder="e.g., alipay_wap_prod_001"
+            placeholder={m.channel.channelNumberPlaceholder}
             required
           />
         </AdminFieldLabel>
-        <AdminFieldLabel label="Channel name (optional)" htmlFor="channel-form-name">
+        <AdminFieldLabel label={m.channel.channelName} htmlFor="channel-form-name">
           <Input
             id="channel-form-name"
             value={channelName}
             onChange={(event) => setChannelName(event.target.value)}
-            placeholder="Display name"
+            placeholder={m.channel.channelNamePlaceholder}
           />
         </AdminFieldLabel>
       </div>
-      <AdminFieldLabel label="Payment method" htmlFor="channel-form-method" required>
+      <AdminFieldLabel label={m.channel.paymentMethod} htmlFor="channel-form-method" required>
         <Select value={methodId} onValueChange={setMethodId}>
           <SelectTrigger id="channel-form-method">
-            <SelectValue placeholder="Select method..." />
+            <SelectValue placeholder={m.channel.methodPlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {props.methods.map((method) => (
@@ -343,10 +347,10 @@ function ChannelForm(props: ChannelFormProps) {
           </SelectContent>
         </Select>
       </AdminFieldLabel>
-      <AdminFieldLabel label="Provider account" htmlFor="channel-form-provider" required>
+      <AdminFieldLabel label={m.channel.providerAccount} htmlFor="channel-form-provider" required>
         <Select value={providerAccountId} onValueChange={setProviderAccountId}>
           <SelectTrigger id="channel-form-provider">
-            <SelectValue placeholder="Select provider account..." />
+            <SelectValue placeholder={m.channel.providerPlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {props.providerAccounts.map((account) => (
@@ -358,7 +362,7 @@ function ChannelForm(props: ChannelFormProps) {
         </Select>
       </AdminFieldLabel>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <AdminFieldLabel label="Scene" htmlFor="channel-form-scene">
+        <AdminFieldLabel label={m.channel.scene} htmlFor="channel-form-scene">
           <Select
             value={sceneCode}
             onValueChange={(value) => setSceneCode(value as PaymentSceneCode)}
@@ -367,7 +371,7 @@ function ChannelForm(props: ChannelFormProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {SCENE_OPTIONS.map((option) => (
+              {sceneOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -375,7 +379,7 @@ function ChannelForm(props: ChannelFormProps) {
             </SelectContent>
           </Select>
         </AdminFieldLabel>
-        <AdminFieldLabel label="Status" htmlFor="channel-form-status">
+        <AdminFieldLabel label={m.common.status} htmlFor="channel-form-status">
           <Select
             value={status}
             onValueChange={(value) => setStatus(value as PaymentEntityStatus)}
@@ -384,7 +388,7 @@ function ChannelForm(props: ChannelFormProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {STATUS_OPTIONS.map((option) => (
+              {statusOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -396,7 +400,7 @@ function ChannelForm(props: ChannelFormProps) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <BaseDataSelectField
           id="channel-form-currency"
-          label="Currency"
+          label={m.common.currency}
           options={props.currencyOptions}
           value={currencyCode}
           maxLength={3}
@@ -405,14 +409,14 @@ function ChannelForm(props: ChannelFormProps) {
         />
         <BaseDataSelectField
           id="channel-form-country"
-          label="Country"
+          label={m.common.country}
           options={props.countryOptions}
           value={countryCode}
           maxLength={2}
           placeholder="CN"
           onChange={setCountryCode}
         />
-        <AdminFieldLabel label="Priority" htmlFor="channel-form-priority">
+        <AdminFieldLabel label={m.common.priority} htmlFor="channel-form-priority">
           <Input
             id="channel-form-priority"
             type="number"
@@ -421,7 +425,7 @@ function ChannelForm(props: ChannelFormProps) {
             placeholder="0"
           />
         </AdminFieldLabel>
-        <AdminFieldLabel label="Sort order" htmlFor="channel-form-sort">
+        <AdminFieldLabel label={m.common.sortOrder} htmlFor="channel-form-sort">
           <Input
             id="channel-form-sort"
             type="number"
@@ -441,9 +445,9 @@ function ChannelForm(props: ChannelFormProps) {
       ) : null}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={props.onCancel}>
-          Cancel
+          {m.common.cancel}
         </Button>
-        <Button type="submit">Create channel</Button>
+        <Button type="submit">{m.channel.createButton}</Button>
       </div>
     </form>
   );
