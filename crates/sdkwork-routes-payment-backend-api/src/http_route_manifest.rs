@@ -34,39 +34,45 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "/backend/v3/api/payments/intents",
         "payments",
         "intents.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.intents.read"),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/intents/{paymentIntentId}",
         "payments",
         "intents.retrieve",
-    ),
+    )
+    .with_required_permission("commerce.payments.intents.read"),
     // === Refund operations ===
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/refunds",
         "payments",
         "refunds.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.refunds.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/refunds",
         "payments",
         "refunds.create",
     )
+    .with_required_permission("commerce.payments.refunds.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/refunds/{refundId}",
         "payments",
         "refunds.retrieve",
-    ),
+    )
+    .with_required_permission("commerce.payments.refunds.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/refunds/{refundId}/retry",
         "payments",
         "refunds.retry",
     )
+    .with_required_permission("commerce.payments.refunds.retry")
     .with_idempotent(true),
     // === Payment Method ===
     HttpRoute::dual_token(
@@ -74,13 +80,15 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "/backend/v3/api/payments/methods",
         "payments",
         "methods.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.methods.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/methods",
         "payments",
         "methods.create",
     )
+    .with_required_permission("commerce.payments.methods.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Patch,
@@ -88,6 +96,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "methods.update",
     )
+    .with_required_permission("commerce.payments.methods.update")
     .with_idempotent(true),
     // === Provider Account ===
     HttpRoute::dual_token(
@@ -95,13 +104,15 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "/backend/v3/api/payments/provider_accounts",
         "payments",
         "providerAccounts.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.provider_accounts.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/provider_accounts",
         "payments",
         "providerAccounts.create",
     )
+    .with_required_permission("commerce.payments.provider_accounts.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Patch,
@@ -109,32 +120,37 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "providerAccounts.update",
     )
+    .with_required_permission("commerce.payments.provider_accounts.update")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}",
         "payments",
         "providerAccounts.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.provider_accounts.delete"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}/test",
         "payments",
         "providerAccounts.test",
     )
+    .with_required_permission("commerce.payments.provider_accounts.test")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials",
         "payments",
         "providerAccounts.credentials.read",
-    ),
+    )
+    .with_required_permission("commerce.payments.provider_accounts.credentials.rotate"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/provider_accounts/{providerAccountId}/credentials/rotate",
         "payments",
         "providerAccounts.credentials.rotate",
     )
+    .with_required_permission("commerce.payments.provider_accounts.credentials.rotate")
     .with_idempotent(true),
     // === Channel ===
     HttpRoute::dual_token(
@@ -142,39 +158,46 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "/backend/v3/api/payments/channels",
         "payments",
         "channels.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.channels.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/channels",
         "payments",
         "channels.create",
     )
+    .with_required_permission("commerce.payments.channels.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Patch,
         "/backend/v3/api/payments/channels/{channelId}",
         "payments",
         "channels.update",
-    ),
+    )
+    .with_required_permission("commerce.payments.channels.update")
+    .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/channels/{channelId}",
         "payments",
         "channels.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.channels.delete"),
     // === Route Rule ===
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/route_rules",
         "payments",
         "routeRules.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.route_rules.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/route_rules",
         "payments",
         "routeRules.create",
     )
+    .with_required_permission("commerce.payments.route_rules.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Patch,
@@ -182,85 +205,98 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "routeRules.update",
     )
+    .with_required_permission("commerce.payments.route_rules.update")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/route_rules/{routeRuleId}",
         "payments",
         "routeRules.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.route_rules.delete"),
     // === Partner sub-merchants ===
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/sub_merchants",
         "payments",
         "subMerchants.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.sub_merchants.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/sub_merchants",
         "payments",
         "subMerchants.create",
     )
+    .with_required_permission("commerce.payments.sub_merchants.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/sub_merchants/{subMerchantId}",
         "payments",
         "subMerchants.retrieve",
-    ),
+    )
+    .with_required_permission("commerce.payments.sub_merchants.read"),
     HttpRoute::dual_token(
         HttpMethod::Patch,
         "/backend/v3/api/payments/sub_merchants/{subMerchantId}",
         "payments",
         "subMerchants.update",
     )
+    .with_required_permission("commerce.payments.sub_merchants.update")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/sub_merchants/{subMerchantId}",
         "payments",
         "subMerchants.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.sub_merchants.delete"),
     // === Provider certificates ===
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/certificates",
         "payments",
         "certificates.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.certificates.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/certificates",
         "payments",
         "certificates.create",
     )
+    .with_required_permission("commerce.payments.certificates.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/certificates/{certificateId}",
         "payments",
         "certificates.retrieve",
-    ),
+    )
+    .with_required_permission("commerce.payments.certificates.read"),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/certificates/{certificateId}",
         "payments",
         "certificates.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.certificates.delete"),
     // === Attempt / Webhook / Reconciliation ===
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/notify_domains",
         "payments",
         "notifyDomains.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.notify_domains.list"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/notify_domains",
         "payments",
         "notifyDomains.create",
     )
+    .with_required_permission("commerce.payments.notify_domains.create")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Patch,
@@ -268,43 +304,50 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "notifyDomains.update",
     )
+    .with_required_permission("commerce.payments.notify_domains.update")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Delete,
         "/backend/v3/api/payments/notify_domains/{domainId}",
         "payments",
         "notifyDomains.delete",
-    ),
+    )
+    .with_required_permission("commerce.payments.notify_domains.delete"),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/attempts",
         "payments",
         "attempts.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.attempts.read"),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/webhook_events",
         "payments",
         "webhookEvents.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.webhook_events.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/webhook_events/{eventId}/replay",
         "payments",
         "webhookEvents.replay",
-    ),
+    )
+    .with_required_permission("commerce.payments.webhook_events.replay"),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/reconciliation_runs",
         "payments",
         "reconciliationRuns.list",
-    ),
+    )
+    .with_required_permission("commerce.payments.reconciliation_runs.read"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/reconciliation_runs",
         "payments",
         "reconciliationRuns.create",
     )
+    .with_required_permission("commerce.payments.reconciliation_runs.create")
     .with_idempotent(true),
     // === Development diagnostics ===
     HttpRoute::dual_token(
@@ -313,6 +356,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "dev.sandboxTrigger",
     )
+    .with_required_permission("commerce.payments.dev.sandbox_trigger")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Post,
@@ -320,6 +364,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "dev.testPayments",
     )
+    .with_required_permission("commerce.payments.dev.test_payments")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Post,
@@ -327,6 +372,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "dev.checkAttemptStatus",
     )
+    .with_required_permission("commerce.payments.dev.test_payments")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Post,
@@ -334,6 +380,7 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "payments",
         "dev.webhookSignatureTest",
     )
+    .with_required_permission("commerce.payments.dev.webhook_signature_test")
     .with_idempotent(true),
 ];
 
@@ -470,6 +517,51 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(openapi_operations, manifest_operations);
+    }
+
+    #[test]
+    fn manifest_routes_carry_openapi_required_permissions() {
+        // `ManifestAuthorizationPolicy` enforces the manifest permission on
+        // every backend-api request, so the manifest must carry exactly the
+        // OpenAPI `x-sdkwork-permission` authority — a missing entry would
+        // silently downgrade the route to membership-only access.
+        let authority = include_str!(
+            "../../../apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+        )
+        .trim_start_matches('\u{feff}');
+        let document: serde_json::Value = serde_json::from_str(authority)
+            .expect("payment backend OpenAPI must be valid JSON-compatible YAML");
+        let mut expected = BTreeSet::new();
+        for (path, path_item) in document["paths"].as_object().expect("paths object") {
+            for method in ["get", "post", "put", "patch", "delete"] {
+                let Some(operation) = path_item.get(method) else {
+                    continue;
+                };
+                let permission = operation["x-sdkwork-permission"]
+                    .as_str()
+                    .expect("every backend operation declares x-sdkwork-permission");
+                expected.insert((
+                    method.to_owned(),
+                    path.to_owned(),
+                    permission.to_owned(),
+                ));
+            }
+        }
+        let declared = backend_route_manifest()
+            .routes()
+            .iter()
+            .map(|route| {
+                (
+                    method_label(route.method).to_owned(),
+                    route.path.to_owned(),
+                    route
+                        .required_permission
+                        .expect("every payment backend route declares a required permission")
+                        .to_owned(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(expected, declared);
     }
 
     fn openapi_operations(document: &serde_json::Value) -> BTreeSet<(String, String, String)> {

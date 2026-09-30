@@ -747,6 +747,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             Ok(pg_provider_account_value(&row))
         })
     }
+    /// Returns masked previews of the account's active credentials.
+    ///
+    /// Plaintext PSP secrets never leave the decryption boundary over this
+    /// endpoint: the response carries `****` + last-four previews so operators
+    /// can confirm which credential version is installed, and full replacement
+    /// happens exclusively through the rotate command (which returns the new
+    /// value once at rotation time). The route additionally requires the
+    /// rotation-tier permission declared in the OpenAPI.
     fn read_provider_credentials<'a>(
         &'a self,
         scope: BackendTenantScope,
@@ -762,9 +770,9 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             .await?;
             Ok(serde_json::json!({
                 "providerAccountId": provider_account_id,
-                "primarySecret": credentials.primary_secret,
-                "webhookSecret": credentials.webhook_secret,
-                "certificate": credentials.certificate,
+                "primarySecret": masked_secret_preview(credentials.primary_secret.as_deref()),
+                "webhookSecret": masked_secret_preview(credentials.webhook_secret.as_deref()),
+                "certificate": masked_secret_preview(credentials.certificate.as_deref()),
             }))
         })
     }
@@ -2789,6 +2797,47 @@ fn backend_write_header_error(
 }
 fn current_timestamp_string() -> String {
     sqlx::types::chrono::Utc::now().to_rfc3339()
+}
+/// `****` + last-four preview of a credential value; empty when unset. The
+/// preview lets operators confirm the installed credential version without
+/// the plaintext ever crossing this endpoint.
+fn masked_secret_preview(value: Option<&str>) -> String {
+    let Some(secret) = value.map(str::trim).filter(|secret| !secret.is_empty()) else {
+        return String::new();
+    };
+    let last4: String = secret
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("****{last4}")
+}
+
+#[cfg(test)]
+mod masked_secret_preview_tests {
+    use super::masked_secret_preview;
+
+    #[test]
+    fn previews_keep_only_the_last_four_characters() {
+        assert_eq!(
+            masked_secret_preview(Some("sk_test_abcdef123456")),
+            "****3456"
+        );
+    }
+
+    #[test]
+    fn unset_or_blank_credentials_are_empty() {
+        assert_eq!(masked_secret_preview(None), "");
+        assert_eq!(masked_secret_preview(Some("   ")), "");
+    }
+
+    #[test]
+    fn short_secrets_stay_masked() {
+        assert_eq!(masked_secret_preview(Some("abc")), "****abc");
+    }
 }
 fn stable_storage_id(parts: &[&str]) -> String {
     parts

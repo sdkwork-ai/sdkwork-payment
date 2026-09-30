@@ -5680,13 +5680,16 @@
                         "type": "string"
                       },
                       "primarySecret": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "Masked preview of the primary PSP secret: `****` + last four characters. Plaintext secrets are never returned; replacement happens only through the rotate command."
                       },
                       "webhookSecret": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "Masked preview of the webhook secret / WeChat API v3 key: `****` + last four characters."
                       },
                       "certificate": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "Masked preview of the platform certificate / public key: `****` + last four characters."
                       }
                     }
                   }
