@@ -66,12 +66,18 @@ pub async fn rotate_provider_credentials_postgres(
     // Serialize the version = MAX(version)+1 read-modify-write per account:
     // two concurrent rotations (admin rotate + bootstrap fill) would otherwise
     // compute the same next version and race the active-unique index.
-    sqlx::query_scalar::<_, bool>(
+    //
+    // `pg_advisory_xact_lock` returns SQL `VOID`, so it is executed as a
+    // statement: decoding it into a scalar fails at runtime under sqlx 0.9
+    // ("Rust type `bool` (as SQL type `BOOL`) is not compatible with SQL type
+    // `VOID`"). Only `pg_try_advisory_xact_lock`, which returns `bool`, may be
+    // read through `query_scalar`.
+    sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtextextended('sdkwork-payment:credential-rotate:' || CAST($1 AS TEXT) || ':' || CAST($2 AS TEXT), 0))",
     )
     .bind(tenant_id)
     .bind(provider_account_id)
-    .fetch_one(&mut *transaction)
+    .execute(&mut *transaction)
     .await
     .map_err(store_error)?;
     ensure_account_postgres(
@@ -118,12 +124,14 @@ pub async fn ensure_development_provider_credentials_postgres(
     // must be serialized across replicas, or both replicas generate
     // credentials for the same account and the loser crashes into the
     // active-unique index. The advisory lock is transaction-scoped and
-    // key-named, so it excludes only concurrent bootstrap fills.
+    // key-named, so it excludes only concurrent bootstrap fills, and it is
+    // consumed as a statement because `pg_advisory_xact_lock` returns SQL
+    // `VOID` rather than a decodable scalar.
     let mut lock_tx = pool.begin().await.map_err(store_error)?;
-    sqlx::query_scalar::<_, bool>(
+    sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtextextended('sdkwork-payment:bootstrap-credentials', 0))",
     )
-    .fetch_one(&mut *lock_tx)
+    .execute(&mut *lock_tx)
     .await
     .map_err(store_error)?;
     let fill = fill_development_provider_credentials_locked(pool).await;
