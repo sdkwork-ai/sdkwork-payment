@@ -57,12 +57,13 @@ struct IntegrationState {
     sandbox_trigger_enabled: bool,
 }
 
-/// Sandbox settlement injection is a development affordance and is disabled
-/// fail-closed on every production-like environment (staging, prod, unknown).
+/// Sandbox settlement injection is a development affordance and is enabled
+/// only on explicitly non-production environments (dev, test); staging, prod,
+/// and unknown environments stay fail-closed.
 fn sandbox_trigger_enabled_for_environment() -> bool {
-    !matches!(
+    matches!(
         sdkwork_payment_service_host::payment_runtime_environment(),
-        sdkwork_web_core::WebEnvironment::Prod
+        sdkwork_web_core::WebEnvironment::Dev | sdkwork_web_core::WebEnvironment::Test
     )
 }
 
@@ -1385,11 +1386,18 @@ async fn check_attempt_status(
             Ok(tx) => tx,
             Err(error) => return map_service_error(ctx, storage(error.to_string())),
         };
+        // The PSP query response carries the charge amount too; the same
+        // settlement integrity check applies to query-driven confirmation.
+        let notified_amount = sdkwork_payment_repository_sqlx::extract_notified_payment_amount(
+            &attempt.provider_code,
+            &query_outcome.payload,
+        );
         let applied = match apply_webhook_payment_status_postgres(
             &mut tx,
             &identity,
             Some(&raw_status),
             &now_string(),
+            notified_amount.as_ref(),
         )
         .await
         {
@@ -1417,8 +1425,13 @@ async fn check_attempt_status(
         if let Err(error) = tx.commit().await {
             return map_service_error(ctx, storage(error.to_string()));
         }
-        if let Some(applied) = applied.status {
-            local_status = applied;
+        // A settlement refused for an integrity reason (amount/currency
+        // mismatch) leaves the attempt untouched: report the current local
+        // state, not the provider status that was rejected.
+        if applied.rejected_reason.is_none() {
+            if let Some(applied) = applied.status {
+                local_status = applied;
+            }
         }
     }
     success_item(

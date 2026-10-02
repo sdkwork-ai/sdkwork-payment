@@ -72,6 +72,36 @@ pub struct IngestProviderRefundWebhookOutcome {
     pub payment_attempt_context: Option<PaymentWebhookAttemptContext>,
 }
 
+/// Outcome of applying a refund notification to the refund state machine.
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum RefundWebhookApply {
+    /// No `refund_no` in the notification — nothing to resolve.
+    NotAttempted,
+    /// No `commerce_refund` matches the notification's refund_no.
+    RefundNotFound,
+    /// The notification names a different amount than the stored refund; the
+    /// state machine was not advanced and the event must stay failed.
+    RejectedAmountMismatch,
+    /// The (possibly unchanged) refund state after applying the notification.
+    Applied(IngestedRefundContext),
+}
+
+impl RefundWebhookApply {
+    fn context(&self) -> Option<IngestedRefundContext> {
+        match self {
+            RefundWebhookApply::Applied(context) => Some(context.clone()),
+            _ => None,
+        }
+    }
+
+    fn rejection_reason(&self) -> Option<&'static str> {
+        match self {
+            RefundWebhookApply::RejectedAmountMismatch => Some("refund_amount_mismatch"),
+            _ => None,
+        }
+    }
+}
+
 /// Ingests a provider refund notification idempotently and advances the
 /// refund status machine. The event is persisted with the same identity rules
 /// as payment webhooks; unmatched refunds (missing/unknown refund_no) are
@@ -150,7 +180,15 @@ pub async fn ingest_provider_refund_webhook_postgres(
 
     let facts = parse_refund_notify_facts(&command.payload);
     let refund_no = facts.refund_no.as_deref();
-    let applied_refund = match refund_no {
+    // Refund notifications carry the refunded amount; a recognized amount
+    // that disagrees with the stored refund row must never advance the
+    // refund (a mis-routed or tampered notification could otherwise mark a
+    // large refund as settled when only a small one was paid out).
+    let notified_refund_minor = facts
+        .refund_amount
+        .as_deref()
+        .and_then(crate::webhook_amount::parse_notified_refund_minor);
+    let applied = match refund_no {
         Some(refund_no) => {
             apply_webhook_refund_status_postgres(
                 &mut tx,
@@ -158,24 +196,26 @@ pub async fn ingest_provider_refund_webhook_postgres(
                 organization_id.as_deref(),
                 refund_no,
                 facts.refund_status.as_deref(),
+                notified_refund_minor,
                 &now,
             )
             .await?
         }
-        None => None,
+        None => RefundWebhookApply::NotAttempted,
     };
+    let applied_refund = applied.context();
 
     let provider_scoped_event_id =
         provider_scoped_webhook_event_id(&provider_code, provider_event_id);
     let internal_id = webhook_event_storage_id(&tenant_id, &provider_scoped_event_id);
-    let unmatched_reason = if applied_refund.is_none() {
-        Some(if refund_no.is_some() {
+    let unmatched_reason = if applied_refund.is_some() {
+        None
+    } else {
+        Some(applied.rejection_reason().unwrap_or(if refund_no.is_some() {
             "refund_not_found"
         } else {
             "refund_no_missing"
-        })
-    } else {
-        None
+        }))
     };
     let payload_json = build_stored_webhook_payload(WebhookEventPayloadInput {
         provider_code: &provider_code,
@@ -207,7 +247,7 @@ pub async fn ingest_provider_refund_webhook_postgres(
     };
     let inserted = persist_webhook_event_postgres(&mut tx, &insert).await?;
     let refund = if inserted {
-        applied_refund
+        applied
     } else {
         // A redelivered refund notification replays the status application
         // against the stored provider payload; the status machine is
@@ -226,21 +266,27 @@ pub async fn ingest_provider_refund_webhook_postgres(
         match stored_facts {
             Some(facts) => match (facts.refund_no.as_deref(), facts.refund_status.as_deref()) {
                 (Some(refund_no), Some(raw_status)) => {
+                    let stored_refund_minor = facts
+                        .refund_amount
+                        .as_deref()
+                        .and_then(crate::webhook_amount::parse_notified_refund_minor);
                     apply_webhook_refund_status_postgres(
                         &mut tx,
                         &tenant_id,
                         organization_id.as_deref(),
                         refund_no,
                         Some(raw_status),
+                        stored_refund_minor,
                         &now,
                     )
                     .await?
                 }
-                _ => applied_refund,
+                _ => applied,
             },
-            None => applied_refund,
+            None => applied,
         }
     };
+    let refund = refund.context();
 
     if let Some(context) = refund.as_ref() {
         sqlx::query(
@@ -398,15 +444,17 @@ fn layered_json_string(
 /// Resolves the exact refund by `refund_no` and advances the refund status
 /// machine from the provider notification. Terminal states are preserved:
 /// a succeeded refund is never overwritten; a failed refund may retry to
-/// processing. Returns `None` when no refund matches the refund_no.
+/// processing. Money-affecting transitions (processing, succeeded) refuse a
+/// notification whose parsed amount disagrees with the stored refund row.
 async fn apply_webhook_refund_status_postgres(
     tx: &mut Transaction<'_, Postgres>,
     tenant_id: &str,
     organization_id: Option<&str>,
     refund_no: &str,
     raw_status: Option<&str>,
+    notified_refund_minor: Option<i64>,
     now: &str,
-) -> Result<Option<IngestedRefundContext>, CommerceServiceError> {
+) -> Result<RefundWebhookApply, CommerceServiceError> {
     let row = sqlx::query(
         r#"
         SELECT id, order_id, payment_attempt_id, status,
@@ -427,7 +475,7 @@ async fn apply_webhook_refund_status_postgres(
     .await
     .map_err(|error| store_error("failed to load refund for webhook", error))?;
     let Some(row) = row else {
-        return Ok(None);
+        return Ok(RefundWebhookApply::RefundNotFound);
     };
     let refund_id = string_cell(&row, "id");
     let order_id = string_cell(&row, "order_id");
@@ -435,7 +483,7 @@ async fn apply_webhook_refund_status_postgres(
     let current_status = string_cell(&row, "status");
 
     let Some(target_status) = map_provider_refund_status_raw(raw_status) else {
-        return Ok(Some(IngestedRefundContext {
+        return Ok(RefundWebhookApply::Applied(IngestedRefundContext {
             refund_id,
             refund_no: refund_no.to_owned(),
             order_id,
@@ -445,11 +493,32 @@ async fn apply_webhook_refund_status_postgres(
             amount,
         }));
     };
+    // Settlement integrity: only transitions that move money (processing,
+    // succeeded) are gated on the amount; failed/closed notifications carry
+    // no payout and must always be able to land.
+    if matches!(
+        target_status,
+        REFUND_STATUS_SUCCEEDED | REFUND_STATUS_PROCESSING
+    ) {
+        if let Some(notified_minor) = notified_refund_minor {
+            let stored_minor = crate::shared::money_to_minor_units(&amount)?;
+            if notified_minor != stored_minor {
+                tracing::warn!(
+                    target = "payment.refund.webhook",
+                    refund_no = refund_no,
+                    notified_minor = notified_minor,
+                    stored_minor = stored_minor,
+                    "provider refund notification amount does not match the stored refund; refusing transition"
+                );
+                return Ok(RefundWebhookApply::RejectedAmountMismatch);
+            }
+        }
+    }
     let Some((event_type, from_status)) = refund_status_transition(&current_status, target_status)
     else {
         // Terminal-preserved replay (e.g. succeeded → succeeded) reports the
         // current state without rewriting history.
-        return Ok(Some(IngestedRefundContext {
+        return Ok(RefundWebhookApply::Applied(IngestedRefundContext {
             refund_id,
             refund_no: refund_no.to_owned(),
             order_id,
@@ -500,7 +569,7 @@ async fn apply_webhook_refund_status_postgres(
     )
     .await?;
 
-    Ok(Some(IngestedRefundContext {
+    Ok(RefundWebhookApply::Applied(IngestedRefundContext {
         refund_id,
         refund_no: refund_no.to_owned(),
         order_id,

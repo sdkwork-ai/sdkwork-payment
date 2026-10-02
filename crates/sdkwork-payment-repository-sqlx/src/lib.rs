@@ -19,6 +19,7 @@ mod provider_credential;
 mod shared;
 mod webhook_event_payload;
 mod webhook_replay;
+pub mod webhook_amount;
 pub mod webhook_status;
 
 pub use compensation_claim::{
@@ -76,3 +77,4 @@ pub use webhook_replay::{
     replay_stored_webhook_event_postgres, StoredWebhookReplayResult, WebhookStoredReplayScope,
     WEBHOOK_STORED_REPLAY_MAX_RETRIES,
 };
+pub use webhook_amount::{extract_notified_payment_amount, NotifiedWebhookAmount};

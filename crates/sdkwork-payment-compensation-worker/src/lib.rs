@@ -454,6 +454,16 @@ async fn submit_refund(
         .trim()
         .parse()
         .map_err(|_| ReconcileError::Failed(CommerceServiceError::validation("claimed refund amount is not a minor-unit integer")))?;
+    // Re-submission must reuse the exact idempotency key the original
+    // submission used (operations.rs derives it from out_trade_no +
+    // refund_no): when the PSP accepted a refund but the local flip to
+    // `processing` was lost, a keyless retry would create a second refund.
+    let idempotency_key =
+        sdkwork_payment_providers::provider_operation_idempotency_key(
+            "refund",
+            &refund.provider_code,
+            &[attempt.out_trade_no.as_str(), refund.refund_no.as_str()],
+        );
     let outcome = adapter
         .create_refund(PaymentCreateRefundRequest {
             payment_intent_id: Some(attempt.provider_transaction_id.clone().unwrap_or_else(|| attempt.out_trade_no.clone())),
@@ -461,6 +471,7 @@ async fn submit_refund(
             amount_minor: Some(amount_minor),
             reason: None,
             metadata: serde_json::json!({
+                "idempotency_key": idempotency_key,
                 "refund_no": refund.refund_no,
                 "total_amount_minor": attempt.amount,
             }),

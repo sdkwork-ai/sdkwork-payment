@@ -39,8 +39,9 @@ pub use dev_credentials::{
     generate_development_credentials, has_environment_provider_credentials, DevelopmentCredentials,
 };
 pub use operations::{
-    cancel_provider_payment, create_provider_refund, query_provider_payment_intent,
-    query_provider_refund, ProviderPaymentQueryState, ProviderRefundSubmissionState,
+    cancel_provider_payment, create_provider_refund, provider_operation_idempotency_key,
+    query_provider_payment_intent, query_provider_refund, ProviderPaymentQueryState,
+    ProviderRefundSubmissionState,
 };
 pub use registry::{provider_registry_for_account, PaymentProviderRegistry};
 pub use sandbox_webhook::SandboxWebhookPaymentProviderAdapter;

@@ -102,13 +102,30 @@ pub async fn replay_stored_webhook_event_postgres(
             "stored webhook has no exact payment attempt identity to replay",
         )
     })?;
+    // Re-application re-validates the stored provider payload so a
+    // tampered-at-rest or previously-unchecked amount cannot settle on
+    // replay either.
+    let notified_amount = payload
+        .get("providerPayload")
+        .and_then(|provider_payload| {
+            crate::webhook_amount::extract_notified_payment_amount(
+                &provider_code,
+                provider_payload,
+            )
+        });
     let applied_status = crate::postgres_webhook_ingestion::apply_webhook_payment_status_postgres(
         &mut tx,
         identity,
         stored.payment_status.as_deref(),
         &now,
+        notified_amount.as_ref(),
     )
     .await?;
+    if let Some(reason) = applied_status.rejected_reason.as_deref() {
+        return Err(CommerceServiceError::conflict(format!(
+            "stored webhook replay refused settlement: {reason}"
+        )));
+    }
     ensure_replay_target_applied(&stored.payment_status, &applied_status.status)?;
     let payment_attempt_context =
         if applied_status.applied && applied_status.status.as_deref() == Some("succeeded") {

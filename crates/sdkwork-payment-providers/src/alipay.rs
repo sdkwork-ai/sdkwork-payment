@@ -382,8 +382,29 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
         request: PaymentVerifyWebhookRequest,
     ) -> PaymentAdapterFuture<'a, PaymentWebhookVerificationOutcome> {
         let signer = self.client.signer.clone();
+        let expected_app_id = self.client.app_id.clone();
         Box::pin(async move {
             let fields = parse_form_body(&request.body, PaymentAdapterOperation::VerifyWebhook)?;
+            // The Alipay platform public key is shared by every merchant app,
+            // so a valid signature alone only proves "signed by Alipay". The
+            // `app_id` field is what binds a notification to this merchant
+            // app; a genuine notify for a different app (out_trade_no
+            // collision) must not settle here. A notification without
+            // `app_id` cannot be a genuine signed trade notify (stripping the
+            // field breaks the signature), so absence stays covered by the
+            // RSA check and dev signature-test payloads remain usable.
+            if let Some(app_id) = form_value(&fields, "app_id") {
+                if app_id != expected_app_id {
+                    tracing::warn!(
+                        target = "payment.providers.alipay",
+                        "alipay webhook app_id does not match the configured merchant app"
+                    );
+                    return Ok(PaymentWebhookVerificationOutcome {
+                        verified: false,
+                        provider_event_id: None,
+                    });
+                }
+            }
             let signature = form_value(&fields, "sign").ok_or_else(|| {
                 ProviderError::invalid_request(
                     PaymentAdapterOperation::VerifyWebhook,

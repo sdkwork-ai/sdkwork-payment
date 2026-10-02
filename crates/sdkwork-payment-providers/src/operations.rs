@@ -333,7 +333,11 @@ fn provider_refund_reference<'a>(
     Ok(out_trade_no)
 }
 
-fn provider_operation_idempotency_key(
+/// Deterministic idempotency key for a provider operation. Every caller that
+/// submits a create to a PSP must derive the key here and carry it in the
+/// request metadata so retries (compensation worker re-submission, redelivery)
+/// reuse the provider's idempotency window instead of double-charging.
+pub fn provider_operation_idempotency_key(
     operation: &str,
     provider_code: &str,
     identity_parts: &[&str],

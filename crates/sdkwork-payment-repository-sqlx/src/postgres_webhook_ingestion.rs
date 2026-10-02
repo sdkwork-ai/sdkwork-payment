@@ -259,11 +259,20 @@ pub async fn ingest_provider_webhook_postgres(
             .map_err(|error| store_error("failed to commit unmatched webhook event", error))?;
         return Ok(empty_ingest_outcome(internal_id, !inserted));
     };
+    // Provider notifications carry the charge amount; a recognized amount
+    // that disagrees with the stored attempt must never settle the payment
+    // (webhook_amount module docs). Extraction returns None for payload
+    // shapes without amounts, keeping synthetic/sandbox events unchanged.
+    let notified_amount = crate::webhook_amount::extract_notified_payment_amount(
+        &provider_code,
+        &command.payload,
+    );
     let applied_payment_status = apply_webhook_payment_status_postgres(
         &mut tx,
         &attempt_identity,
         payment_status.as_deref(),
         &now,
+        notified_amount.as_ref(),
     )
     .await?;
     let applied_status = applied_payment_status.status.clone();
@@ -285,18 +294,29 @@ pub async fn ingest_provider_webhook_postgres(
     } else {
         None
     };
+    // A settlement refused for an integrity reason (amount/currency
+    // mismatch) is recorded as a failed event with the reason, so the
+    // provider is acked without a retry loop while the payload stays
+    // available for forensics and manual replay.
+    let (event_final_status, event_last_error) =
+        if let Some(reason) = applied_payment_status.rejected_reason.as_deref() {
+            (WEBHOOK_EVENT_STATUS_FAILED, Some(reason))
+        } else {
+            (WEBHOOK_EVENT_STATUS_PROCESSED, None)
+        };
     sqlx::query(
         r#"
         UPDATE commerce_payment_webhook_event
         SET status = $1, processed_at = $2::timestamptz, updated_at = $2::timestamptz,
-            last_error = NULL
-        WHERE id = CAST($3 AS TEXT)
-          AND tenant_id = CAST($4 AS TEXT)
-          AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
+            last_error = $3
+        WHERE id = CAST($4 AS TEXT)
+          AND tenant_id = CAST($5 AS TEXT)
+          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $6 IS NULL) OR (organization_id = '0' AND $6 IS NULL))
         "#,
     )
-    .bind(WEBHOOK_EVENT_STATUS_PROCESSED)
+    .bind(event_final_status)
     .bind(&now)
+    .bind(event_last_error)
     .bind(&internal_id)
     .bind(&tenant_id)
     .bind(organization_id.as_deref())
@@ -359,11 +379,15 @@ pub(crate) async fn load_existing_webhook_event_postgres(
 /// Result of applying a webhook payment status: the resulting status and
 /// whether the webhook actually transitioned the payment. `applied=false`
 /// marks a terminal-conflict ack (the webhook status conflicts with an
-/// already-terminal state and nothing changed).
+/// already-terminal state and nothing changed). `rejected_reason` is set when
+/// settlement was refused for an integrity reason (e.g. the notification
+/// amount does not match the stored attempt amount): the event must be
+/// recorded as failed for forensics instead of acked as processed.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AppliedPaymentStatus {
     pub status: Option<String>,
     pub applied: bool,
+    pub rejected_reason: Option<String>,
 }
 
 /// Whether a webhook status may transition the current payment state.
@@ -393,10 +417,12 @@ pub async fn apply_webhook_payment_status_postgres(
     identity: &PaymentWebhookAttemptIdentity,
     payment_status: Option<&str>,
     now: &str,
+    notified_amount: Option<&crate::webhook_amount::NotifiedWebhookAmount>,
 ) -> Result<AppliedPaymentStatus, CommerceServiceError> {
     let row = sqlx::query(
         r#"
-        SELECT id, payment_intent_id, tenant_id, organization_id, owner_user_id, order_id, status
+        SELECT id, payment_intent_id, tenant_id, organization_id, owner_user_id, order_id, status,
+               CAST(amount AS BIGINT)::TEXT AS amount, currency_code
         FROM commerce_payment_attempt
         WHERE id = CAST($1 AS TEXT)
           AND payment_intent_id = CAST($2 AS TEXT)
@@ -436,6 +462,7 @@ pub async fn apply_webhook_payment_status_postgres(
         return Ok(AppliedPaymentStatus {
             status: None,
             applied: false,
+            rejected_reason: None,
         });
     };
     let Some(target_status) = map_provider_payment_status(&identity.provider_code, raw_status)
@@ -443,8 +470,66 @@ pub async fn apply_webhook_payment_status_postgres(
         return Ok(AppliedPaymentStatus {
             status: None,
             applied: false,
+            rejected_reason: None,
         });
     };
+    // Settlement integrity: a success notification that names a different
+    // amount (or currency) than the stored attempt must never confirm the
+    // payment. Signature checks prove the notification is genuine; this check
+    // proves it describes THIS charge. Unrecognized payloads (compensation
+    // synthetic events, sandbox injections) carry no amount and skip the
+    // check exactly as before.
+    if target_status == "succeeded" {
+        if let Some(notified) = notified_amount {
+            let attempt_amount_minor =
+                crate::shared::money_to_minor_units(&string_cell(&row, "amount"))?;
+            if notified.minor != attempt_amount_minor {
+                let notified_minor_value = notified.minor;
+                tracing::warn!(
+                    target = "payment.webhook.settlement",
+                    provider_code = %identity.provider_code,
+                    out_trade_no = %identity.out_trade_no,
+                    notified_minor = notified_minor_value,
+                    attempt_minor = attempt_amount_minor,
+                    "provider success notification amount does not match the payment attempt; refusing settlement"
+                );
+                return Ok(AppliedPaymentStatus {
+                    status: Some(target_status.to_owned()),
+                    applied: false,
+                    rejected_reason: Some(format!(
+                        "payment_amount_mismatch: notified {notified_minor_value} != attempt {attempt_amount_minor}"
+                    )),
+                });
+            }
+            let attempt_currency = row
+                .try_get::<Option<String>, _>("currency_code")
+                .ok()
+                .flatten()
+                .map(|value| value.trim().to_ascii_uppercase())
+                .filter(|value| !value.is_empty());
+            if let (Some(notified_currency), Some(attempt_currency)) =
+                (notified.currency.as_deref(), attempt_currency.as_deref())
+            {
+                if !notified_currency.eq_ignore_ascii_case(attempt_currency) {
+                    tracing::warn!(
+                        target = "payment.webhook.settlement",
+                        provider_code = %identity.provider_code,
+                        out_trade_no = %identity.out_trade_no,
+                        notified_currency = notified_currency,
+                        attempt_currency = attempt_currency,
+                        "provider success notification currency does not match the payment attempt; refusing settlement"
+                    );
+                    return Ok(AppliedPaymentStatus {
+                        status: Some(target_status.to_owned()),
+                        applied: false,
+                        rejected_reason: Some(format!(
+                            "payment_currency_mismatch: notified {notified_currency} != attempt {attempt_currency}"
+                        )),
+                    });
+                }
+            }
+        }
+    }
     let order_row = sqlx::query(
         r#"
         SELECT id
@@ -575,6 +660,7 @@ pub async fn apply_webhook_payment_status_postgres(
             return Ok(AppliedPaymentStatus {
                 status: Some(intent_status),
                 applied: false,
+                rejected_reason: None,
             });
         }
         let updated = sqlx::query(
@@ -604,6 +690,7 @@ pub async fn apply_webhook_payment_status_postgres(
             return Ok(AppliedPaymentStatus {
                 status: Some(attempt_status),
                 applied: false,
+                rejected_reason: None,
             });
         }
         let updated = sqlx::query(
@@ -638,6 +725,7 @@ pub async fn apply_webhook_payment_status_postgres(
     Ok(AppliedPaymentStatus {
         status: Some(target_status.to_owned()),
         applied: true,
+        rejected_reason: None,
     })
 }
 
