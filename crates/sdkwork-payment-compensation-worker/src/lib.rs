@@ -362,9 +362,13 @@ async fn reconcile_attempt(
         &context,
     )
     .await?;
-    // Stripe queries by the native PaymentIntent id; WeChat and Alipay by the
-    // merchant out-trade-no (same rule as the admin check endpoint).
-    let query_reference = if context.provider_code.eq_ignore_ascii_case("stripe") {
+    // Stripe queries by the native PaymentIntent id and PayPal by the PayPal
+    // order id (both stored as the provider transaction id); WeChat and
+    // Alipay by the merchant out-trade-no (same rule as the admin check
+    // endpoint).
+    let query_reference = if context.provider_code.eq_ignore_ascii_case("stripe")
+        || context.provider_code.eq_ignore_ascii_case("paypal")
+    {
         context
             .provider_transaction_id
             .clone()

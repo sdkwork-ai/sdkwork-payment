@@ -1,4 +1,4 @@
-use crate::registry::{AlipayRegistryConfig, WeChatPayRegistryConfig};
+use crate::registry::{AlipayRegistryConfig, PayPalRegistryConfig, WeChatPayRegistryConfig};
 use crate::stripe::StripePaymentProviderConfig;
 use crate::wechat_pay::WeChatPaySignVerifyMode;
 
@@ -44,6 +44,7 @@ pub struct ProviderCredentialBundle {
     pub stripe: Option<StripePaymentProviderConfig>,
     pub alipay: Option<AlipayRegistryConfig>,
     pub wechat_pay: Option<WeChatPayRegistryConfig>,
+    pub paypal: Option<PayPalRegistryConfig>,
     pub webhook_base_url: Option<String>,
 }
 
@@ -53,6 +54,7 @@ impl ProviderCredentialBundle {
             stripe: load_stripe(),
             alipay: load_alipay(),
             wechat_pay: load_wechat_pay(),
+            paypal: load_paypal(),
             webhook_base_url: load_webhook_base_url(),
         }
     }
@@ -71,6 +73,7 @@ impl ProviderCredentialBundle {
             "stripe" => merge_stripe_account(&mut self, account),
             "alipay" => merge_alipay_account(&mut self, account),
             "wechat_pay" => merge_wechat_account(&mut self, account),
+            "paypal" => merge_paypal_account(&mut self, account),
             _ => {}
         }
         self
@@ -120,6 +123,17 @@ fn load_wechat_pay() -> Option<WeChatPayRegistryConfig> {
         sign_verify_mode,
         verification_key_pem: env_optional("WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM"),
         verification_serial_no,
+    })
+}
+
+fn load_paypal() -> Option<PayPalRegistryConfig> {
+    Some(PayPalRegistryConfig {
+        client_id: env_required("PAYPAL_CLIENT_ID")?,
+        client_secret: env_required("PAYPAL_CLIENT_SECRET")?,
+        webhook_id: env_optional("PAYPAL_WEBHOOK_ID"),
+        sandbox: env_optional("PAYPAL_SANDBOX")
+            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
     })
 }
 
@@ -264,6 +278,41 @@ fn merge_wechat_account(bundle: &mut ProviderCredentialBundle, account: &Provide
     });
 }
 
+/// PayPal account binding: the client id rides `merchant_id` (or
+/// `metadata.clientId`), the client secret is the primary secret, and the
+/// webhook id occupies the webhook-secret slot. Unlike WeChat, the webhook
+/// id is an account identifier rather than a verification key — but it is
+/// still never fabricated by dev credential generation, so webhook
+/// verification fails closed until the operator installs the real value.
+fn merge_paypal_account(bundle: &mut ProviderCredentialBundle, account: &ProviderAccountBinding) {
+    let Some(client_id) = account
+        .merchant_id
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| metadata_string(&account.metadata, "clientId"))
+    else {
+        return;
+    };
+    let Some(client_secret) = account
+        .primary_secret
+        .clone()
+        .or_else(|| resolve_secret_ref(&account.secret_ref))
+    else {
+        return;
+    };
+    bundle.paypal = Some(PayPalRegistryConfig {
+        client_id,
+        client_secret,
+        webhook_id: account.webhook_secret.clone().or_else(|| {
+            account
+                .webhook_secret_ref
+                .as_ref()
+                .and_then(|value| resolve_secret_ref(value))
+        }),
+        sandbox: account.environment.eq_ignore_ascii_case("sandbox"),
+    });
+}
+
 fn metadata_string(metadata: &serde_json::Value, key: &str) -> Option<String> {
     metadata
         .get(key)
@@ -283,6 +332,7 @@ mod tests {
             stripe: None,
             alipay: None,
             wechat_pay: None,
+            paypal: None,
             webhook_base_url: None,
         };
         let account = ProviderAccountBinding {

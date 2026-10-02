@@ -31,9 +31,10 @@ pub struct NotifiedWebhookAmount {
 /// `None` when the payload shape carries no recognizable amount.
 ///
 /// Both the async-notification shape (WeChat decrypted under
-/// `resource_plaintext`, Stripe under `data.object`) and the direct
-/// query-response shape (top-level fields, used by PSP status queries) are
-/// accepted so the same check covers settlement from either source.
+/// `resource_plaintext`, Stripe under `data.object`, PayPal under
+/// `resource`) and the direct query-response shape (top-level fields, used
+/// by PSP status queries) are accepted so the same check covers settlement
+/// from either source.
 pub fn extract_notified_payment_amount(
     provider_code: &str,
     payload: &Value,
@@ -70,6 +71,27 @@ pub fn extract_notified_payment_amount(
                 minor: amount,
                 currency,
             })
+        }
+        "paypal" => {
+            // Capture/refund events embed the amount on the resource; order
+            // query responses nest it under the first purchase unit (with or
+            // without the event envelope's `resource` wrapper); capture GET
+            // responses carry it at the top level. PayPal amounts are
+            // major-unit decimal strings.
+            let resource = payload.get("resource");
+            let amount = resource
+                .and_then(|candidate| candidate.get("amount"))
+                .or_else(|| payload.pointer("/resource/purchase_units/0/amount"))
+                .or_else(|| payload.pointer("/purchase_units/0/amount"))
+                .or_else(|| payload.get("amount"))?;
+            let value = amount.get("value").and_then(Value::as_str)?;
+            let minor = major_decimal_to_minor(value)?;
+            let currency = amount
+                .get("currency_code")
+                .and_then(Value::as_str)
+                .map(|value| value.trim().to_ascii_uppercase())
+                .filter(|value| !value.is_empty());
+            Some(NotifiedWebhookAmount { minor, currency })
         }
         _ => None,
     }
@@ -200,6 +222,38 @@ mod tests {
         .expect("query object carries amount");
         assert_eq!(1200, amount.minor);
         assert_eq!(Some("EUR".to_owned()), amount.currency);
+    }
+
+    #[test]
+    fn paypal_amount_and_currency_come_from_the_capture_resource() {
+        let amount = extract_notified_payment_amount(
+            "paypal",
+            &json!({
+                "id": "WH-1",
+                "event_type": "PAYMENT.CAPTURE.COMPLETED",
+                "resource": {
+                    "custom_id": "trade-1",
+                    "amount": { "value": "10.50", "currency_code": "USD" },
+                },
+            }),
+        )
+        .expect("paypal capture event carries resource amount");
+        assert_eq!(1050, amount.minor);
+        assert_eq!(Some("USD".to_owned()), amount.currency);
+
+        // Order query responses nest the amount under the purchase unit.
+        let order_amount = extract_notified_payment_amount(
+            "paypal",
+            &json!({
+                "id": "5O190127TN364715T",
+                "status": "COMPLETED",
+                "purchase_units": [{
+                    "amount": { "value": "88.88", "currency_code": "USD" },
+                }],
+            }),
+        )
+        .expect("paypal order response carries purchase-unit amount");
+        assert_eq!(8888, order_amount.minor);
     }
 
     #[test]

@@ -154,10 +154,15 @@ impl ReqwestHttpClient {
         let url = url.to_owned();
         let method = method.to_owned();
         Box::pin(async move {
+            // A keyed POST is PSP-side idempotent (Stripe `Idempotency-Key`,
+            // PayPal `PayPal-Request-Id`), so a transport failure or a
+            // 429/5xx is safe to repeat; without the key the request may
+            // have landed server-side and repeating could double-create.
             let retryable = method == "GET"
-                || extra_headers
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case("Idempotency-Key"));
+                || extra_headers.iter().any(|(name, _)| {
+                    name.eq_ignore_ascii_case("Idempotency-Key")
+                        || name.eq_ignore_ascii_case("PayPal-Request-Id")
+                });
             let attempt = |_attempt_index: u32| {
                 let client = client.clone();
                 let url = url.clone();

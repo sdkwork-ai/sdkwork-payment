@@ -183,6 +183,17 @@ fn payment_params_from_provider(
                 params.insert("nextAction".to_owned(), "qr_code".to_owned());
             }
         }
+        "paypal" => {
+            // PayPal's buyer flow is the hosted approval page: the payer is
+            // redirected to the order's `approve` link, and settlement is
+            // confirmed by the PAYMENT.CAPTURE.COMPLETED webhook afterwards.
+            if let Some(approve_url) =
+                outcome.payload.get("approve_url").and_then(Value::as_str)
+            {
+                params.insert("payUrl".to_owned(), approve_url.to_owned());
+                params.insert("nextAction".to_owned(), "redirect".to_owned());
+            }
+        }
         _ => {
             params.insert("nextAction".to_owned(), "cashier".to_owned());
         }

@@ -37,7 +37,7 @@ pub struct DevelopmentCredentials {
 }
 
 /// Generates real-format test credentials for `provider_code`
-/// (`stripe` / `alipay` / `wechat_pay`).
+/// (`stripe` / `alipay` / `wechat_pay` / `paypal`).
 pub fn generate_development_credentials(
     provider_code: &str,
 ) -> Result<DevelopmentCredentials, String> {
@@ -77,6 +77,17 @@ pub fn generate_development_credentials(
                 wechatpay_public_key_id: None,
             })
         }
+        "paypal" => Ok(DevelopmentCredentials {
+            // PayPal authenticates server-to-server with OAuth2 client
+            // credentials; the client id lives on the account's merchant_id
+            // slot (seeded by the template), the secret here. The dashboard
+            // webhook_id is operator installed and never fabricated, so
+            // remote webhook verification fails closed until it is real.
+            primary_secret: format!("paypal_test_client_secret_{}", random_hex(24)),
+            webhook_secret: None,
+            certificate: None,
+            wechatpay_public_key_id: None,
+        }),
         _ => Err(format!(
             "provider {provider_code} has no development credential template"
         )),
@@ -85,8 +96,9 @@ pub fn generate_development_credentials(
 
 /// Returns true when the runtime environment already carries the complete
 /// credential set for `provider_code` (`STRIPE_SECRET_KEY`, `ALIPAY_*`,
-/// `WECHAT_PAY_*`). The host skips auto-filling database credentials for such
-/// accounts so operator-provided environment credentials keep taking effect.
+/// `WECHAT_PAY_*`, `PAYPAL_*`). The host skips auto-filling database
+/// credentials for such accounts so operator-provided environment
+/// credentials keep taking effect.
 pub fn has_environment_provider_credentials(provider_code: &str) -> bool {
     match provider_code.trim().to_ascii_lowercase().as_str() {
         "stripe" => env_set("STRIPE_SECRET_KEY"),
@@ -102,6 +114,7 @@ pub fn has_environment_provider_credentials(provider_code: &str) -> bool {
                 && env_set("WECHAT_PAY_PRIVATE_KEY_PEM")
                 && env_set("WECHAT_PAY_API_V3_KEY")
         }
+        "paypal" => env_set("PAYPAL_CLIENT_ID") && env_set("PAYPAL_CLIENT_SECRET"),
         _ => false,
     }
 }

@@ -6,6 +6,7 @@ use crate::alipay::{AlipayPaymentProviderAdapter, AlipayPaymentProviderConfig, R
 use crate::credentials::{
     build_order_payment_webhook_url, ProviderAccountBinding, ProviderCredentialBundle,
 };
+use crate::paypal::PayPalPaymentProviderAdapter;
 use crate::stripe::{StripePaymentProviderAdapter, StripePaymentProviderConfig};
 use crate::wechat_pay::{
     WeChatPayProviderAdapter, WeChatPayProviderConfig, WeChatPaySignVerifyMode,
@@ -32,6 +33,7 @@ impl PaymentProviderRegistry {
         registry.register_stripe(bundle.stripe);
         registry.register_alipay(bundle.alipay, webhook_base.as_deref());
         registry.register_wechat_pay(bundle.wechat_pay, webhook_base.as_deref());
+        registry.register_paypal(bundle.paypal, webhook_base.as_deref());
         // The sandbox webhook adapter accepts UNSIGNED bodies, so it must
         // never be reachable from the public webhook route outside local
         // development: an attacker who knows an `out_trade_no` could settle
@@ -132,6 +134,34 @@ impl PaymentProviderRegistry {
                 .insert("wechat_pay".to_owned(), Arc::new(adapter));
         }
     }
+
+    fn register_paypal(
+        &mut self,
+        config: Option<PayPalRegistryConfig>,
+        webhook_base: Option<&str>,
+    ) {
+        let Some(config) = config else {
+            return;
+        };
+        // PayPal webhooks are bound to the account's dashboard webhook_id
+        // rather than a per-order notify URL; the default notify URL is
+        // registered only so checkout surfaces stay uniform with the other
+        // providers.
+        let notify_url = webhook_base.map(|base| build_order_payment_webhook_url(base, "paypal"));
+        if let Some(notify_url) = notify_url {
+            self.notify_urls.insert("paypal".to_owned(), notify_url);
+        }
+        if let Ok(adapter) = PayPalPaymentProviderAdapter::with_default_http_client(
+            crate::paypal::PayPalPaymentProviderConfig {
+                client_id: config.client_id,
+                client_secret: config.client_secret,
+                webhook_id: config.webhook_id,
+                sandbox: config.sandbox,
+            },
+        ) {
+            self.adapters.insert("paypal".to_owned(), Arc::new(adapter));
+        }
+    }
 }
 
 /// Whether the unsigned sandbox webhook adapter may be registered.
@@ -194,6 +224,16 @@ pub struct WeChatPayRegistryConfig {
     pub verification_serial_no: Option<String>,
 }
 
+#[derive(Clone)]
+pub struct PayPalRegistryConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    /// Dashboard webhook ID; remote signature verification fails closed
+    /// without it.
+    pub webhook_id: Option<String>,
+    pub sandbox: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +273,7 @@ mod tests {
             stripe: None,
             alipay: None,
             wechat_pay: None,
+            paypal: None,
             webhook_base_url: None,
         };
         std::env::set_var("SDKWORK_ENVIRONMENT", "prod");

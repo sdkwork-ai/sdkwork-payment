@@ -34,6 +34,17 @@ pub fn map_provider_payment_status(provider_code: &str, raw_status: &str) -> Opt
             "notpay" | "userpaying" => Some("pending"),
             _ => None,
         },
+        // PayPal order/capture status vocabulary (the normalize layer maps
+        // event types onto these before persistence). REFUND events never
+        // reach the payment mapping: the normalize layer emits `None` for
+        // them, mirroring the WeChat `REFUND` rule.
+        "paypal" => match status.as_str() {
+            "completed" => Some("succeeded"),
+            "voided" => Some("canceled"),
+            "declined" => Some("failed"),
+            "created" | "saved" | "approved" | "pending" => Some("pending"),
+            _ => None,
+        },
         // The sandbox provider mirrors WeChat-style statuses so local
         // development can simulate a PSP payment-success webhook end to end.
         "sandbox" => match status.as_str() {
@@ -70,6 +81,14 @@ pub fn map_provider_refund_status(provider_code: &str, raw_status: &str) -> Opti
             "refund_success" | "refund_succeeded" | "succeeded" | "success" => Some("succeeded"),
             "refund_failed" | "failed" | "fail" => Some("failed"),
             "processing" | "pending" => Some("processing"),
+            _ => None,
+        },
+        // PayPal refund objects (PAYMENT.CAPTURE.REFUNDED family, refund
+        // query responses) plus the capture-state fallback statuses.
+        "paypal" => match status.as_str() {
+            "completed" | "refunded" => Some("succeeded"),
+            "created" | "pending" | "processing" | "partially_refunded" => Some("processing"),
+            "failed" | "cancelled" | "canceled" | "declined" => Some("failed"),
             _ => None,
         },
         // The sandbox provider mirrors WeChat-style refund statuses so local

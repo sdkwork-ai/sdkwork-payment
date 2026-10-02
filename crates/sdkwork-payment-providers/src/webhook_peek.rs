@@ -13,6 +13,7 @@ pub fn peek_webhook_routing_fields(provider_code: &str, body: &[u8]) -> WebhookP
     match provider_code.to_ascii_lowercase().as_str() {
         "stripe" => peek_stripe(body),
         "alipay" => peek_alipay(body),
+        "paypal" => peek_paypal(body),
         "wechat_pay" => WebhookPeekOutcome {
             out_trade_no: None,
             merchant_id: None,
@@ -21,6 +22,29 @@ pub fn peek_webhook_routing_fields(provider_code: &str, body: &[u8]) -> WebhookP
             out_trade_no: None,
             merchant_id: None,
         },
+    }
+}
+
+/// PayPal events carry the merchant trade number in the `custom_id` the
+/// order was created with — duplicated at the top of capture resources and
+/// nested under purchase_units on order resources.
+fn peek_paypal(body: &[u8]) -> WebhookPeekOutcome {
+    let Ok(payload) = serde_json::from_slice::<Value>(body) else {
+        return WebhookPeekOutcome {
+            out_trade_no: None,
+            merchant_id: None,
+        };
+    };
+    let custom_id = payload
+        .pointer("/resource/custom_id")
+        .or_else(|| payload.pointer("/resource/purchase_units/0/custom_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    WebhookPeekOutcome {
+        out_trade_no: custom_id,
+        merchant_id: None,
     }
 }
 

@@ -318,12 +318,19 @@ fn validate_notify_domain(
     hostname: &str,
     port: Option<i32>,
 ) -> Result<(), CommerceServiceError> {
-    if !matches!(
-        protocol.trim().to_ascii_lowercase().as_str(),
-        "https" | "http"
-    ) {
+    let protocol = protocol.trim().to_ascii_lowercase();
+    if !matches!(protocol.as_str(), "https" | "http") {
         return Err(CommerceServiceError::validation(
             "payment notify domain protocol must be https or http",
+        ));
+    }
+    // Plain-text notify URLs expose PSP callbacks to interception and
+    // tampering in flight (WeChat Pay explicitly requires https). Local
+    // development keeps http for loopback testing; every other environment —
+    // including unrecognized values — requires https, fail-closed.
+    if protocol == "http" && !http_notify_protocol_allowed() {
+        return Err(CommerceServiceError::validation(
+            "payment notify domain protocol must be https outside local development",
         ));
     }
     let hostname = hostname.trim();
@@ -342,6 +349,21 @@ fn validate_notify_domain(
         ));
     }
     Ok(())
+}
+
+/// Whether plain-text `http` notify domains may be registered. Only the
+/// explicitly non-production environment values allow it, mirroring the
+/// `web_environment_from_env` mapping (staging/prod/unknown → production
+/// posture).
+fn http_notify_protocol_allowed() -> bool {
+    let environment = ["SDKWORK_ENVIRONMENT", "SDKWORK_PAYMENT_ENVIRONMENT", "PAYMENT_ENVIRONMENT", "SDKWORK_ENV"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok())
+        .unwrap_or_else(|| "development".to_owned());
+    matches!(
+        environment.trim().to_ascii_lowercase().as_str(),
+        "development" | "dev" | "local" | "test" | "testing"
+    )
 }
 
 fn notify_domain_from_row(row: &sqlx::postgres::PgRow) -> NotifyDomainView {

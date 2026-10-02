@@ -31,6 +31,9 @@ pub async fn cancel_provider_payment(
         "stripe" => provider_transaction_id
             .filter(|value| value.starts_with("pi_"))
             .unwrap_or(out_trade_no),
+        // PayPal orders are addressed by their PayPal order id, which the
+        // attempt stored as the provider transaction id at creation.
+        "paypal" => provider_transaction_id.unwrap_or(out_trade_no),
         _ => out_trade_no,
     };
     let idempotency_key = provider_operation_idempotency_key(
@@ -72,6 +75,8 @@ fn cancel_error_means_trade_is_absent(provider_code: &str, error: &ProviderError
                 || (message.contains("PAYMENT_INTENT_UNEXPECTED_STATE")
                     && message.contains("STATUS OF CANCELED"))
         }
+        "paypal" => message.contains("HTTP 404")
+            && (message.contains("INVALID_RESOURCE_ID") || message.contains("RESOURCE_NOT_FOUND")),
         _ => false,
     }
 }
@@ -160,6 +165,9 @@ pub async fn query_provider_payment_intent(
         "stripe" => provider_transaction_id
             .filter(|value| value.starts_with("pi_"))
             .unwrap_or(out_trade_no),
+        // PayPal orders are addressed by the PayPal order id stored as the
+        // provider transaction id.
+        "paypal" => provider_transaction_id.unwrap_or(out_trade_no),
         _ => out_trade_no,
     };
     let result = adapter
@@ -203,6 +211,12 @@ fn provider_payment_query_state(
             "trade_closed" => ProviderPaymentQueryState::Canceled,
             _ => ProviderPaymentQueryState::Pending,
         },
+        "paypal" => match status.as_str() {
+            "completed" => ProviderPaymentQueryState::Succeeded,
+            "voided" => ProviderPaymentQueryState::Canceled,
+            "declined" => ProviderPaymentQueryState::Failed,
+            _ => ProviderPaymentQueryState::Pending,
+        },
         _ => ProviderPaymentQueryState::Pending,
     }
 }
@@ -220,6 +234,8 @@ fn payment_query_error_means_not_found(provider_code: &str, error: &ProviderErro
                 && (message.contains("ORDER_NOT_EXIST") || message.contains("RESOURCE_NOT_EXISTS"))
         }
         "alipay" => message.contains("ACQ.TRADE_NOT_EXIST"),
+        "paypal" => message.contains("HTTP 404")
+            && (message.contains("INVALID_RESOURCE_ID") || message.contains("RESOURCE_NOT_FOUND")),
         _ => false,
     }
 }
@@ -277,6 +293,15 @@ fn provider_refund_submission_state(
             "failed" | "canceled" | "cancelled" => ProviderRefundSubmissionState::Failed,
             _ => ProviderRefundSubmissionState::Processing,
         },
+        // PayPal refund objects report COMPLETED / PENDING / …, and the
+        // capture-state fallback reports REFUNDED / PROCESSING.
+        "paypal" => match status.as_str() {
+            "completed" | "refunded" => ProviderRefundSubmissionState::Succeeded,
+            "failed" | "declined" | "canceled" | "cancelled" | "voided" => {
+                ProviderRefundSubmissionState::Failed
+            }
+            _ => ProviderRefundSubmissionState::Processing,
+        },
         "wechat_pay" => match status.as_str() {
             "success" => ProviderRefundSubmissionState::Succeeded,
             "closed" | "abnormal" => ProviderRefundSubmissionState::Failed,
@@ -312,6 +337,8 @@ fn refund_query_error_means_not_found(provider_code: &str, error: &ProviderError
                 || message.contains("ACQ.REFUND_NOT_EXIST")
                 || message.contains("ACQ.REFUND_RECORD_NOT_EXIST")
         }
+        "paypal" => message.contains("HTTP 404")
+            && (message.contains("INVALID_RESOURCE_ID") || message.contains("RESOURCE_NOT_FOUND")),
         _ => false,
     }
 }
@@ -327,6 +354,17 @@ fn provider_refund_reference<'a>(
             .ok_or_else(|| {
                 CommerceServiceError::conflict(
                     "Stripe refund requires the original provider transaction id",
+                )
+            });
+    }
+    if provider_code == "paypal" {
+        // PayPal refunds address a capture that only exists on the stored
+        // PayPal order; the out_trade_no alone cannot locate it.
+        return provider_transaction_id
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CommerceServiceError::conflict(
+                    "PayPal refund requires the original provider transaction id",
                 )
             });
     }

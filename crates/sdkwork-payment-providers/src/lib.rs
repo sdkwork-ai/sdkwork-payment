@@ -10,6 +10,7 @@ mod error;
 mod http;
 mod money;
 mod operations;
+mod paypal;
 mod registry;
 mod sandbox_webhook;
 mod stripe;
@@ -43,6 +44,7 @@ pub use operations::{
     query_provider_payment_intent, query_provider_refund, ProviderPaymentQueryState,
     ProviderRefundSubmissionState,
 };
+pub use paypal::{PayPalPaymentProviderAdapter, PayPalPaymentProviderConfig};
 pub use registry::{provider_registry_for_account, PaymentProviderRegistry};
 pub use sandbox_webhook::SandboxWebhookPaymentProviderAdapter;
 pub use webhook_peek::{peek_webhook_routing_fields, WebhookPeekOutcome};

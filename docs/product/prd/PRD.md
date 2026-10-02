@@ -50,7 +50,7 @@ Migration status: **complete** (Phase 5 production hardening closed — see PRD 
 
 ## 5. Payment Method Catalog
 
-The system supports 15 payment method keys across 4 providers, defined in `admin-constants.ts` and the backend OpenAPI `PaymentMethod` schema:
+The system supports 16 payment method keys across 5 providers, defined in `admin-constants.ts` and the backend OpenAPI `PaymentMethod` schema:
 
 | Method Key | Label | Provider | Description |
 | --- | --- | --- | --- |
@@ -68,6 +68,7 @@ The system supports 15 payment method keys across 4 providers, defined in `admin
 | `wechat_jsapi` | WeChat Pay JSAPI | wechat_pay | `/v3/pay/transactions/jsapi` — Official Account / Mini Program (requires openid) |
 | `wechat_h5` | WeChat Pay H5 | wechat_pay | `/v3/pay/transactions/h5` — mobile browser (requires client_ip) |
 | `wechat_app` | WeChat Pay App | wechat_pay | `/v3/pay/transactions/app` — native App SDK |
+| `paypal` | PayPal | paypal | PayPal Orders v2 — hosted approval redirect, capture via webhook, refund via `/v2/payments/captures/{id}/refund` |
 | `sandbox_test` | Sandbox Test | sandbox | Local cashier URL — no external HTTP |
 
 For payment creation, `wechat_jsapi` requires `payerOpenId` and `wechat_h5` requires `clientIp`. The selected payment method, rather than the generic UI/client scene, determines the upstream WeChat V3 endpoint.

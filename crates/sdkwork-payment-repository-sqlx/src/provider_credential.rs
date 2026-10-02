@@ -146,7 +146,7 @@ async fn fill_development_provider_credentials_locked(
     pool: &PgPool,
 ) -> Result<(), CommerceServiceError> {
     let accounts = sqlx::query(
-        "SELECT id, tenant_id, organization_id, provider_code FROM commerce_payment_provider_account WHERE deleted_at IS NULL AND status = 'active' AND LOWER(provider_code) IN ('stripe', 'alipay', 'wechat_pay') AND CAST(metadata AS TEXT) LIKE '%bootstrap%' ORDER BY id",
+        "SELECT id, tenant_id, organization_id, provider_code FROM commerce_payment_provider_account WHERE deleted_at IS NULL AND status = 'active' AND LOWER(provider_code) IN ('stripe', 'alipay', 'wechat_pay', 'paypal') AND CAST(metadata AS TEXT) LIKE '%bootstrap%' ORDER BY id",
     )
     .fetch_all(pool)
     .await
