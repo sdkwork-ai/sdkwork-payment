@@ -110,6 +110,48 @@ pub async fn load_active_provider_account_postgres(
         }
     }
 }
+
+/// Lists active provider accounts for `provider_code` across ALL tenants,
+/// hydrated with their (decrypted) secrets, oldest-tenant first.
+///
+/// Used by the webhook framework for providers whose callback bodies cannot
+/// be pre-parsed to resolve a tenant (WeChat Pay v3 encrypts the resource,
+/// so the merchant identity only becomes known after decryption): the
+/// framework tries each candidate account's verification key in turn and
+/// the AES-GCM authentication decides ownership. Bounded by `limit` so a
+/// misconfigured tenant explosion cannot turn one webhook into an
+/// unbounded scan.
+pub async fn list_active_provider_accounts_postgres(
+    pool: &Pool<Postgres>,
+    provider_code: &str,
+    limit: i64,
+) -> Result<Vec<PaymentProviderAccountRecord>, CommerceServiceError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, tenant_id, organization_id, provider_code, merchant_id, environment, secret_ref,
+               webhook_secret_ref, certificate_ref, metadata
+        FROM commerce_payment_provider_account
+        WHERE LOWER(provider_code) = LOWER(CAST($1 AS TEXT))
+          AND status = 'active'
+          AND deleted_at IS NULL
+        ORDER BY tenant_id ASC, organization_id ASC, updated_at DESC, id DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(provider_code)
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await
+    .map_err(|error| {
+        store_error("failed to list active payment provider accounts", error)
+    })?;
+    let mut accounts = Vec::with_capacity(rows.len());
+    for row in &rows {
+        accounts.push(hydrate_postgres(pool, map_provider_account_row_postgres(row)).await?);
+    }
+    Ok(accounts)
+}
+
 pub async fn load_active_provider_account_by_id_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,

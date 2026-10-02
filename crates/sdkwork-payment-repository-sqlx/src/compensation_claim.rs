@@ -183,6 +183,87 @@ pub async fn claim_due_payment_attempts_postgres(
     Ok(claimed)
 }
 
+/// Claims payment attempts that the payment side already settled
+/// (`status = 'succeeded'`) while the owning order has not recorded the
+/// payment success yet (`commerce_order.payment_status <> 'success'`).
+///
+/// This is the convergence sweep for the cross-domain crash window: the
+/// webhook ingest (or the payment-side worker) flipped the attempt to
+/// succeeded, but the order-side confirmation/fulfillment never ran. Rows
+/// are claimed `FOR UPDATE SKIP LOCKED` without any status flip — the
+/// attempt is already terminal — and freshness is bounded by `updated_at`
+/// so a just-flipped attempt keeps its settlement window before the sweep
+/// picks it up. Re-claiming a row whose settlement keeps failing is
+/// intentional (at-least-once); every downstream settlement step is
+/// idempotent (confirm replay, terminal-preserved order state, fulfillment
+/// keys).
+pub async fn claim_succeeded_unsettled_payment_attempts_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    organization_id: Option<&str>,
+    limit: i64,
+    now_seconds: i64,
+    min_age_seconds: i64,
+) -> Result<Vec<ClaimedPaymentAttempt>, CommerceServiceError> {
+    let min_age = now_seconds - min_age_seconds;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| store_error("failed to begin settled attempt claim", error))?;
+    let rows = sqlx::query(
+        r#"
+        SELECT pa.id, pa.tenant_id, pa.organization_id, pa.owner_user_id,
+               pa.order_id, pa.payment_intent_id, pa.provider_code, pa.out_trade_no,
+               pa.channel_id, pa.provider_transaction_id,
+               COALESCE(NULLIF(pa.callback_payload->>'providerAccountId', ''), NULL) AS provider_account_id,
+               CAST(COALESCE(pa.amount, 0) AS BIGINT)::TEXT AS amount
+        FROM commerce_payment_attempt pa
+        JOIN commerce_order o
+          ON o.id = pa.order_id
+         AND o.tenant_id = pa.tenant_id
+        WHERE pa.tenant_id = CAST($1 AS TEXT)
+          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2 IS NULL) OR (pa.organization_id = '0' AND $2 IS NULL))
+          AND pa.status = 'succeeded'
+          AND pa.deleted_at IS NULL
+          AND COALESCE(o.payment_status, '') <> 'success'
+          AND EXTRACT(EPOCH FROM pa.updated_at) <= $3
+        ORDER BY pa.updated_at ASC, pa.id ASC
+        LIMIT $4
+        FOR UPDATE OF pa SKIP LOCKED
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(organization_id)
+    .bind(min_age)
+    .bind(limit)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|error| {
+        store_error("failed to claim settled unsettled payment attempts", error)
+    })?;
+    let claimed = rows
+        .iter()
+        .map(|row| ClaimedPaymentAttempt {
+            id: string_cell(row, "id"),
+            tenant_id: string_cell(row, "tenant_id"),
+            organization_id: optional_string_cell(row, "organization_id"),
+            owner_user_id: string_cell(row, "owner_user_id"),
+            order_id: string_cell(row, "order_id"),
+            payment_intent_id: string_cell(row, "payment_intent_id"),
+            provider_code: string_cell(row, "provider_code"),
+            out_trade_no: string_cell(row, "out_trade_no"),
+            channel_id: optional_string_cell(row, "channel_id"),
+            provider_transaction_id: optional_string_cell(row, "provider_transaction_id"),
+            provider_account_id: optional_string_cell(row, "provider_account_id"),
+            amount: string_cell(row, "amount"),
+        })
+        .collect::<Vec<_>>();
+    tx.commit()
+        .await
+        .map_err(|error| store_error("failed to commit settled attempt claim", error))?;
+    Ok(claimed)
+}
+
 /// Claims due refunds: status submitted/processing, created at least
 /// `min_age_seconds` ago. Locked `FOR UPDATE SKIP LOCKED` inside one
 /// transaction; `submitted` claims flip to `processing` before commit so

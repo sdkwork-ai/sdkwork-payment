@@ -540,7 +540,9 @@ fn provider_checkout_context(
     notify_domain_base: Option<&str>,
 ) -> CheckoutContext {
     // Configured default notify domain wins; the env webhook base and the
-    // per-provider account metadata remain the fallbacks.
+    // per-provider account metadata remain the fallbacks. A missing notify
+    // URL means the PSP has nowhere to call back and settlement falls
+    // entirely to compensation sweeps — that must never be silent.
     let notify_url = notify_domain_base
         .map(|base| {
             let path = crate::notify_domain::ORDER_PAYMENT_WEBHOOK_PATH
@@ -552,6 +554,15 @@ fn provider_checkout_context(
                 .credentials
                 .provider_notify_url(&normalize_provider_code(provider_code))
         });
+    if notify_url.is_none() {
+        tracing::warn!(
+            target = "payment.checkout",
+            provider_code = %normalize_provider_code(provider_code),
+            tenant_id = %context.tenant_id,
+            order_id = %context.order_id,
+            "no notify domain row and no ORDER_PAYMENT_WEBHOOK_BASE_URL configured: provider callbacks are disabled for this checkout"
+        );
+    }
     CheckoutContext {
         provider_code: provider_code.to_owned(),
         currency_code: currency_code

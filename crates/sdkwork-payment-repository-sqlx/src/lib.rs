@@ -24,6 +24,7 @@ pub mod webhook_status;
 
 pub use compensation_claim::{
     claim_due_payment_attempts_postgres, claim_due_refunds_postgres,
+    claim_succeeded_unsettled_payment_attempts_postgres,
     list_due_compensation_tenants_postgres, load_claim_attempt_provider_context_postgres,
     ClaimAttemptProviderContext, ClaimedPaymentAttempt, ClaimedRefund,
 };
@@ -63,7 +64,8 @@ pub use postgres_webhook_ingestion::{
     IngestProviderWebhookOutcome,
 };
 pub use provider_account::{
-    ensure_provider_account_matches, load_active_provider_account_by_id_postgres,
+    ensure_provider_account_matches, list_active_provider_accounts_postgres,
+    load_active_provider_account_by_id_postgres,
     load_active_provider_account_by_merchant_id_postgres,
     load_active_provider_account_for_channel_postgres, load_active_provider_account_postgres,
     load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
