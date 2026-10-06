@@ -283,19 +283,20 @@ pub async fn claim_due_refunds_postgres(
         .map_err(|error| store_error("failed to begin refund claim", error))?;
     let rows = sqlx::query(
         r#"
-        SELECT id, tenant_id, organization_id, order_id, provider_code, refund_no,
-               payment_attempt_id, status,
-               CAST(COALESCE(amount, 0) AS BIGINT)::TEXT AS amount,
-               currency_code, request_no, idempotency_key
-        FROM commerce_refund
-        WHERE tenant_id = CAST($1 AS TEXT)
-          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
-          AND status IN ('submitted', 'processing')
-          AND EXTRACT(EPOCH FROM created_at) <= $3
-          AND deleted_at IS NULL
-        ORDER BY created_at ASC, id ASC
+        SELECT r.id, r.tenant_id, r.organization_id, r.order_id, pa.provider_code, r.refund_no,
+               r.payment_attempt_id, r.status,
+               CAST(COALESCE(r.amount, 0) AS BIGINT)::TEXT AS amount,
+               r.currency_code, r.request_no, r.idempotency_key
+        FROM commerce_refund r
+        JOIN commerce_payment_attempt pa ON pa.id = r.payment_attempt_id
+        WHERE r.tenant_id = CAST($1 AS TEXT)
+          AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $2 IS NULL) OR (r.organization_id = '0' AND $2 IS NULL))
+          AND r.status IN ('submitted', 'processing')
+          AND EXTRACT(EPOCH FROM r.created_at) <= $3
+          AND r.deleted_at IS NULL
+        ORDER BY r.created_at ASC, r.id ASC
         LIMIT $4
-        FOR UPDATE SKIP LOCKED
+        FOR UPDATE OF r SKIP LOCKED
         "#,
     )
     .bind(tenant_id)
