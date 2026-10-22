@@ -1,4 +1,4 @@
-use crate::owner_order_checkout::provider_account_binding;
+﻿use crate::owner_order_checkout::provider_account_binding;
 use crate::payment_attempt_context::load_payment_attempt_provider_context_postgres;
 use crate::provider_account::{
     ensure_provider_account_matches, load_active_provider_account_postgres,
@@ -152,7 +152,7 @@ async fn close_expired_owner_order_provider_attempts_postgres_scoped(
           AND pa.deleted_at IS NULL
           AND (
             LOWER(COALESCE(o.status, '')) IN ('expired', 'closed', 'cancelled', 'canceled')
-            OR (o.expired_at IS NOT NULL AND NULLIF(o.expired_at, '')::timestamptz <= CURRENT_TIMESTAMP)
+            OR (o.expired_at IS NOT NULL AND o.expired_at <= CURRENT_TIMESTAMP)
           )
         ORDER BY pa.created_at, pa.id
         LIMIT 100
@@ -363,3 +363,4 @@ fn ensure_attempt_close_persisted(
         ))),
     }
 }
+

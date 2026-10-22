@@ -1,4 +1,4 @@
-#![allow(clippy::too_many_arguments)]
+﻿#![allow(clippy::too_many_arguments)]
 
 use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
 use sdkwork_payment_service::{
@@ -120,7 +120,7 @@ impl PostgresCommercePaymentIntentStore {
         .map_err(|error| store_error("failed to insert payment intent", error))?;
 
         if inserted.rows_affected() == 0 {
-            // 并发竞态下另一请求已写入，回查并返回已有记录，保证幂等语义。
+            // 骞跺彂绔炴€佷笅鍙︿竴璇锋眰宸插啓鍏ワ紝鍥炴煡骞惰繑鍥炲凡鏈夎褰曪紝淇濊瘉骞傜瓑璇箟銆?
             tx.commit().await.map_err(|error| {
                 store_error(
                     "failed to commit payment intent transaction after conflict",
@@ -188,7 +188,7 @@ impl PostgresCommercePaymentIntentStore {
     ///
     /// The intent row is locked `FOR UPDATE` and both updates carry status
     /// preconditions, so a webhook confirmation that commits
-    /// `succeeded` first wins and the cancel fails closed — the previous
+    /// `succeeded` first wins and the cancel fails closed 鈥?the previous
     /// check-then-act implementation could overwrite a terminal state.
     pub async fn cancel_owner_payment_intent(
         &self,
@@ -622,7 +622,7 @@ async fn load_reusable_payment_attempt(
           AND pa.expires_at IS NOT NULL
           AND pa.expires_at > NOW()
           AND o.expired_at IS NOT NULL
-          AND NULLIF(o.expired_at, '')::timestamptz > NOW()
+          AND o.expired_at > NOW()
         ORDER BY pa.created_at DESC, pa.id DESC
         LIMIT 1
        "#,
@@ -768,3 +768,4 @@ mod tests {
         );
     }
 }
+

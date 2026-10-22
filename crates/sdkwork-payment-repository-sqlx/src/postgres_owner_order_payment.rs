@@ -1,4 +1,4 @@
-use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
+﻿use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
 use sdkwork_payment_providers::{ensure_currency_supported, require_positive_minor};
 use sdkwork_payment_service::{
     CancelOrderPaymentsCommand, ConfirmOwnerOrderPaymentOutcome, OrderPaymentSettlementAttempt,
@@ -270,7 +270,7 @@ impl PostgresCommerceOwnerOrderPaymentStore {
                 o.subject AS order_subject,
                 o.status,
                 o.currency_code,
-                o.expired_at,
+                to_char(o.expired_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS expired_at,
                 COALESCE(
                     (
                         SELECT CAST(b.payable_amount AS TEXT)
@@ -852,7 +852,7 @@ async fn load_reusable_owner_payment_in_tx(
           AND pa.expires_at IS NOT NULL
           AND pa.expires_at > NOW()
           AND o.expired_at IS NOT NULL
-          AND NULLIF(o.expired_at, '')::timestamptz > NOW()
+          AND o.expired_at > NOW()
         ORDER BY pa.created_at DESC, pa.id DESC
         LIMIT 64
         "#,
@@ -948,8 +948,7 @@ mod tests {
 
     #[test]
     fn owner_payment_queries_project_numeric_amounts_as_minor_unit_text() {
-        // 工作树可能为 CRLF（Windows），归一化后断言保证跨平台可靠。
-        let source = include_str!("postgres_owner_order_payment.rs").replace("\r\n", "\n");
+        // 宸ヤ綔鏍戝彲鑳戒负 CRLF锛圵indows锛夛紝褰掍竴鍖栧悗鏂█淇濊瘉璺ㄥ钩鍙板彲闈犮€?        let source = include_str!("postgres_owner_order_payment.rs").replace("\r\n", "\n");
 
         assert!(source.contains("CAST(pa.amount AS BIGINT)::TEXT AS amount"));
         // Breakdown amounts are projected as text so the Rust reader can
@@ -977,3 +976,4 @@ mod tests {
         assert!(source.contains("provider_code: command.payment_method.clone()"));
     }
 }
+
