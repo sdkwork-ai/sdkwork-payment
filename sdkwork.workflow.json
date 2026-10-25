@@ -6,7 +6,7 @@
     "name": "sdkwork-payment",
     "repository": "sdkwork-ai/sdkwork-payment",
     "sourcePath": ".",
-    "configPath": "sdkwork.app.config.json"
+    "configPath": "agent.app.config.json"
   },
   "release": {
     "artifactPrefix": "sdkwork-payment",
