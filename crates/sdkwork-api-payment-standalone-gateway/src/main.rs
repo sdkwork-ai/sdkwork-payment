@@ -28,7 +28,7 @@ fn handle_info_args(args: &[String]) -> Option<i32> {
                 "{BINARY_NAME} {VERSION}\n\nSDKWork payment standalone API gateway.\n\n\
                  USAGE:\n    {BINARY_NAME} [--version] [--help]\n\n\
                  The gateway is configured through environment variables only\n\
-                 (see .env.postgres.example and docs/architecture/tech/TECH_ARCHITECTURE.md):\n\
+                 (see config/host/postgres.env.example and docs/architecture/tech/TECH_ARCHITECTURE.md):\n\
                  \x20 SDKWORK_DATABASE_*              authoritative PostgreSQL connection\n\
                  \x20 PAYMENT_API_BIND                ingress bind address (default 0.0.0.0:18094)\n\
                  \x20 SDKWORK_PAYMENT_APPLICATION_PUBLIC_INGRESS_BIND\n\
