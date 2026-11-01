@@ -92,17 +92,17 @@
     "zh-CN": {
       "version": "1.1.1",
       "required": true,
-      "checksum": "sha256:570ae36e429afef83d0c90bd84a1395828a293af7c57d7b572c66aa2eef9a563",
+      "checksum": "sha256:da43b37a7900817624096c8ab0a2fb2b2eb626b1d74a3e38df6015c265a84c70",
       "files": [
-        "001_localized_names.sql"
+        "locales/zh-CN/001_localized_names.sql"
       ]
     },
     "en-US": {
       "version": "1.1.1",
       "required": true,
-      "checksum": "sha256:2dfe930c91955333ac31dcfb2b239aca310fd9ee494a19df36a416b9dcefcfcc",
+      "checksum": "sha256:082062ea6be05fa7a1cbefc6617cecb85fd6a85dfd4b0c3485b51bf8b424e6c0",
       "files": [
-        "001_localized_names.sql"
+        "locales/en-US/001_localized_names.sql"
       ]
     }
   }
