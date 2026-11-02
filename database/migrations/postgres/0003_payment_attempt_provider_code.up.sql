@@ -12,5 +12,11 @@
 --   insert it explicitly (the baseline enforces NOT NULL on fresh installs).
 --   The IF NOT EXISTS form is idempotent so it also applies on top of the
 --   updated baseline on fresh installs.
+-- reversible: true
+-- rollback: down-migration
+-- transactional: true
+-- lock: lightweight
+-- lock_timeout: 2s
+-- statement_timeout: 30s
 ALTER TABLE commerce_payment_attempt
     ADD COLUMN IF NOT EXISTS provider_code TEXT;

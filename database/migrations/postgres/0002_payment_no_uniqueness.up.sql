@@ -11,7 +11,7 @@
 --   The indexes are IF NOT EXISTS idempotent so they also apply on top of the
 --   updated baseline on fresh installs.
 -- reversible: true
--- rollback: drop the three indexes
+-- rollback: down-migration
 -- transactional: true
 -- lock: lightweight
 -- lock_timeout: 2s
