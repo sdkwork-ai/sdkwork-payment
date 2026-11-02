@@ -1,4 +1,4 @@
-﻿use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
+use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
 use sdkwork_payment_providers::{ensure_currency_supported, require_positive_minor};
 use sdkwork_payment_service::{
     CancelOrderPaymentsCommand, ConfirmOwnerOrderPaymentOutcome, OrderPaymentSettlementAttempt,
@@ -948,7 +948,8 @@ mod tests {
 
     #[test]
     fn owner_payment_queries_project_numeric_amounts_as_minor_unit_text() {
-        // 宸ヤ綔鏍戝彲鑳戒负 CRLF锛圵indows锛夛紝褰掍竴鍖栧悗鏂█淇濊瘉璺ㄥ钩鍙板彲闈犮€?        let source = include_str!("postgres_owner_order_payment.rs").replace("\r\n", "\n");
+// Normalize CRLF so source assertions are stable across platforms.
+        let source = include_str!("postgres_owner_order_payment.rs").replace("\r\n", "\n");
 
         assert!(source.contains("CAST(pa.amount AS BIGINT)::TEXT AS amount"));
         // Breakdown amounts are projected as text so the Rust reader can

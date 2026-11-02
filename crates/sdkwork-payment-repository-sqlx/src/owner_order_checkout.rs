@@ -632,7 +632,7 @@ async fn provider_checkout_expiration_postgres(
     attempt_id: &str,
 ) -> Result<Option<String>, CommerceServiceError> {
     let row = sqlx::query(
-        "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND owner_user_id = CAST($2 AS TEXT) AND id = CAST($3 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
+        "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, organization_id FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND owner_user_id = CAST($2 AS TEXT) AND id = CAST($3 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
     )
     .bind(tenant_id)
     .bind(owner_user_id)
@@ -647,14 +647,17 @@ async fn provider_checkout_expiration_postgres(
     })?;
     let order_expires_at =
         sqlx::Row::try_get::<Option<String>, _>(&row, "expires_at").unwrap_or_default();
+    let attempt_organization_id =
+        sqlx::Row::try_get::<String, _>(&row, "organization_id").unwrap_or_else(|_| "0".to_owned());
     let expires_at = provider_checkout_expiration(order_expires_at.as_deref())?;
     let update = sqlx::query(
-        "UPDATE commerce_payment_attempt SET expires_at = $1::timestamptz, updated_at = $2::timestamptz WHERE tenant_id = CAST($3 AS TEXT) AND id = CAST($4 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
+        "UPDATE commerce_payment_attempt SET expires_at = $1::timestamptz, updated_at = $2::timestamptz WHERE tenant_id = CAST($3 AS TEXT) AND id = CAST($4 AS TEXT) AND organization_id = CAST($5 AS TEXT) AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing') AND deleted_at IS NULL",
     )
     .bind(&expires_at)
     .bind(crate::shared::current_timestamp_string())
     .bind(tenant_id)
     .bind(attempt_id)
+    .bind(&attempt_organization_id)
     .execute(pool)
     .await
     .map_err(|error| crate::shared::store_error("failed to persist payment attempt expiry", error))?;

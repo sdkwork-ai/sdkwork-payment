@@ -1,4 +1,4 @@
-﻿use crate::owner_order_checkout::provider_account_binding;
+use crate::owner_order_checkout::provider_account_binding;
 use crate::payment_attempt_context::load_payment_attempt_provider_context_postgres;
 use crate::provider_account::{
     ensure_provider_account_matches, load_active_provider_account_postgres,
@@ -16,6 +16,7 @@ use sqlx::PgPool;
 struct ActiveAttemptIdentity {
     attempt_id: String,
     payment_intent_id: String,
+    organization_id: String,
 }
 pub(crate) async fn cancel_owner_order_payments_with_provider_postgres_unlocked(
     pool: &PgPool,
@@ -50,7 +51,7 @@ pub async fn close_owner_order_provider_attempts_postgres(
 ) -> Result<(), CommerceServiceError> {
     let rows = sqlx::query(
         r#"
-        SELECT id, payment_intent_id
+        SELECT id, payment_intent_id, organization_id
         FROM commerce_payment_attempt
         WHERE tenant_id = CAST($1 AS TEXT)
           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
@@ -75,6 +76,7 @@ pub async fn close_owner_order_provider_attempts_postgres(
         .map(|row| ActiveAttemptIdentity {
             attempt_id: string_cell(row, "id"),
             payment_intent_id: string_cell(row, "payment_intent_id"),
+            organization_id: string_cell(row, "organization_id"),
         })
         .collect::<Vec<_>>();
     close_attempts_postgres(
@@ -138,7 +140,7 @@ async fn close_expired_owner_order_provider_attempts_postgres_scoped(
 ) -> Result<(), CommerceServiceError> {
     let rows = sqlx::query(
         r#"
-        SELECT pa.id, pa.payment_intent_id
+        SELECT pa.id, pa.payment_intent_id, pa.organization_id
         FROM commerce_payment_attempt pa
         INNER JOIN commerce_order o
           ON o.tenant_id = pa.tenant_id
@@ -170,6 +172,7 @@ async fn close_expired_owner_order_provider_attempts_postgres_scoped(
         .map(|row| ActiveAttemptIdentity {
             attempt_id: string_cell(row, "id"),
             payment_intent_id: string_cell(row, "payment_intent_id"),
+            organization_id: string_cell(row, "organization_id"),
         })
         .collect::<Vec<_>>();
     close_attempts_postgres(
@@ -284,6 +287,7 @@ async fn mark_attempt_canceled_postgres(
         SET status = $1, updated_at = $2::timestamptz
         WHERE tenant_id = CAST($3 AS TEXT)
           AND id = CAST($4 AS TEXT)
+          AND organization_id = CAST($5 AS TEXT)
           AND LOWER(COALESCE(status, '')) IN ('created', 'pending', 'processing')
           AND deleted_at IS NULL
         "#,
@@ -292,15 +296,17 @@ async fn mark_attempt_canceled_postgres(
     .bind(&now)
     .bind(tenant_id)
     .bind(&attempt.attempt_id)
+    .bind(&attempt.organization_id)
     .execute(&mut *tx)
     .await
     .map_err(|error| store_error("failed to close payment attempt", error))?;
     let persisted_status = if attempt_update.rows_affected() == 0 {
         sqlx::query_scalar::<_, String>(
-            "SELECT status FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND id = CAST($2 AS TEXT) AND deleted_at IS NULL",
+            "SELECT status FROM commerce_payment_attempt WHERE tenant_id = CAST($1 AS TEXT) AND id = CAST($2 AS TEXT) AND organization_id = CAST($3 AS TEXT) AND deleted_at IS NULL",
         )
         .bind(tenant_id)
         .bind(&attempt.attempt_id)
+        .bind(&attempt.organization_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|error| store_error("failed to verify closed payment attempt", error))?
@@ -314,11 +320,13 @@ async fn mark_attempt_canceled_postgres(
         SET status = $1, updated_at = $2::timestamptz
         WHERE pi.tenant_id = CAST($3 AS TEXT)
           AND pi.id = CAST($4 AS TEXT)
+          AND pi.organization_id = CAST($5 AS TEXT)
           AND LOWER(COALESCE(pi.status, '')) IN ('created', 'pending', 'processing')
           AND pi.deleted_at IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM commerce_payment_attempt pa
             WHERE pa.tenant_id = pi.tenant_id
+              AND pa.organization_id = pi.organization_id
               AND pa.payment_intent_id = pi.id
               AND LOWER(COALESCE(pa.status, '')) IN ('created', 'pending', 'processing')
               AND pa.deleted_at IS NULL
@@ -329,6 +337,7 @@ async fn mark_attempt_canceled_postgres(
     .bind(&now)
     .bind(tenant_id)
     .bind(&attempt.payment_intent_id)
+    .bind(&attempt.organization_id)
     .execute(&mut *tx)
     .await
     .map_err(|error| store_error("failed to close payment intent", error))?;
