@@ -311,7 +311,7 @@ pub async fn ingest_provider_webhook_postgres(
             last_error = $3
         WHERE id = CAST($4 AS TEXT)
           AND tenant_id = CAST($5 AS TEXT)
-          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $6 IS NULL) OR (organization_id = '0' AND $6 IS NULL))
+          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id = '0' AND $6 IS NULL))
         "#,
     )
     .bind(event_final_status)
@@ -347,7 +347,7 @@ pub(crate) async fn load_existing_webhook_event_postgres(
         FROM commerce_payment_webhook_event
         WHERE tenant_id = CAST($1 AS TEXT)
           AND event_id = CAST($2 AS TEXT)
-          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
         FOR UPDATE
         "#,
     )
@@ -429,7 +429,7 @@ pub async fn apply_webhook_payment_status_postgres(
           AND provider_code = CAST($3 AS TEXT)
           AND out_trade_no = CAST($4 AS TEXT)
           AND tenant_id = CAST($5 AS TEXT)
-          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $7 IS NULL) OR (organization_id = '0' AND $7 IS NULL))
+          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id = '0' AND $7 IS NULL))
           AND owner_user_id = CAST($8 AS TEXT)
           AND order_id = CAST($9 AS TEXT)
           AND deleted_at IS NULL
@@ -535,7 +535,7 @@ pub async fn apply_webhook_payment_status_postgres(
         SELECT id
         FROM commerce_order
         WHERE tenant_id = CAST($1 AS TEXT)
-          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
           AND owner_user_id = CAST($4 AS TEXT)
           AND id = CAST($5 AS TEXT)
         FOR UPDATE
@@ -561,7 +561,7 @@ pub async fn apply_webhook_payment_status_postgres(
         WHERE provider_code = CAST($1 AS TEXT)
           AND out_trade_no = CAST($2 AS TEXT)
           AND tenant_id = CAST($3 AS TEXT)
-          AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
+          AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id = '0' AND $5 IS NULL))
           AND deleted_at IS NULL
         ORDER BY id
         LIMIT 2
@@ -596,7 +596,7 @@ pub async fn apply_webhook_payment_status_postgres(
         FROM commerce_payment_intent
         WHERE id = CAST($1 AS TEXT)
           AND tenant_id = CAST($2 AS TEXT)
-          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL) OR (organization_id = '0' AND $4 IS NULL))
+          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $4 IS NULL))
           AND owner_user_id = CAST($5 AS TEXT)
           AND order_id = CAST($6 AS TEXT)
           AND deleted_at IS NULL
@@ -627,7 +627,7 @@ pub async fn apply_webhook_payment_status_postgres(
           AND provider_code = CAST($3 AS TEXT)
           AND out_trade_no = CAST($4 AS TEXT)
           AND tenant_id = CAST($5 AS TEXT)
-          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id IS NULL AND $7 IS NULL) OR (organization_id = '0' AND $7 IS NULL))
+          AND ((organization_id = CAST($6 AS TEXT)) OR (organization_id = '0' AND $7 IS NULL))
           AND owner_user_id = CAST($8 AS TEXT)
           AND order_id = CAST($9 AS TEXT)
           AND deleted_at IS NULL

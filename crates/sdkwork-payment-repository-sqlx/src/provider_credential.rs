@@ -12,7 +12,7 @@ const CERTIFICATE: &str = "certificate";
 /// `i64` scalar: an untyped `SELECT 1` literal is `INT4` and fails decoding
 /// with "Rust type `i64` (as SQL type `INT8`) is not compatible with SQL
 /// type `INT4`" under sqlx 0.9.
-const ENSURE_ACCOUNT_POSTGRES_SQL: &str = "SELECT 1::bigint FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL";
+const ENSURE_ACCOUNT_POSTGRES_SQL: &str = "SELECT 1::bigint FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL";
 #[derive(Clone, Default)]
 pub struct ProviderCredentialWrite {
     pub primary_secret: Option<String>,
@@ -218,7 +218,7 @@ pub async fn load_provider_credentials_postgres(
     organization_id: Option<&str>,
     provider_account_id: &str,
 ) -> Result<ProviderCredentialSet, CommerceServiceError> {
-    let rows = sqlx::query("SELECT credential_kind, ciphertext, encryption_key_id, encryption_algorithm FROM commerce_payment_provider_credential WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL)) AND provider_account_id = CAST($3 AS TEXT) AND status = 'active' AND deleted_at IS NULL")
+    let rows = sqlx::query("SELECT credential_kind, ciphertext, encryption_key_id, encryption_algorithm FROM commerce_payment_provider_credential WHERE tenant_id = CAST($1 AS TEXT) AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $2 IS NULL)) AND provider_account_id = CAST($3 AS TEXT) AND status = 'active' AND deleted_at IS NULL")
         .bind(tenant_id).bind(organization_id).bind(provider_account_id)
         .fetch_all(pool).await.map_err(store_error)?;
     decrypt_rows(
@@ -358,8 +358,12 @@ mod tests {
     #[test]
     fn ensure_account_probe_covers_tenant_and_organization_scopes() {
         assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("tenant_id = CAST($2 AS TEXT)"));
-        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id IS NULL AND $3 IS NULL"));
+        // DATABASE_SPEC DB090: the resolved organization scope is the sentinel or
+        // the claim value. A tenant-level probe binds `'0'`; `NULL` is never a
+        // scope, so the statement must not admit a NULL-organization row.
+        assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id = CAST($3 AS TEXT)"));
         assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id = '0' AND $3 IS NULL"));
+        assert!(!ENSURE_ACCOUNT_POSTGRES_SQL.contains("organization_id IS NULL"));
         assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("deleted_at IS NULL"));
     }
 }

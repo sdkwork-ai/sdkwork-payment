@@ -1475,7 +1475,7 @@ async fn load_test_attempt_for_check(
         "SELECT id, payment_intent_id, provider_code, out_trade_no,                 COALESCE(callback_payload->>'providerTransactionId', callback_payload->>'provider_transaction_id') AS provider_transaction_id,                 status, channel_id, tenant_id, organization_id, owner_user_id, order_id \
          FROM commerce_payment_attempt \
          WHERE tenant_id = CAST($1 AS TEXT) \
-           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL)) \
+           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $2::text IS NULL)) \
            AND owner_user_id = CAST($3 AS TEXT) \
            AND payment_intent_id = CAST($4 AS TEXT) AND deleted_at IS NULL \
          ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -2097,7 +2097,7 @@ async fn load_provider_account(
     match pool {
         IntegrationPool::Postgres(pool) => {
             let row = sqlx::query(
-                "SELECT id, provider_code, merchant_id, environment, secret_ref, webhook_secret_ref, certificate_ref, CAST(metadata AS TEXT) AS metadata FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL LIMIT 1",
+                "SELECT id, provider_code, merchant_id, environment, secret_ref, webhook_secret_ref, certificate_ref, CAST(metadata AS TEXT) AS metadata FROM commerce_payment_provider_account WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL)) AND deleted_at IS NULL LIMIT 1",
             )
             .bind(id)
             .bind(&subject.tenant_id)
@@ -2166,7 +2166,7 @@ async fn update_provider_test_status(
 ) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
     match pool {
         IntegrationPool::Postgres(pool) => {
-            sqlx::query("UPDATE commerce_payment_provider_account SET last_tested_at = CAST($1 AS TIMESTAMPTZ), last_test_status = $2, updated_at = CAST($1 AS TIMESTAMPTZ) WHERE id = CAST($3 AS TEXT) AND tenant_id = CAST($4 AS TEXT) AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL)) AND deleted_at IS NULL")
+            sqlx::query("UPDATE commerce_payment_provider_account SET last_tested_at = CAST($1 AS TIMESTAMPTZ), last_test_status = $2, updated_at = CAST($1 AS TIMESTAMPTZ) WHERE id = CAST($3 AS TEXT) AND tenant_id = CAST($4 AS TEXT) AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id = '0' AND $5 IS NULL)) AND deleted_at IS NULL")
                 .bind(tested_at).bind(status).bind(id).bind(&subject.tenant_id).bind(&subject.organization_id)
                 .execute(pool).await.map_err(storage)?;
         }
@@ -2199,7 +2199,7 @@ async fn rotate_credentials(
                 },
             )
             .await?;
-            sqlx::query("UPDATE commerce_payment_provider_account SET metadata = COALESCE(metadata, '{}'::jsonb) || CAST($1 AS JSONB), last_tested_at = NULL, last_test_status = NULL, updated_at = CAST($2 AS TIMESTAMPTZ) WHERE id = CAST($3 AS TEXT) AND tenant_id = CAST($4 AS TEXT) AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL)) AND deleted_at IS NULL")
+            sqlx::query("UPDATE commerce_payment_provider_account SET metadata = COALESCE(metadata, '{}'::jsonb) || CAST($1 AS JSONB), last_tested_at = NULL, last_test_status = NULL, updated_at = CAST($2 AS TIMESTAMPTZ) WHERE id = CAST($3 AS TEXT) AND tenant_id = CAST($4 AS TEXT) AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id = '0' AND $5 IS NULL)) AND deleted_at IS NULL")
                 .bind(metadata_patch.to_string()).bind(&rotated_at).bind(id).bind(&subject.tenant_id).bind(&subject.organization_id)
                 .execute(pool).await.map_err(storage)?;
         }

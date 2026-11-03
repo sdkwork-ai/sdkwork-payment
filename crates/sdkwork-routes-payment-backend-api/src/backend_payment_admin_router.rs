@@ -602,7 +602,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        created_at, updated_at,
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_method
-                WHERE tenant_id = CAST($1 AS TEXT) AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                WHERE tenant_id = CAST($1 AS TEXT) AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND ($3::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($3::text))
                 ORDER BY sort_order ASC, created_at ASC
                 LIMIT $4 OFFSET $5
@@ -738,7 +738,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        EXISTS (SELECT 1 FROM commerce_payment_provider_credential credential WHERE credential.provider_account_id = commerce_payment_provider_account.id AND credential.tenant_id = commerce_payment_provider_account.tenant_id AND credential.credential_kind = 'certificate' AND credential.status = 'active' AND credential.deleted_at IS NULL) AS has_certificate
                 FROM commerce_payment_provider_account
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL{where_extra}
                 ) account
                 {} LIMIT ${next_index} OFFSET ${offset_index}
@@ -838,7 +838,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                         updated_at = CAST($15 AS TIMESTAMPTZ)
                     WHERE id = CAST($16 AS TEXT)
                       AND tenant_id = CAST($17 AS TEXT)
-                      AND ((organization_id = CAST($18 AS TEXT)) OR (organization_id IS NULL AND $18 IS NULL) OR (organization_id = '0' AND $18 IS NULL))
+                      AND ((organization_id = CAST($18 AS TEXT)) OR (organization_id = '0' AND $18 IS NULL))
                       AND deleted_at IS NULL
                     RETURNING id, account_no, provider_code, merchant_id, account_name,
                               account_name_i18n, account_mode,
@@ -974,7 +974,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SELECT 1
                 FROM commerce_payment_channel
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND provider_account_id = CAST($3 AS TEXT)
                   AND deleted_at IS NULL
                 LIMIT 1
@@ -1027,7 +1027,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SET deleted_at = $1::timestamptz
                 WHERE id = CAST($2 AS TEXT)
                   AND tenant_id = CAST($3 AS TEXT)
-                  AND (organization_id = CAST($4 AS TEXT) OR (organization_id IS NULL AND $4::text IS NULL) OR (organization_id = '0' AND $4::text IS NULL))
+                  AND (organization_id = CAST($4 AS TEXT) OR (organization_id = '0' AND $4::text IS NULL))
                   AND deleted_at IS NULL
                 "#,
             )
@@ -1071,7 +1071,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 LEFT JOIN commerce_payment_method m
                        ON m.id = c.method_id AND m.tenant_id = c.tenant_id AND m.deleted_at IS NULL
                 WHERE c.tenant_id = CAST($1 AS TEXT)
-                  AND (c.organization_id = CAST($2 AS TEXT) OR (c.organization_id IS NULL AND $2::text IS NULL) OR (c.organization_id = '0' AND $2::text IS NULL))
+                  AND (c.organization_id = CAST($2 AS TEXT) OR (c.organization_id = '0' AND $2::text IS NULL))
                   AND c.deleted_at IS NULL
                 "#,
             );
@@ -1267,7 +1267,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SELECT 1
                 FROM commerce_payment_route_rule
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND channel_id = CAST($3 AS TEXT)
                 LIMIT 1
                 "#,
@@ -1293,7 +1293,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 SET deleted_at = $1
                 WHERE id = CAST($2 AS TEXT)
                   AND tenant_id = CAST($3 AS TEXT)
-                  AND (organization_id = CAST($4 AS TEXT) OR (organization_id IS NULL AND $4::text IS NULL) OR (organization_id = '0' AND $4::text IS NULL))
+                  AND (organization_id = CAST($4 AS TEXT) OR (organization_id = '0' AND $4::text IS NULL))
                   AND deleted_at IS NULL
                 "#,
             )
@@ -1351,7 +1351,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_route_rule
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL{where_extra}
                 {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
@@ -1454,7 +1454,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
     ) -> CommerceBackendPaymentAdminFuture<'a, ()> {
         Box::pin(async move {
             sqlx::query(
-                "DELETE FROM commerce_payment_route_rule WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND (organization_id = CAST($3 AS TEXT) OR (organization_id IS NULL AND $3::text IS NULL) OR (organization_id = '0' AND $3::text IS NULL))",
+                "DELETE FROM commerce_payment_route_rule WHERE id = CAST($1 AS TEXT) AND tenant_id = CAST($2 AS TEXT) AND (organization_id = CAST($3 AS TEXT) OR (organization_id = '0' AND $3::text IS NULL))",
             )
                 .bind(&route_rule_id)
                 .bind(&scope.tenant_id)
@@ -1584,7 +1584,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        status, provider_transaction_id, created_at, COUNT(*) OVER() AS total_count
                 FROM commerce_payment_attempt
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL{where_extra}
                 {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
@@ -1651,7 +1651,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_webhook_event
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL{where_extra}
                 {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
@@ -1744,7 +1744,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_reconciliation_run
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id IS NULL AND $2::text IS NULL) OR (organization_id = '0' AND $2::text IS NULL))
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
                   AND deleted_at IS NULL{where_extra}
                 {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,

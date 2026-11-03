@@ -195,7 +195,7 @@ impl PostgresCommerceRefundStore {
                 ON o.tenant_id = r.tenant_id
                AND o.id = r.order_id
             WHERE r.tenant_id = CAST($1 AS TEXT)
-              AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $3 IS NULL) OR (r.organization_id = '0' AND $3 IS NULL))
+              AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id = '0' AND $3 IS NULL))
               AND o.owner_user_id = CAST($4 AS TEXT)
               AND r.deleted_at IS NULL
             "#,
@@ -247,7 +247,7 @@ impl PostgresCommerceRefundStore {
                 ON o.tenant_id = r.tenant_id
                AND o.id = r.order_id
             WHERE r.tenant_id = CAST($1 AS TEXT)
-              AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $3 IS NULL) OR (r.organization_id = '0' AND $3 IS NULL))
+              AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id = '0' AND $3 IS NULL))
               AND o.owner_user_id = CAST($4 AS TEXT)
               AND r.id = CAST($5 AS TEXT)
               AND r.deleted_at IS NULL
@@ -335,7 +335,7 @@ impl PostgresCommerceRefundStore {
                    CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status, refund_reason_code
             FROM commerce_refund
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
               AND id = CAST($4 AS TEXT)
               AND deleted_at IS NULL
             LIMIT 1
@@ -359,7 +359,7 @@ impl PostgresCommerceRefundStore {
             UPDATE commerce_refund
             SET status = $1, updated_at = $2::timestamptz, version = version + 1
             WHERE tenant_id = CAST($3 AS TEXT)
-              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
+              AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id = '0' AND $5 IS NULL))
               AND id = CAST($6 AS TEXT)
               AND status IN ('submitted', 'processing')
               AND deleted_at IS NULL
@@ -425,7 +425,7 @@ impl PostgresCommerceRefundStore {
                    CAST(amount AS BIGINT)::TEXT AS amount, currency_code, status, refund_reason_code
             FROM commerce_refund
             WHERE tenant_id = CAST($1 AS TEXT)
-              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+              AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
               AND id = CAST($4 AS TEXT)
               AND deleted_at IS NULL
             LIMIT 1
@@ -449,7 +449,7 @@ impl PostgresCommerceRefundStore {
             UPDATE commerce_refund
             SET status = 'processing', updated_at = $1::timestamptz, version = version + 1
             WHERE tenant_id = CAST($2 AS TEXT)
-              AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL) OR (organization_id = '0' AND $4 IS NULL))
+              AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $4 IS NULL))
               AND id = CAST($5 AS TEXT)
               AND status IN ('submitted', 'failed')
             "#,
@@ -512,7 +512,7 @@ impl PostgresCommerceRefundStore {
             WHERE r.tenant_id = CAST($1 AS TEXT)
               AND r.order_id = CAST($2 AS TEXT)
               AND r.idempotency_key = CAST($3 AS TEXT)
-              AND ((r.organization_id = CAST($4 AS TEXT)) OR (r.organization_id IS NULL AND $4 IS NULL) OR (r.organization_id = '0' AND $4 IS NULL))
+              AND ((r.organization_id = CAST($4 AS TEXT)) OR (r.organization_id = '0' AND $4 IS NULL))
               AND o.owner_user_id = CAST($5 AS TEXT)
               AND r.deleted_at IS NULL
             LIMIT 1
@@ -548,7 +548,7 @@ async fn find_succeeded_payment_attempt_in_tx(
         SELECT id, CAST(amount AS BIGINT)::TEXT AS amount, currency_code
         FROM commerce_payment_attempt
         WHERE tenant_id = CAST($1 AS TEXT)
-          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id IS NULL AND $2 IS NULL) OR (organization_id = '0' AND $2 IS NULL))
+          AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $2 IS NULL))
           AND owner_user_id = CAST($3 AS TEXT)
           AND order_id = CAST($4 AS TEXT)
           AND currency_code = CAST($5 AS TEXT)
@@ -592,7 +592,7 @@ async fn sum_refunded_amount_in_tx(
         FROM commerce_refund
         WHERE tenant_id = CAST($1 AS TEXT)
           AND order_id = CAST($2 AS TEXT)
-          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
           AND currency_code = CAST($4 AS TEXT)
           AND LOWER(COALESCE(status, '')) IN ('submitted', 'processing', 'succeeded')
           AND deleted_at IS NULL
@@ -637,7 +637,7 @@ async fn find_refund_by_idempotency_in_tx(
         WHERE r.tenant_id = CAST($1 AS TEXT)
           AND r.order_id = CAST($2 AS TEXT)
           AND r.idempotency_key = CAST($3 AS TEXT)
-          AND ((r.organization_id = CAST($4 AS TEXT)) OR (r.organization_id IS NULL AND $4 IS NULL) OR (r.organization_id = '0' AND $4 IS NULL))
+          AND ((r.organization_id = CAST($4 AS TEXT)) OR (r.organization_id = '0' AND $4 IS NULL))
           AND o.owner_user_id = CAST($5 AS TEXT)
           AND r.deleted_at IS NULL
         LIMIT 1

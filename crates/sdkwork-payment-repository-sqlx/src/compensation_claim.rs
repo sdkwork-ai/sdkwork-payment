@@ -127,7 +127,7 @@ pub async fn claim_due_payment_attempts_postgres(
                CAST(COALESCE(pa.amount, 0) AS BIGINT)::TEXT AS amount
         FROM commerce_payment_attempt pa
         WHERE pa.tenant_id = CAST($1 AS TEXT)
-          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2 IS NULL) OR (pa.organization_id = '0' AND $2 IS NULL))
+          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id = '0' AND $2 IS NULL))
           AND pa.status IN ('pending', 'processing')
           AND (pa.expires_at IS NULL OR EXTRACT(EPOCH FROM pa.expires_at) > $3)
           AND EXTRACT(EPOCH FROM pa.created_at) <= $4
@@ -222,7 +222,7 @@ pub async fn claim_succeeded_unsettled_payment_attempts_postgres(
           ON o.id = pa.order_id
          AND o.tenant_id = pa.tenant_id
         WHERE pa.tenant_id = CAST($1 AS TEXT)
-          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id IS NULL AND $2 IS NULL) OR (pa.organization_id = '0' AND $2 IS NULL))
+          AND ((pa.organization_id = CAST($2 AS TEXT)) OR (pa.organization_id = '0' AND $2 IS NULL))
           AND pa.status = 'succeeded'
           AND pa.deleted_at IS NULL
           AND COALESCE(o.payment_status, '') <> 'success'
@@ -290,7 +290,7 @@ pub async fn claim_due_refunds_postgres(
         FROM commerce_refund r
         JOIN commerce_payment_attempt pa ON pa.id = r.payment_attempt_id
         WHERE r.tenant_id = CAST($1 AS TEXT)
-          AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id IS NULL AND $2 IS NULL) OR (r.organization_id = '0' AND $2 IS NULL))
+          AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id = '0' AND $2 IS NULL))
           AND r.status IN ('submitted', 'processing')
           AND EXTRACT(EPOCH FROM r.created_at) <= $3
           AND r.deleted_at IS NULL

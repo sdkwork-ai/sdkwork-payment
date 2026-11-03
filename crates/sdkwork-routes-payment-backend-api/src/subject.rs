@@ -11,12 +11,12 @@ pub(crate) struct AppRuntimeSubject {
 /// Backend handler entry enforcing IAM boundaries.
 ///
 /// Both organization sessions and tenant (personal) sessions are accepted.
-/// Tenant sessions — `organization_id` empty or `"0"`, i.e.
+/// Tenant sessions — resolved organization scope `"0"`, i.e.
 /// `LoginScope::Tenant` — are scoped to tenant-level payment rows
-/// (`organization_id IS NULL` or `'0'`) by the query layer, matching how the
-/// IAM and cloudrouter backend surfaces treat tenant logins. The backend
-/// surface still requires an active member principal
-/// (`IamAppContext::can_access_backend_api`).
+/// (`organization_id = '0'`) by the query layer, matching how the IAM and
+/// cloudrouter backend surfaces treat tenant logins. `NULL` is never a scope
+/// (`DATABASE_SPEC.md` DB090). The backend surface still requires an active
+/// member principal (`IamAppContext::can_access_backend_api`).
 pub(crate) fn backend_runtime_subject_from_extension(
     context: Option<Extension<IamAppContext>>,
 ) -> Result<AppRuntimeSubject, String> {

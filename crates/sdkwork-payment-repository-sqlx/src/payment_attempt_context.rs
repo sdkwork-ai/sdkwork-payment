@@ -227,7 +227,7 @@ pub(crate) async fn load_payment_webhook_attempt_context_by_id_postgres(
         WHERE id = CAST($1 AS TEXT)
           AND provider_code = CAST($2 AS TEXT)
           AND tenant_id = CAST($3 AS TEXT)
-          AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id IS NULL AND $4 IS NULL) OR (organization_id = '0' AND $4 IS NULL))
+          AND ((organization_id = CAST($4 AS TEXT)) OR (organization_id = '0' AND $4 IS NULL))
           AND deleted_at IS NULL
         "#,
     )
@@ -263,7 +263,7 @@ pub(crate) async fn load_attempt_by_out_trade_no_postgres(
           AND out_trade_no = CAST($2 AS TEXT)
           AND ($3::text IS NULL OR tenant_id = CAST($3 AS TEXT))
           AND ($3::text IS NULL OR organization_id = CAST($4 AS TEXT)
-               OR (organization_id IS NULL AND $4::text IS NULL) OR (organization_id = '0' AND $4::text IS NULL))
+               OR (organization_id = '0' AND $4::text IS NULL))
           AND deleted_at IS NULL
         ORDER BY id
         LIMIT 2

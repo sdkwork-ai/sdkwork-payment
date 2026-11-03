@@ -242,7 +242,7 @@ pub async fn upsert_notify_domain_postgres(
                   SELECT 1 FROM commerce_payment_notify_domain d
                   WHERE d.tenant_id = commerce_payment_notify_domain.tenant_id
                     AND ((d.organization_id = commerce_payment_notify_domain.organization_id)
-                         OR (d.organization_id = '0' AND commerce_payment_notify_domain.organization_id IS NULL))
+                         )
                     AND d.is_default AND d.deleted_at IS NULL
               )
             "#,

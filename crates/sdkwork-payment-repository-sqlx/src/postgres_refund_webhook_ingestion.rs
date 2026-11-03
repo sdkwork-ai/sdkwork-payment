@@ -296,7 +296,7 @@ pub async fn ingest_provider_refund_webhook_postgres(
                 last_error = NULL
             WHERE id = CAST($3 AS TEXT)
               AND tenant_id = CAST($4 AS TEXT)
-              AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id IS NULL AND $5 IS NULL) OR (organization_id = '0' AND $5 IS NULL))
+              AND ((organization_id = CAST($5 AS TEXT)) OR (organization_id = '0' AND $5 IS NULL))
             "#,
         )
         .bind(WEBHOOK_EVENT_STATUS_PROCESSED)
@@ -462,7 +462,7 @@ async fn apply_webhook_refund_status_postgres(
         FROM commerce_refund
         WHERE tenant_id = CAST($1 AS TEXT)
           AND refund_no = CAST($2 AS TEXT)
-          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
           AND deleted_at IS NULL
         LIMIT 1
         FOR UPDATE
@@ -669,7 +669,7 @@ async fn load_stored_webhook_payload_json(
         FROM commerce_payment_webhook_event
         WHERE tenant_id = CAST($1 AS TEXT)
           AND event_id = CAST($2 AS TEXT)
-          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id IS NULL AND $3 IS NULL) OR (organization_id = '0' AND $3 IS NULL))
+          AND ((organization_id = CAST($3 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
         FOR UPDATE
         "#,
     )
