@@ -21,7 +21,8 @@
   "dependencies": {
     "@sdkwork/appbase-pc-react": "workspace:*",
     "@sdkwork/payment-pc-core": "workspace:*",
-    "@sdkwork/payment-service": "workspace:*"
+    "@sdkwork/payment-service": "workspace:*",
+    "lucide-react": "catalog:"
   },
   "devDependencies": {
     "@sdkwork/ui-pc-react": "workspace:*",

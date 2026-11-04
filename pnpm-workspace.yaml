@@ -29,6 +29,7 @@ packages:
   - "../sdkwork-sdk-commons/sdkwork-sdk-common-typescript"
   - "../sdkwork-utils/packages/sdkwork-utils-typescript"
   - "../sdkwork-app-topology"
+  - "../sdkwork-appbase/packages/common/foundation/sdkwork-appbase-component-core"
 
 catalog:
   "@tailwindcss/vite": ^4.3.3
