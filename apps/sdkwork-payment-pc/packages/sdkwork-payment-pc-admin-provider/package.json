@@ -24,7 +24,8 @@
     "@sdkwork/payment-service": "workspace:*",
     "@sdkwork/payment-contracts": "workspace:*",
     "@sdkwork/utils": "workspace:*",
-    "@sdkwork/ui-pc-react": "workspace:*"
+    "@sdkwork/ui-pc-react": "workspace:*",
+    "lucide-react": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",
