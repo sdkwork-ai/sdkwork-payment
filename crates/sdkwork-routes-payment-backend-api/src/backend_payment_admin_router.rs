@@ -1290,7 +1290,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let result = sqlx::query(
                 r#"
                 UPDATE commerce_payment_channel
-                SET deleted_at = $1
+                SET deleted_at = CAST($1 AS TIMESTAMPTZ)
                 WHERE id = CAST($2 AS TEXT)
                   AND tenant_id = CAST($3 AS TEXT)
                   AND (organization_id = CAST($4 AS TEXT) OR (organization_id = '0' AND $4::text IS NULL))
@@ -1404,7 +1404,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 r#"
                 INSERT INTO commerce_payment_route_rule
                     (id, tenant_id, organization_id, rule_no, priority, purchase_type, country_code, currency_code, client_platform, amount_min, amount_max, user_segment, risk_level, channel_id, status, starts_at, ends_at, created_at, updated_at)
-                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10::numeric, $11::numeric, $12, $13, CAST($14 AS TEXT), $15, $16, $17, CAST($18 AS TIMESTAMPTZ), CAST($18 AS TIMESTAMPTZ))
+                VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, $10::numeric, $11::numeric, $12, $13, CAST($14 AS TEXT), $15, CAST($16 AS TIMESTAMPTZ), CAST($17 AS TIMESTAMPTZ), CAST($18 AS TIMESTAMPTZ), CAST($18 AS TIMESTAMPTZ))
                 ON CONFLICT (tenant_id, (COALESCE(organization_id, '')), rule_no) WHERE deleted_at IS NULL DO UPDATE SET
                     priority = EXCLUDED.priority,
                     purchase_type = EXCLUDED.purchase_type,
