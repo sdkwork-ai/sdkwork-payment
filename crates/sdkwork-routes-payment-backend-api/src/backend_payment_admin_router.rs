@@ -1663,8 +1663,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                        COUNT(*) OVER() AS total_count
                 FROM commerce_payment_webhook_event
                 WHERE tenant_id = CAST($1 AS TEXT)
-                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL))
-                  AND deleted_at IS NULL{where_extra}
+                  AND (organization_id = CAST($2 AS TEXT) OR (organization_id = '0' AND $2::text IS NULL)){where_extra}
                 {} LIMIT ${next_index} OFFSET ${offset_index}
                 "#,
                 filtered_order_clause(query.sort.as_deref(), &["received_at", "status", "provider_code"], "received_at DESC, id DESC"),
@@ -3026,7 +3025,12 @@ fn map_webhook_event_pg(row: &PgRow) -> serde_json::Value {
         "status": pg_string(row, "status"),
         "receivedAt": pg_string(row, "received_at"),
         "processedAt": pg_optional_string(row, "processed_at"),
-        "retries": row.try_get::<i64,_>("retries").unwrap_or(0),
+        // `retries` is INTEGER in every payment schema, so an i64-only read
+        // silently reports 0 for every row.
+        "retries": row
+            .try_get::<i64, _>("retries")
+            .or_else(|_| row.try_get::<i32, _>("retries").map(i64::from))
+            .unwrap_or(0),
     })
 }
 fn map_reconciliation_run_pg(row: &PgRow) -> serde_json::Value {

@@ -180,3 +180,49 @@ async fn list_provider_accounts_returns_rows_from_the_production_route() {
         "the primary credential must be reported"
     );
 }
+
+/// The optional filters take the first dynamic placeholders (`$3`..), so a
+/// filtered request proves the numbering is right when the filter list is not
+/// empty — the case the previous offset-by-two bug broke hardest.
+#[tokio::test]
+async fn list_provider_accounts_applies_optional_filters() {
+    let Some(pool) = provider_account_pool("filtered").await else {
+        eprintln!("skipping: SDKWORK_DATABASE_TEST_POSTGRES_URL is not set");
+        return;
+    };
+
+    let router = backend_payment_admin_router_with_postgres_pool(pool)
+        .layer(Extension(backend_member_context()));
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri(
+                    "/backend/v3/api/payments/provider_accounts?provider_code=wechat&status=active",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("router must answer");
+
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "filtered provider account list must bind its filters and window: {}",
+        String::from_utf8_lossy(&bytes)
+    );
+
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        body.pointer("/data/items/0/accountNo"),
+        Some(&serde_json::json!("A1")),
+        "the filtered provider account must be listed"
+    );
+    assert_eq!(
+        body.pointer("/data/items/0/providerCode"),
+        Some(&serde_json::json!("wechat"))
+    );
+}
