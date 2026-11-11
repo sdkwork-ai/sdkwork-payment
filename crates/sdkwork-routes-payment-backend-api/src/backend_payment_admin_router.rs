@@ -698,7 +698,10 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let account_mode = optional_filter_bind(&query.account_mode);
             let status = optional_filter_bind(&query.status);
             let q = optional_filter_bind(&query.q);
-            let mut next_index = 5usize;
+            // Placeholders: $1 tenant, $2 organization, filters from $3, then
+            // LIMIT/OFFSET. Bind in that exact order or PostgreSQL rejects the
+            // statement with a parameter-count mismatch.
+            let mut next_index = 3usize;
             let mut where_extra = String::new();
             for (present, column) in [
                 (provider_code.is_some(), "provider_code"),
@@ -749,14 +752,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             );
             let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&scope.tenant_id)
-                .bind(scope.organization_id.as_deref())
-                .bind(query.limit);
+                .bind(scope.organization_id.as_deref());
             for bind in [provider_code, environment, account_mode, status, q] {
                 if bind.is_some() {
                     statement = statement.bind(bind);
                 }
             }
             let rows = statement
+                .bind(query.limit)
                 .bind(query.offset)
                 .fetch_all(&self.pool)
                 .await
@@ -1323,7 +1326,10 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let status = optional_filter_bind(&query.status);
             let channel_id = optional_filter_bind(&query.channel_id);
             let q = optional_filter_bind(&query.q);
-            let mut next_index = 5usize;
+            // Placeholders: $1 tenant, $2 organization, filters from $3, then
+            // LIMIT/OFFSET. Bind in that exact order or PostgreSQL rejects the
+            // statement with a parameter-count mismatch.
+            let mut next_index = 3usize;
             let mut where_extra = String::new();
             for (present, column) in
                 [(status.is_some(), "status"), (channel_id.is_some(), "channel_id")]
@@ -1365,14 +1371,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             );
             let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&scope.tenant_id)
-                .bind(scope.organization_id.as_deref())
-                .bind(query.limit);
+                .bind(scope.organization_id.as_deref());
             for bind in [status, channel_id, q] {
                 if bind.is_some() {
                     statement = statement.bind(bind);
                 }
             }
             let rows = statement
+                .bind(query.limit)
                 .bind(query.offset)
                 .fetch_all(&self.pool)
                 .await
@@ -1555,7 +1561,10 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let provider_code = optional_filter_bind(&query.provider_code);
             let payment_intent_id = optional_filter_bind(&query.payment_intent_id);
             let q = optional_filter_bind(&query.q);
-            let mut next_index = 5usize;
+            // Placeholders: $1 tenant, $2 organization, filters from $3, then
+            // LIMIT/OFFSET. Bind in that exact order or PostgreSQL rejects the
+            // statement with a parameter-count mismatch.
+            let mut next_index = 3usize;
             let mut where_extra = String::new();
             for (present, column) in [
                 (status.is_some(), "status"),
@@ -1596,14 +1605,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             // and the filtered_order_clause whitelist; every value binds.
             let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&scope.tenant_id)
-                .bind(scope.organization_id.as_deref())
-                .bind(query.limit);
+                .bind(scope.organization_id.as_deref());
             for bind in [status, provider_code, payment_intent_id, q] {
                 if bind.is_some() {
                     statement = statement.bind(bind);
                 }
             }
             let rows = statement
+                .bind(query.limit)
                 .bind(query.offset)
                 .fetch_all(&self.pool)
                 .await
@@ -1623,7 +1632,10 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let provider_code = optional_filter_bind(&query.provider_code);
             let event_type = optional_filter_bind(&query.event_type);
             let q = optional_filter_bind(&query.q);
-            let mut next_index = 5usize;
+            // Placeholders: $1 tenant, $2 organization, filters from $3, then
+            // LIMIT/OFFSET. Bind in that exact order or PostgreSQL rejects the
+            // statement with a parameter-count mismatch.
+            let mut next_index = 3usize;
             let mut where_extra = String::new();
             for (present, column) in [
                 (status.is_some(), "status"),
@@ -1663,14 +1675,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             // and the filtered_order_clause whitelist; every value binds.
             let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&scope.tenant_id)
-                .bind(scope.organization_id.as_deref())
-                .bind(query.limit);
+                .bind(scope.organization_id.as_deref());
             for bind in [status, provider_code, event_type, q] {
                 if bind.is_some() {
                     statement = statement.bind(bind);
                 }
             }
             let rows = statement
+                .bind(query.limit)
                 .bind(query.offset)
                 .fetch_all(&self.pool)
                 .await
@@ -1715,7 +1727,10 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             let provider_code = optional_filter_bind(&query.provider_code);
             let provider_account_id = optional_filter_bind(&query.provider_account_id);
             let q = optional_filter_bind(&query.q);
-            let mut next_index = 5usize;
+            // Placeholders: $1 tenant, $2 organization, filters from $3, then
+            // LIMIT/OFFSET. Bind in that exact order or PostgreSQL rejects the
+            // statement with a parameter-count mismatch.
+            let mut next_index = 3usize;
             let mut where_extra = String::new();
             for (present, column) in [
                 (status.is_some(), "status"),
@@ -1754,14 +1769,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             );
             let mut statement = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(&scope.tenant_id)
-                .bind(scope.organization_id.as_deref())
-                .bind(query.limit);
+                .bind(scope.organization_id.as_deref());
             for bind in [status, provider_code, provider_account_id, q] {
                 if bind.is_some() {
                     statement = statement.bind(bind);
                 }
             }
             let rows = statement
+                .bind(query.limit)
                 .bind(query.offset)
                 .fetch_all(&self.pool)
                 .await
