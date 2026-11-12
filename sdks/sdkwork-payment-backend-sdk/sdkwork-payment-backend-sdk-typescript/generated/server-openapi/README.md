@@ -27,11 +27,7 @@ client.setAuthToken('your-auth-token');
 client.setAccessToken('your-access-token');
 
 // Use the SDK
-const params = {
-  page: 1,
-  page_size: 2,
-};
-const result = await client.payments.notifyDomains.list(params);
+const result = await client.payments.domainSettings.retrieve();
 ```
 
 ## Authentication
@@ -65,12 +61,8 @@ const client = new SdkworkBackendClient({
 ### payments
 
 ```typescript
-// List payment notify domains
-const params = {
-  page: 1,
-  page_size: 2,
-};
-const result = await client.payments.notifyDomains.list(params);
+// Read the payment H5 domain settings
+const result = await client.payments.domainSettings.retrieve();
 ```
 
 ## Error Handling
@@ -79,11 +71,7 @@ const result = await client.payments.notifyDomains.list(params);
 import { SdkworkBackendClient, NetworkError, TimeoutError, AuthenticationError } from 'sdkwork-payment-backend-sdk-generated-typescript';
 
 try {
-  const params = {
-    page: 1,
-    page_size: 2,
-  };
-  const result = await client.payments.notifyDomains.list(params);
+  const result = await client.payments.domainSettings.retrieve();
 } catch (error) {
   if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message);

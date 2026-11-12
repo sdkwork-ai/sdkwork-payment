@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -575,6 +575,35 @@ export class PaymentsProviderAccountsApi {
   }
 }
 
+export interface PaymentsDomainSettingsUpdateParams {
+  idempotencyKey: string;
+}
+
+export class PaymentsDomainSettingsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Read the payment H5 domain settings */
+  async retrieve(requestOptions?: ApiRequestOptions): Promise<PaymentDomainSetting> {
+    return this.client.request<PaymentDomainSetting>(backendApiPath(`/payments/domain_settings`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+
+/** Save the payment H5 domain settings */
+  async update(body: UpdatePaymentDomainSettingRequest, params: PaymentsDomainSettingsUpdateParams, requestOptions?: ApiRequestOptions): Promise<PaymentDomainSetting> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<PaymentDomainSetting>(backendApiPath(`/payments/domain_settings`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PUT' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
+  }
+}
+
 export interface PaymentsNotifyDomainsListParams {
   page?: number;
   pageSize?: number;
@@ -801,6 +830,7 @@ export class PaymentsApi {
   public readonly refunds: PaymentsRefundsApi;
   public readonly methods: PaymentsMethodsApi;
   public readonly notifyDomains: PaymentsNotifyDomainsApi;
+  public readonly domainSettings: PaymentsDomainSettingsApi;
   public readonly providerAccounts: PaymentsProviderAccountsApi;
   public readonly channels: PaymentsChannelsApi;
   public readonly routeRules: PaymentsRouteRulesApi;
@@ -816,6 +846,7 @@ export class PaymentsApi {
     this.refunds = new PaymentsRefundsApi(client);
     this.methods = new PaymentsMethodsApi(client);
     this.notifyDomains = new PaymentsNotifyDomainsApi(client);
+    this.domainSettings = new PaymentsDomainSettingsApi(client);
     this.providerAccounts = new PaymentsProviderAccountsApi(client);
     this.channels = new PaymentsChannelsApi(client);
     this.routeRules = new PaymentsRouteRulesApi(client);

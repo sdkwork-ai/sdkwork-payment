@@ -1452,6 +1452,106 @@
         "x-sdkwork-permission": "commerce.payments.notify_domains.delete"
       }
     },
+    "/backend/v3/api/payments/domain_settings": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Read the payment H5 domain settings",
+        "description": "Returns the admin-configured H5 payment domain for the caller's tenant/organization scope. The item is an explicit not-configured view (`configured: false`) when no row exists, so the admin form starts empty instead of surfacing a 404.",
+        "operationId": "domainSettings.retrieve",
+        "responses": {
+          "200": {
+            "description": "Payment domain settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDomainSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.read"
+      },
+      "put": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Save the payment H5 domain settings",
+        "description": "Upserts the H5 payment domain for the caller's scope. The configured origin is used to build the order cashier URL / QR code payload and the default H5 return URL for redirect-style PSP products.",
+        "operationId": "domainSettings.update",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePaymentDomainSettingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved payment domain settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentDomainSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-idempotent": true,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.update"
+      }
+    },
     "/backend/v3/api/payments/provider_accounts": {
       "get": {
         "tags": [
@@ -6350,6 +6450,120 @@
           }
         ]
       },
+      "PaymentDomainSetting": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "h5Protocol",
+          "h5Hostname",
+          "h5Status",
+          "configured",
+          "h5BaseUrl",
+          "cashierUrlTemplate"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "nullable": true
+          },
+          "h5Protocol": {
+            "type": "string",
+            "enum": [
+              "https",
+              "http"
+            ]
+          },
+          "h5Hostname": {
+            "type": "string"
+          },
+          "h5Port": {
+            "type": "integer",
+            "nullable": true
+          },
+          "h5Status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "False when no settings row exists for the scope; the form starts empty and checkout keeps the deployment default origin."
+          },
+          "h5BaseUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "cashierUrlTemplate": {
+            "type": "string",
+            "description": "Cashier deep-link template built from the configured H5 domain."
+          }
+        }
+      },
+      "UpdatePaymentDomainSettingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "h5Protocol",
+          "h5Hostname"
+        ],
+        "properties": {
+          "h5Protocol": {
+            "type": "string",
+            "enum": [
+              "https",
+              "http"
+            ]
+          },
+          "h5Hostname": {
+            "type": "string",
+            "description": "Bare hostname without scheme, port, or path (e.g. h5.example.com)."
+          },
+          "h5Port": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "h5Status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        }
+      },
+      "PaymentDomainSettingItemResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentDomainSetting"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "SdkWorkApiResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -9206,7 +9420,12 @@
           "qrCodeUrl": {
             "type": "string",
             "format": "uri",
-            "description": "Scan-to-pay QR code payload (e.g., WeChat native code_url, Alipay precreate qr_code) when the provider returned one"
+            "description": "Scan-to-pay QR code payload (e.g., WeChat native code_url, Alipay precreate qr_code) when the provider returned one; falls back to the configured H5 cashier deep-link generated from the payment domain settings"
+          },
+          "cashierUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Order-bound H5 cashier deep-link built from the configured H5 payment domain (支付设置 → 域名设置); scan it to open the mobile cashier"
           },
           "payUrl": {
             "type": "string",

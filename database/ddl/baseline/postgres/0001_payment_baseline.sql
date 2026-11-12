@@ -878,3 +878,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_notify_domain_default
 CREATE INDEX IF NOT EXISTS idx_commerce_payment_notify_domain_scope
     ON commerce_payment_notify_domain (tenant_id, organization_id, status, sort_order, id)
     WHERE deleted_at IS NULL;
+
+
+-- =============================================================================
+-- 17. commerce_payment_domain_setting
+-- =============================================================================
+-- Admin-configured payment domain settings (支付中心 → 支付设置 → 域名设置).
+-- One row per tenant scope (exact organization row, or the platform '0' row)
+-- stores the H5 payment domain: the origin used to build the order cashier
+-- URL / QR code payload and the default H5 return URL handed to redirect-style
+-- PSP products. Resolution: exact organization row -> organization '0'
+-- (platform) row -> deployment SDKWORK_COMMERCE_CASHIER_BASE_URL / platform
+-- default. The callback (notify) domain remains commerce_payment_notify_domain.
+CREATE TABLE IF NOT EXISTS commerce_payment_domain_setting (
+    id                TEXT PRIMARY KEY,
+    tenant_id         TEXT NOT NULL,
+    organization_id   TEXT NOT NULL DEFAULT '0',
+    h5_protocol       TEXT NOT NULL DEFAULT 'https'
+                      CHECK (h5_protocol IN ('https', 'http')),
+    h5_hostname       TEXT NOT NULL,
+    h5_port           INTEGER,
+    h5_status         TEXT NOT NULL DEFAULT 'active'
+                      CHECK (h5_status IN ('active', 'inactive')),
+    version           BIGINT NOT NULL DEFAULT 1,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at        TIMESTAMPTZ NULL,
+    CHECK (h5_port IS NULL OR (h5_port >= 1 AND h5_port <= 65535))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_domain_setting_scope
+    ON commerce_payment_domain_setting (tenant_id, organization_id)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_domain_setting_lookup
+    ON commerce_payment_domain_setting (tenant_id, organization_id, h5_status, id)
+    WHERE deleted_at IS NULL;

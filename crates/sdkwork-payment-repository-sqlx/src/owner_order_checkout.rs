@@ -3,6 +3,7 @@
 //! Shared by payment and order app-api routers so `orders.payments.create` and `payments.create`
 //! return the same cashier parameters.
 use crate::load_default_notify_domain_postgres;
+use crate::payment_domain_setting::resolve_h5_cashier_base_url_postgres;
 use crate::provider_account::{
     ensure_provider_account_matches, load_active_provider_account_for_channel_postgres,
     load_active_provider_account_postgres, load_provider_account_for_existing_payment_postgres,
@@ -294,18 +295,39 @@ async fn enrich_owner_order_payment_postgres_locked(
             .map(|domain| {
                 build_notify_domain_base_url(&domain.protocol, &domain.hostname, domain.port)
             });
+    // Resolve the configured H5 payment domain (支付设置 → 域名设置). It is the
+    // operator-chosen origin for the cashier deep-link / QR code payload and
+    // the default H5 return URL handed to redirect-style PSP products.
+    let h5_domain_base =
+        resolve_h5_cashier_base_url_postgres(pool, context.tenant_id, context.organization_id)
+            .await?;
+    let cashier_scene = cashier_scene_from_payment_params(&outcome.payment_params);
+    let mut checkout_metadata = attempt_context.payment_metadata.clone();
+    if let Some(base) = h5_domain_base.as_deref() {
+        apply_default_h5_return_url(
+            &mut checkout_metadata,
+            base,
+            &cashier_scene,
+            context.order_id,
+            &outcome.out_trade_no,
+        );
+    }
     let enriched = enrich_owner_order_payment_outcome(
         &context,
         account.as_ref().map(provider_account_binding),
         &provider_code,
         &attempt_context.idempotency_key,
-        Some(&attempt_context.payment_metadata),
+        Some(&checkout_metadata),
         outcome,
         expires_at.as_deref(),
         attempt_context.currency_code.as_deref(),
         notify_domain_base.as_deref(),
     )
     .await?;
+    // The provider enrichment may surface its own `cashierUrl`; the configured
+    // H5 domain wins so every generated QR/cashier link follows the operator's
+    // domain configuration instead of the deployment default.
+    let enriched = apply_configured_h5_cashier_url(enriched, h5_domain_base.as_deref());
     persist_attempt_enrichment_postgres(
         pool,
         context.tenant_id,
@@ -314,6 +336,94 @@ async fn enrich_owner_order_payment_postgres_locked(
     )
     .await?;
     Ok(enriched)
+}
+
+/// Reads the cashier scene recorded on the payment params, falling back to the
+/// canonical `checkout` scene. The scene keeps the H5 cashier route consistent
+/// with the one the order/account surfaces render.
+fn cashier_scene_from_payment_params(
+    params: &std::collections::BTreeMap<String, String>,
+) -> String {
+    if let Some(scene) = params
+        .get("cashierScene")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        return scene.to_owned();
+    }
+    params
+        .get("cashierUrl")
+        .and_then(|url| url.split_once("scene=").map(|(_, rest)| rest))
+        .and_then(|rest| rest.split('&').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("checkout")
+        .to_owned()
+}
+
+/// Supplies a default H5 `return_url` for redirect-style PSP products (Alipay
+/// WAP/PC) when neither the caller nor the order metadata provided one. The
+/// field is only a default: explicit `return_url`/`returnUrl` metadata wins.
+fn apply_default_h5_return_url(
+    metadata: &mut serde_json::Value,
+    base: &str,
+    scene: &str,
+    order_id: &str,
+    out_trade_no: &str,
+) {
+    if !metadata.is_object() {
+        *metadata = serde_json::json!({});
+    }
+    let absent = |key: &str| {
+        metadata
+            .get(key)
+            .map(|value| {
+                value.is_null()
+                    || value
+                        .as_str()
+                        .is_some_and(|text| text.trim().is_empty())
+            })
+            .unwrap_or(true)
+    };
+    if absent("return_url") && absent("returnUrl") {
+        metadata["return_url"] = serde_json::json!(sdkwork_utils_rust::build_commerce_cashier_url_with_base(
+            scene,
+            order_id,
+            out_trade_no,
+            Some(base),
+        ));
+    }
+}
+
+/// Rewrites the cashier URL / QR payload onto the configured H5 domain.
+fn apply_configured_h5_cashier_url(
+    mut outcome: PayOwnerOrderOutcome,
+    h5_base_url: Option<&str>,
+) -> PayOwnerOrderOutcome {
+    let Some(base) = h5_base_url.map(str::trim).filter(|value| !value.is_empty()) else {
+        return outcome;
+    };
+    let scene = cashier_scene_from_payment_params(&outcome.payment_params);
+    let cashier_url = sdkwork_utils_rust::build_commerce_cashier_url_with_base(
+        &scene,
+        &outcome.order_id,
+        &outcome.out_trade_no,
+        Some(base),
+    );
+    outcome
+        .payment_params
+        .insert("cashierUrl".to_owned(), cashier_url.clone());
+    outcome
+        .payment_params
+        .insert("qrCodePayload".to_owned(), cashier_url);
+    outcome
+        .payment_params
+        .insert("cashierScene".to_owned(), scene);
+    outcome.payment_params.insert(
+        "cashierBaseUrl".to_owned(),
+        base.trim_end_matches('/').to_owned(),
+    );
+    outcome
 }
 async fn provider_account_for_attempt_postgres(
     pool: &PgPool,

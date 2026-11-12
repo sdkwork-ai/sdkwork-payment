@@ -212,6 +212,9 @@ struct TestPaymentResult {
     status: String,
     /// Scan-to-pay QR code URL (`wechat_native` code_url / `alipay_qr` qr_code).
     qr_code_url: Option<String>,
+    /// Order-bound H5 cashier deep-link built from the configured H5 payment
+    /// domain (支付设置 → 域名设置); falls back to the deployment origin.
+    cashier_url: Option<String>,
     /// Web cashier redirect URL (`alipay_wap`/`alipay_pc` cashier link).
     pay_url: Option<String>,
     /// Full Alipay cashier form HTML for browser render + auto submit.
@@ -1181,6 +1184,7 @@ async fn create_test_payment(
             currency_code,
             status: attempt.status,
             qr_code_url,
+            cashier_url: attempt.payment_params.get("cashierUrl").cloned(),
             pay_url: attempt.payment_params.get("payUrl").cloned(),
             pay_form: attempt.payment_params.get("payForm").cloned(),
             client_secret: attempt.payment_params.get("clientSecret").cloned(),

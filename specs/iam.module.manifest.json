@@ -189,6 +189,24 @@
         "replacementCode": null
       },
       {
+        "code": "commerce.payments.domain_settings.read",
+        "name": "Read payment domain settings",
+        "resource": "domain_settings",
+        "action": "read",
+        "status": "active",
+        "since": "1.0.0",
+        "replacementCode": null
+      },
+      {
+        "code": "commerce.payments.domain_settings.update",
+        "name": "Update payment domain settings",
+        "resource": "domain_settings",
+        "action": "update",
+        "status": "active",
+        "since": "1.0.0",
+        "replacementCode": null
+      },
+      {
         "code": "commerce.payments.sub_merchants.read",
         "name": "Read sub-merchants",
         "resource": "sub_merchants",

@@ -54,3 +54,9 @@ tables:
   - name: commerce_payment_provider
     lifecycle_status: active
     owner: sdkwork-payment
+  - name: commerce_payment_notify_domain
+    lifecycle_status: active
+    owner: sdkwork-payment
+  - name: commerce_payment_domain_setting
+    lifecycle_status: active
+    owner: sdkwork-payment

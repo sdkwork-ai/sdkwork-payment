@@ -313,6 +313,22 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "notifyDomains.delete",
     )
     .with_required_permission("commerce.payments.notify_domains.delete"),
+    // === Payment domain settings (支付设置 → 域名设置) ===
+    HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/domain_settings",
+        "payments",
+        "domainSettings.retrieve",
+    )
+    .with_required_permission("commerce.payments.domain_settings.read"),
+    HttpRoute::dual_token(
+        HttpMethod::Put,
+        "/backend/v3/api/payments/domain_settings",
+        "payments",
+        "domainSettings.update",
+    )
+    .with_required_permission("commerce.payments.domain_settings.update")
+    .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/attempts",

@@ -126,6 +126,24 @@
     },
     {
       "method": "GET",
+      "path": "/backend/v3/api/payments/domain_settings",
+      "operationId": "domainSettings.retrieve",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/backend/v3/api/payments/domain_settings",
+      "operationId": "domainSettings.update",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/backend/v3/api/payments/provider_accounts",
       "operationId": "providerAccounts.list",
       "source": {

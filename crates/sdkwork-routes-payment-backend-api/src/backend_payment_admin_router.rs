@@ -104,6 +104,14 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         scope: BackendTenantScope,
         domain_id: String,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()>;
+    fn retrieve_payment_domain_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    fn upsert_payment_domain_setting<'a>(
+        &'a self,
+        payload: BackendPaymentDomainSettingPayload,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn list_attempts<'a>(
         &'a self,
         query: BackendFilteredListQuery,
@@ -430,6 +438,29 @@ impl Serialize for BackendNotifyDomainPayload {
         state.serialize_field("sortOrder", &self.sort_order)?;
         state.end()
     }
+}
+
+/// Admin save payload for the H5 payment domain settings (支付设置 → 域名设置).
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PaymentDomainSettingBody {
+    h5_protocol: Option<String>,
+    h5_hostname: Option<String>,
+    h5_port: Option<i32>,
+    h5_status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendPaymentDomainSettingPayload {
+    tenant_id: String,
+    organization_id: Option<String>,
+    id: Option<String>,
+    h5_protocol: Option<String>,
+    h5_hostname: Option<String>,
+    h5_port: Option<i32>,
+    h5_status: Option<String>,
+    request_no: String,
+    idempotency_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1551,6 +1582,59 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             })
         })
     }
+    fn retrieve_payment_domain_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let setting = sdkwork_payment_repository_sqlx::load_payment_domain_setting_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                scope.organization_id.as_deref(),
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to load payment domain setting: {error:?}"
+                ))
+            })?
+            .unwrap_or_else(sdkwork_payment_repository_sqlx::default_payment_domain_setting_view);
+            serde_json::to_value(setting).map_err(|error| {
+                CommerceServiceError::storage(format!("payment domain setting json: {error:?}"))
+            })
+        })
+    }
+    fn upsert_payment_domain_setting<'a>(
+        &'a self,
+        payload: BackendPaymentDomainSettingPayload,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let command = sdkwork_payment_repository_sqlx::UpsertPaymentDomainSettingCommand {
+                tenant_id: payload.tenant_id,
+                organization_id: payload.organization_id,
+                id: payload.id,
+                h5_protocol: payload.h5_protocol.unwrap_or_else(|| "https".to_owned()),
+                h5_hostname: payload.h5_hostname.unwrap_or_default(),
+                h5_port: payload.h5_port,
+                h5_status: payload.h5_status.unwrap_or_else(|| "active".to_owned()),
+                request_no: payload.request_no,
+                idempotency_key: payload.idempotency_key,
+            };
+            let setting = sdkwork_payment_repository_sqlx::upsert_payment_domain_setting_postgres(
+                &self.pool,
+                command,
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to upsert payment domain setting: {error:?}"
+                ))
+            })?;
+            serde_json::to_value(setting).map_err(|error| {
+                CommerceServiceError::storage(format!("payment domain setting json: {error:?}"))
+            })
+        })
+    }
     fn list_attempts<'a>(
         &'a self,
         query: BackendFilteredListQuery,
@@ -1879,6 +1963,10 @@ pub fn build_backend_payment_admin_router(
         .route(
             "/backend/v3/api/payments/notify_domains/{domainId}",
             patch(update_notify_domain).delete(delete_notify_domain),
+        )
+        .route(
+            "/backend/v3/api/payments/domain_settings",
+            get(retrieve_payment_domain_setting).put(update_payment_domain_setting),
         )
         .route("/backend/v3/api/payments/attempts", get(list_attempts))
         .route(
@@ -2693,6 +2781,68 @@ async fn delete_notify_domain(
     match state.store.delete_notify_domain(scope, domain_id).await {
         Ok(()) => success_no_content(ctx),
         Err(error) => backend_payment_error_response(ctx, "notify domain delete failed", error),
+    }
+}
+
+async fn retrieve_payment_domain_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state.store.retrieve_payment_domain_setting(scope).await {
+        // A scope without a settings row answers with the explicit
+        // "not configured" view so the admin form starts empty instead of
+        // surfacing a 404.
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "payment domain setting is unavailable", error)
+        }
+    }
+}
+
+async fn update_payment_domain_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<PaymentDomainSettingBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let write_headers =
+        match validate_backend_write_payload(ctx, &headers, "payment-domain-setting-upsert", &body, "pd")
+        {
+            Ok(headers) => headers,
+            Err(response) => return response,
+        };
+    let payload = BackendPaymentDomainSettingPayload {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+        id: None,
+        h5_protocol: body.h5_protocol,
+        h5_hostname: body.h5_hostname,
+        h5_port: body.h5_port,
+        h5_status: body.h5_status,
+        request_no: write_headers.request_no,
+        idempotency_key: write_headers.idempotency_key,
+    };
+    match state.store.upsert_payment_domain_setting(payload).await {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "payment domain setting save failed", error)
+        }
     }
 }
 

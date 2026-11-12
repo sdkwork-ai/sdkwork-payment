@@ -7,6 +7,7 @@ mod owner_order_provider_close;
 mod owner_payment_params;
 pub mod payment_attempt_context;
 mod payment_channel;
+pub mod payment_domain_setting;
 mod payment_method;
 pub mod postgres_owner_order_payment;
 pub mod postgres_payment;
@@ -50,6 +51,12 @@ pub use payment_attempt_context::{
     PaymentAttemptProviderContext, PaymentWebhookAttemptContext, WebhookAttemptContext,
 };
 pub use payment_method::PostgresCommercePaymentMethodStore;
+pub use payment_domain_setting::{
+    build_payment_domain_base_url, default_payment_domain_setting_view,
+    load_payment_domain_setting_postgres, resolve_h5_cashier_base_url_postgres,
+    upsert_payment_domain_setting_postgres, PaymentDomainSettingView,
+    UpsertPaymentDomainSettingCommand, CASHIER_URL_TEMPLATE_SUFFIX,
+};
 pub use postgres_owner_order_payment::PostgresCommerceOwnerOrderPaymentStore;
 pub use postgres_payment::PostgresCommercePaymentRecordStore;
 pub use postgres_payment_intent::PostgresCommercePaymentIntentStore;

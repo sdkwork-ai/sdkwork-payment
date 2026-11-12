@@ -85,6 +85,18 @@
       "owner": "sdkwork-payment",
       "compliance_level": "L2",
       "lifecycle_status": "active"
+    },
+    {
+      "table_name": "commerce_payment_notify_domain",
+      "owner": "sdkwork-payment",
+      "compliance_level": "L2",
+      "lifecycle_status": "active"
+    },
+    {
+      "table_name": "commerce_payment_domain_setting",
+      "owner": "sdkwork-payment",
+      "compliance_level": "L2",
+      "lifecycle_status": "active"
     }
   ]
 }
