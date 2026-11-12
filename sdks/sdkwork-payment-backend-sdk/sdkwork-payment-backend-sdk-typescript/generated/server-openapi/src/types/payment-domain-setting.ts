@@ -1,5 +1,6 @@
 export interface PaymentDomainSetting {
   id?: string;
+  tenantId?: string;
   organizationId?: string | null;
   h5Protocol: 'https' | 'http';
   h5Hostname: string;

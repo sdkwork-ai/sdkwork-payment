@@ -4162,6 +4162,9 @@
           "id": {
             "type": "string"
           },
+          "tenantId": {
+            "type": "string"
+          },
           "organizationId": {
             "type": "string",
             "nullable": true

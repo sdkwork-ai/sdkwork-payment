@@ -32,7 +32,7 @@ pub struct PaymentDomainSettingView {
     pub h5_hostname: String,
     pub h5_port: Option<i32>,
     pub h5_status: String,
-    /// Whether an active settings row exists for this scope.
+    /// Whether a settings row exists for this scope.
     pub configured: bool,
     /// `{protocol}://{hostname}{:port}` (no trailing slash).
     pub h5_base_url: String,
@@ -40,7 +40,7 @@ pub struct PaymentDomainSettingView {
     pub cashier_url_template: String,
 }
 
-/// The "not configured yet" answer for a scope without an active row. The
+/// The "not configured yet" answer for a scope without a settings row. The
 /// checkout falls back to the deployment origin; the admin form starts empty.
 #[must_use]
 pub fn default_payment_domain_setting_view() -> PaymentDomainSettingView {
@@ -78,11 +78,7 @@ pub const CASHIER_URL_TEMPLATE_SUFFIX: &str =
 
 /// Builds the origin for a configured domain row.
 #[must_use]
-pub fn build_payment_domain_base_url(
-    protocol: &str,
-    hostname: &str,
-    port: Option<i32>,
-) -> String {
+pub fn build_payment_domain_base_url(protocol: &str, hostname: &str, port: Option<i32>) -> String {
     match port {
         Some(port) => format!("{protocol}://{hostname}:{port}"),
         None => format!("{protocol}://{hostname}"),
@@ -177,10 +173,9 @@ pub async fn upsert_payment_domain_setting_postgres(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| PLATFORM_ORGANIZATION_ID.to_owned());
 
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| store_error("failed to begin payment domain setting transaction", error))?;
+    let mut tx = pool.begin().await.map_err(|error| {
+        store_error("failed to begin payment domain setting transaction", error)
+    })?;
 
     let existing_id = sqlx::query_scalar::<_, String>(
         r#"
@@ -244,9 +239,9 @@ pub async fn upsert_payment_domain_setting_postgres(
     .await
     .map_err(|error| store_error("failed to upsert payment domain setting", error))?;
 
-    tx.commit()
-        .await
-        .map_err(|error| store_error("failed to commit payment domain setting transaction", error))?;
+    tx.commit().await.map_err(|error| {
+        store_error("failed to commit payment domain setting transaction", error)
+    })?;
 
     load_payment_domain_setting_for_scope_postgres(pool, &command.tenant_id, &organization_bind)
         .await?
@@ -275,10 +270,7 @@ async fn load_payment_domain_setting_for_scope_postgres(
     .fetch_optional(pool)
     .await
     .map_err(|error| store_error("failed to load payment domain setting", error))?;
-    Ok(row
-        .as_ref()
-        .map(payment_domain_setting_from_row)
-        .filter(|view| view.h5_status == "active"))
+    Ok(row.as_ref().map(payment_domain_setting_from_row))
 }
 
 fn validate_payment_domain_setting(
@@ -335,10 +327,15 @@ fn normalize_payment_domain_status(status: &str) -> Result<String, CommerceServi
 /// Whether plain-text `http` payment domains may be registered. Mirrors the
 /// notify-domain posture: only explicitly non-production environments allow it.
 fn http_payment_protocol_allowed() -> bool {
-    let environment = ["SDKWORK_ENVIRONMENT", "SDKWORK_PAYMENT_ENVIRONMENT", "PAYMENT_ENVIRONMENT", "SDKWORK_ENV"]
-        .iter()
-        .find_map(|key| std::env::var(key).ok())
-        .unwrap_or_else(|| "development".to_owned());
+    let environment = [
+        "SDKWORK_ENVIRONMENT",
+        "SDKWORK_PAYMENT_ENVIRONMENT",
+        "PAYMENT_ENVIRONMENT",
+        "SDKWORK_ENV",
+    ]
+    .iter()
+    .find_map(|key| std::env::var(key).ok())
+    .unwrap_or_else(|| "development".to_owned());
     matches!(
         environment.trim().to_ascii_lowercase().as_str(),
         "development" | "dev" | "local" | "test" | "testing"
@@ -427,7 +424,10 @@ mod tests {
     #[test]
     fn status_normalization_accepts_only_active_or_inactive() {
         assert_eq!("active", normalize_payment_domain_status("").unwrap());
-        assert_eq!("inactive", normalize_payment_domain_status("INACTIVE").unwrap());
+        assert_eq!(
+            "inactive",
+            normalize_payment_domain_status("INACTIVE").unwrap()
+        );
         assert!(normalize_payment_domain_status("disabled").is_err());
     }
 }
