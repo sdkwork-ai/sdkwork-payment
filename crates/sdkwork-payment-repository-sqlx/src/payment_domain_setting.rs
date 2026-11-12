@@ -416,7 +416,12 @@ mod tests {
             );
         }
         assert!(validate_payment_domain_setting("https", "h5.example.com", None).is_ok());
-        assert!(validate_payment_domain_setting("http", "127.0.0.1", Some(5182)).is_ok());
+        assert!(validate_payment_domain_setting("https", "127.0.0.1", Some(5182)).is_ok());
+        // `http` is a local-development-only allowance (SDKWORK_ENVIRONMENT
+        // driven); production must always reject it.
+        if !http_payment_protocol_allowed() {
+            assert!(validate_payment_domain_setting("http", "127.0.0.1", Some(5182)).is_err());
+        }
     }
 
     #[test]
