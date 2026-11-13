@@ -25,7 +25,7 @@ describe("ProviderAccountFillInGuide localization", () => {
     renderGuide();
     expect(screen.getByText("Fill-in guide")).toBeInTheDocument();
     expect(screen.getByText("Credentials — WeChat Pay")).toBeInTheDocument();
-    expect(screen.getByText(/unique identifier for this account/u)).toBeInTheDocument();
+    expect(screen.getByText(/generated automatically on save/u)).toBeInTheDocument();
     expect(screen.getByText(/WeChat Pay Public Key \(recommended\)/u)).toBeInTheDocument();
     expect(screen.getByText(/Wechatpay-Serial header carries this ID/u)).toBeInTheDocument();
   });
@@ -34,7 +34,7 @@ describe("ProviderAccountFillInGuide localization", () => {
     renderGuide("zh-CN");
     expect(screen.getByText("填写指南")).toBeInTheDocument();
     expect(screen.getByText("凭据 — 微信支付")).toBeInTheDocument();
-    expect(screen.getByText(/账户唯一标识/u)).toBeInTheDocument();
+    expect(screen.getByText(/保存时由系统自动生成/u)).toBeInTheDocument();
     expect(screen.getByText(/微信支付公钥（推荐）/u)).toBeInTheDocument();
     expect(screen.getByText(/Wechatpay-Serial 响应头携带该公钥 ID/u)).toBeInTheDocument();
     expect(screen.getByText(/X.509 证书/u)).toBeInTheDocument();
