@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.database.migration-metadata",
+  "engine": "postgres",
+  "sourcePolicy": "historical-immutable",
+  "migrations": {
+    "0002_payment_no_uniqueness.up.sql": {
+      "engine": "postgres",
+      "reversible": "true",
+      "rollback": "down-migration (drop the three indexes)",
+      "transactional": "true",
+      "lock": "lightweight",
+      "lock_timeout": "2s",
+      "statement_timeout": "30s",
+      "correctionReason": "The applied historical header stores raw SQL in rollback; the recorded strategy is down-migration because the paired down migration drops the three indexes."
+    }
+  }
+}
