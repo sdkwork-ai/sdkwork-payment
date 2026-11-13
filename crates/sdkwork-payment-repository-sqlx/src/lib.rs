@@ -1,3 +1,4 @@
+pub mod cashier_token;
 pub mod compensation_claim;
 pub mod notify_domain;
 mod order_reference;

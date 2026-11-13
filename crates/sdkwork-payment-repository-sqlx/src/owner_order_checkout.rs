@@ -37,6 +37,7 @@ pub fn provider_account_binding(record: &PaymentProviderAccountRecord) -> Provid
         metadata: record.metadata.clone(),
     }
 }
+use crate::cashier_token::{cashier_url_for_token, mint_cashier_token, CashierTokenSubject};
 use crate::owner_payment_params::owner_order_payment_params;
 use crate::payment_attempt_context::{
     load_payment_attempt_provider_context_postgres, persist_attempt_enrichment_postgres,
@@ -302,6 +303,16 @@ async fn enrich_owner_order_payment_postgres_locked(
         resolve_h5_cashier_base_url_postgres(pool, context.tenant_id, context.organization_id)
             .await?;
     let cashier_scene = cashier_scene_from_payment_params(&outcome.payment_params);
+    // Mint the anonymous-cashier capability before the links are built: the token
+    // is what lets the H5 cashier open without a login session. Minting is skipped
+    // (and the legacy login-required link is kept) when the attempt has no currency
+    // to bind, or when the host has not installed a payment credential cipher.
+    let cashier_token = mint_cashier_token_for_outcome(
+        &context,
+        &outcome,
+        &cashier_scene,
+        attempt_context.currency_code.as_deref(),
+    )?;
     let mut checkout_metadata = attempt_context.payment_metadata.clone();
     if let Some(base) = h5_domain_base.as_deref() {
         apply_default_h5_return_url(
@@ -310,6 +321,7 @@ async fn enrich_owner_order_payment_postgres_locked(
             &cashier_scene,
             context.order_id,
             &outcome.out_trade_no,
+            cashier_token.as_deref(),
         );
     }
     let enriched = enrich_owner_order_payment_outcome(
@@ -324,10 +336,11 @@ async fn enrich_owner_order_payment_postgres_locked(
         notify_domain_base.as_deref(),
     )
     .await?;
-    // The provider enrichment may surface its own `cashierUrl`; the configured
-    // H5 domain wins so every generated QR/cashier link follows the operator's
-    // domain configuration instead of the deployment default.
-    let enriched = apply_configured_h5_cashier_url(enriched, h5_domain_base.as_deref());
+    // The provider enrichment may surface its own `cashierUrl`; a minted token URL
+    // wins over it, and the configured H5 domain wins over the deployment default,
+    // so every generated QR/cashier link follows the operator's configuration.
+    let enriched =
+        apply_configured_h5_cashier_url(enriched, h5_domain_base.as_deref(), cashier_token.as_deref());
     persist_attempt_enrichment_postgres(
         pool,
         context.tenant_id,
@@ -361,15 +374,44 @@ fn cashier_scene_from_payment_params(
         .to_owned()
 }
 
+/// Mints the anonymous-cashier capability for a checkout outcome.
+///
+/// Skipped (returns `Ok(None)`) when the attempt has no bound currency: the
+/// anonymous cashier verifies the charged amount against the token, so a token
+/// without a currency cannot be validated and must not be issued.
+fn mint_cashier_token_for_outcome(
+    context: &OwnerOrderPaymentEnrichmentContext<'_>,
+    outcome: &PayOwnerOrderOutcome,
+    scene: &str,
+    currency_code: Option<&str>,
+) -> Result<Option<String>, CommerceServiceError> {
+    let Some(currency_code) = currency_code.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    mint_cashier_token(&CashierTokenSubject {
+        tenant_id: context.tenant_id,
+        order_id: &outcome.order_id,
+        out_trade_no: &outcome.out_trade_no,
+        amount: outcome.amount.as_str(),
+        currency_code,
+        scene,
+    })
+}
+
 /// Supplies a default H5 `return_url` for redirect-style PSP products (Alipay
 /// WAP/PC) when neither the caller nor the order metadata provided one. The
 /// field is only a default: explicit `return_url`/`returnUrl` metadata wins.
+///
+/// A minted cashier token is used so the payer lands back on the *anonymous*
+/// cashier after the provider redirect; the legacy link would drop them on the
+/// login wall and they could not see the payment result.
 fn apply_default_h5_return_url(
     metadata: &mut serde_json::Value,
     base: &str,
     scene: &str,
     order_id: &str,
     out_trade_no: &str,
+    cashier_token: Option<&str>,
 ) {
     if !metadata.is_object() {
         *metadata = serde_json::json!({});
@@ -386,30 +428,49 @@ fn apply_default_h5_return_url(
             .unwrap_or(true)
     };
     if absent("return_url") && absent("returnUrl") {
-        metadata["return_url"] = serde_json::json!(sdkwork_utils_rust::build_commerce_cashier_url_with_base(
-            scene,
-            order_id,
-            out_trade_no,
-            Some(base),
-        ));
+        let return_url = cashier_token
+            .and_then(|token| cashier_url_for_token(token, Some(base)))
+            .unwrap_or_else(|| {
+                sdkwork_utils_rust::build_commerce_cashier_url_with_base(
+                    scene,
+                    order_id,
+                    out_trade_no,
+                    Some(base),
+                )
+            });
+        metadata["return_url"] = serde_json::json!(return_url);
     }
 }
 
-/// Rewrites the cashier URL / QR payload onto the configured H5 domain.
+/// Rewrites the cashier URL / QR payload for the anonymous cashier.
+///
+/// A minted token wins even when no H5 domain is configured: the params still
+/// carry the legacy link from `owner_order_payment_params`, and leaving it in
+/// place would keep the scanned QR on the login-required path. Without a token
+/// the configured H5 domain still rewrites the legacy link, which is the exact
+/// pre-token behaviour.
 fn apply_configured_h5_cashier_url(
     mut outcome: PayOwnerOrderOutcome,
     h5_base_url: Option<&str>,
+    cashier_token: Option<&str>,
 ) -> PayOwnerOrderOutcome {
-    let Some(base) = h5_base_url.map(str::trim).filter(|value| !value.is_empty()) else {
+    let configured_base = h5_base_url.map(str::trim).filter(|value| !value.is_empty());
+    let scene = cashier_scene_from_payment_params(&outcome.payment_params);
+    let cashier_url = cashier_token
+        .and_then(|token| cashier_url_for_token(token, configured_base))
+        .or_else(|| {
+            configured_base.map(|base| {
+                sdkwork_utils_rust::build_commerce_cashier_url_with_base(
+                    &scene,
+                    &outcome.order_id,
+                    &outcome.out_trade_no,
+                    Some(base),
+                )
+            })
+        });
+    let Some(cashier_url) = cashier_url else {
         return outcome;
     };
-    let scene = cashier_scene_from_payment_params(&outcome.payment_params);
-    let cashier_url = sdkwork_utils_rust::build_commerce_cashier_url_with_base(
-        &scene,
-        &outcome.order_id,
-        &outcome.out_trade_no,
-        Some(base),
-    );
     outcome
         .payment_params
         .insert("cashierUrl".to_owned(), cashier_url.clone());
@@ -419,10 +480,12 @@ fn apply_configured_h5_cashier_url(
     outcome
         .payment_params
         .insert("cashierScene".to_owned(), scene);
-    outcome.payment_params.insert(
-        "cashierBaseUrl".to_owned(),
-        base.trim_end_matches('/').to_owned(),
-    );
+    if let Some(base) = configured_base {
+        outcome.payment_params.insert(
+            "cashierBaseUrl".to_owned(),
+            base.trim_end_matches('/').to_owned(),
+        );
+    }
     outcome
 }
 async fn provider_account_for_attempt_postgres(
@@ -781,5 +844,157 @@ fn ensure_attempt_expiry_persisted(rows_affected: u64) -> Result<(), CommerceSer
         Err(CommerceServiceError::conflict(
             "payment attempt changed while checkout expiry was being persisted",
         ))
+    }
+}
+
+#[cfg(test)]
+mod cashier_link_tests {
+    use super::*;
+    use sdkwork_contract_service::CommerceMoney;
+
+    const TOKEN: &str = "v1.eyJvcmRlcklkIjoiT1JELTEifQ.sig";
+
+    fn outcome() -> PayOwnerOrderOutcome {
+        let mut payment_params = std::collections::BTreeMap::new();
+        payment_params.insert(
+            "cashierUrl".to_owned(),
+            "https://platform.sdkwork.com/cashier/ORD-1?scene=checkout&outTradeNo=OT-1"
+                .to_owned(),
+        );
+        payment_params.insert(
+            "qrCodePayload".to_owned(),
+            "https://platform.sdkwork.com/cashier/ORD-1?scene=checkout&outTradeNo=OT-1"
+                .to_owned(),
+        );
+        payment_params.insert("cashierScene".to_owned(), "checkout".to_owned());
+        PayOwnerOrderOutcome {
+            amount: CommerceMoney::new("6990").expect("amount"),
+            order_id: "ORD-1".to_owned(),
+            out_trade_no: "OT-1".to_owned(),
+            payment_id: "pay-1".to_owned(),
+            payment_method: "wechat_pay".to_owned(),
+            status: "created".to_owned(),
+            payment_params,
+        }
+    }
+
+    #[test]
+    fn configured_h5_domain_keeps_the_minted_token() {
+        let enriched = apply_configured_h5_cashier_url(
+            outcome(),
+            Some("https://h5.example.com/"),
+            Some(TOKEN),
+        );
+        let cashier_url = enriched
+            .payment_params
+            .get("cashierUrl")
+            .expect("cashier url")
+            .clone();
+        assert_eq!(
+            cashier_url,
+            format!("https://h5.example.com/cashier/{TOKEN}")
+        );
+        assert_eq!(
+            enriched.payment_params.get("qrCodePayload"),
+            Some(&cashier_url)
+        );
+        assert_eq!(
+            enriched.payment_params.get("cashierBaseUrl").map(String::as_str),
+            Some("https://h5.example.com")
+        );
+        assert_eq!(
+            enriched.payment_params.get("cashierScene").map(String::as_str),
+            Some("checkout")
+        );
+    }
+
+    #[test]
+    fn a_minted_token_replaces_the_legacy_link_without_a_configured_domain() {
+        let enriched = apply_configured_h5_cashier_url(outcome(), None, Some(TOKEN));
+        let cashier_url = enriched
+            .payment_params
+            .get("cashierUrl")
+            .expect("cashier url")
+            .clone();
+        assert!(cashier_url.ends_with(&format!("/cashier/{TOKEN}")));
+        assert!(
+            !cashier_url.contains("ORD-1"),
+            "the anonymous cashier must not leak the order key"
+        );
+        assert!(!cashier_url.contains("outTradeNo="));
+        assert!(
+            enriched.payment_params.get("cashierBaseUrl").is_none(),
+            "no configured domain means no cashierBaseUrl override"
+        );
+    }
+
+    #[test]
+    fn without_a_token_the_configured_domain_keeps_the_legacy_link() {
+        let enriched =
+            apply_configured_h5_cashier_url(outcome(), Some("https://h5.example.com"), None);
+        assert_eq!(
+            enriched.payment_params.get("cashierUrl").map(String::as_str),
+            Some("https://h5.example.com/cashier/ORD-1?scene=checkout&outTradeNo=OT-1")
+        );
+    }
+
+    #[test]
+    fn without_a_token_and_without_a_domain_nothing_changes() {
+        let enriched = apply_configured_h5_cashier_url(outcome(), None, None);
+        assert_eq!(
+            enriched.payment_params.get("cashierUrl").map(String::as_str),
+            Some("https://platform.sdkwork.com/cashier/ORD-1?scene=checkout&outTradeNo=OT-1")
+        );
+    }
+
+    #[test]
+    fn wap_return_url_carries_the_token() {
+        let mut metadata = serde_json::json!({});
+        apply_default_h5_return_url(
+            &mut metadata,
+            "https://h5.example.com/",
+            "checkout",
+            "ORD-1",
+            "OT-1",
+            Some(TOKEN),
+        );
+        assert_eq!(
+            metadata.get("return_url").and_then(serde_json::Value::as_str),
+            Some(format!("https://h5.example.com/cashier/{TOKEN}").as_str())
+        );
+    }
+
+    #[test]
+    fn wap_return_url_falls_back_to_the_legacy_link_without_a_token() {
+        let mut metadata = serde_json::json!({});
+        apply_default_h5_return_url(
+            &mut metadata,
+            "https://h5.example.com",
+            "checkout",
+            "ORD-1",
+            "OT-1",
+            None,
+        );
+        assert_eq!(
+            metadata.get("return_url").and_then(serde_json::Value::as_str),
+            Some("https://h5.example.com/cashier/ORD-1?scene=checkout&outTradeNo=OT-1")
+        );
+    }
+
+    #[test]
+    fn an_explicit_return_url_wins_over_the_minted_token() {
+        let mut metadata = serde_json::json!({ "return_url": "https://merchant.example/back" });
+        apply_default_h5_return_url(
+            &mut metadata,
+            "https://h5.example.com",
+            "checkout",
+            "ORD-1",
+            "OT-1",
+            Some(TOKEN),
+        );
+        assert_eq!(
+            metadata.get("return_url").and_then(serde_json::Value::as_str),
+            Some("https://merchant.example/back")
+        );
     }
 }

@@ -9,9 +9,9 @@ import { Badge, Button, IconButton, Tooltip, TooltipContent, TooltipProvider, To
 import { usePaymentAdminMessages } from "@sdkwork/payment-pc-admin-core";
 import {
   SdkworkPaymentListPaginationControls,
-  ADMIN_PROVIDER_LABEL,
   formatAdminTimestamp,
   PaymentProviderIcon,
+  resolveProviderDisplayLabel,
 } from "@sdkwork/payment-pc-admin-core";
 import type {
   PaymentProviderAccountView,
@@ -170,7 +170,7 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
               >
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <PaymentProviderIcon
-                    label={ADMIN_PROVIDER_LABEL[account.providerCode]}
+                    label={resolveProviderDisplayLabel(account.providerCode)}
                     providerCode={account.providerCode}
                     size="md"
                   />
@@ -179,7 +179,7 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
                       <span className="font-semibold text-[var(--sdk-color-text-primary)]">
                         {resolveProviderAccountName(account)}
                       </span>
-                      <Badge variant="outline">{ADMIN_PROVIDER_LABEL[account.providerCode]}</Badge>
+                      <Badge variant="outline">{resolveProviderDisplayLabel(account.providerCode)}</Badge>
                       <Badge variant="outline">{ENV_LABEL[account.environment]}</Badge>
                       <Badge variant={STATUS_TONE[account.status]}>{STATUS_LABEL[account.status]}</Badge>
                     </div>
@@ -308,3 +308,4 @@ export function ProviderAccountList(props: ProviderAccountListProps) {
     </div>
   );
 }
+
