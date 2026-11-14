@@ -71,6 +71,31 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "provider_code",
+            "in": "query",
+            "required": false,
+            "description": "Restricts the list to a single payment provider.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "currency_code",
+            "in": "query",
+            "required": false,
+            "description": "Restricts the list to a single ISO 4217 currency code (case-insensitive).",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{3}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CreatedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBefore"
           }
         ],
         "responses": {
@@ -328,6 +353,47 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "provider_code",
+            "in": "query",
+            "required": false,
+            "description": "Restricts the list to refunds submitted through a single payment provider.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "currency_code",
+            "in": "query",
+            "required": false,
+            "description": "Restricts the list to a single ISO 4217 currency code (case-insensitive).",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{3}$"
+            }
+          },
+          {
+            "name": "reason_code",
+            "in": "query",
+            "required": false,
+            "description": "Restricts the list to a single refund reason code.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customer_request",
+                "duplicate",
+                "fraud",
+                "service_failure",
+                "other"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CreatedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBefore"
           }
         ],
         "responses": {
@@ -6154,6 +6220,26 @@
           "type": "string",
           "maxLength": 256
         }
+      },
+      "CreatedAfter": {
+        "name": "created_after",
+        "in": "query",
+        "required": false,
+        "description": "Inclusive lower bound on createdAt. RFC 3339 date-time in UTC or with an explicit offset.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "CreatedBefore": {
+        "name": "created_before",
+        "in": "query",
+        "required": false,
+        "description": "Exclusive upper bound on createdAt. RFC 3339 date-time in UTC or with an explicit offset.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "responses": {
@@ -6922,6 +7008,7 @@
           },
           "amount": {
             "type": "string",
+            "description": "Payment amount as an integer in the currency's smallest unit (minor units, e.g. cents).",
             "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"
           },
           "currencyCode": {
@@ -8914,6 +9001,7 @@
           },
           "amount": {
             "type": "string",
+            "description": "Attempt amount as an integer in the currency's smallest unit (minor units, e.g. cents).",
             "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"
           },
           "currencyCode": {

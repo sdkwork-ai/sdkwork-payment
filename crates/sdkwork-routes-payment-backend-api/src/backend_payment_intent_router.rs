@@ -1,4 +1,5 @@
-use crate::api_response::{map_service_error, not_found, success_item, success_list, unauthorized};
+use crate::api_response::{map_service_error, not_found, success_item, success_list, unauthorized, validation};
+use crate::list_query_bounds::{normalize_filter_value, parse_created_at_bounds};
 use crate::subject::backend_runtime_subject_from_extension;
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::Response;
@@ -57,6 +58,14 @@ pub struct BackendPaymentIntentListQuery {
     pub status: Option<String>,
     pub owner_user_id: Option<String>,
     pub order_id: Option<String>,
+    /// Free-text search across the intent number, order id, and owner id.
+    pub q: Option<String>,
+    pub provider_code: Option<String>,
+    pub currency_code: Option<String>,
+    /// Inclusive lower bound on `created_at`, canonical RFC 3339 UTC.
+    pub created_after: Option<String>,
+    /// Exclusive upper bound on `created_at`, canonical RFC 3339 UTC.
+    pub created_before: Option<String>,
     pub offset: i64,
     pub limit: i64,
 }
@@ -70,6 +79,16 @@ struct BackendPaymentIntentListQueryParams {
     owner_user_id: Option<String>,
     #[serde(default)]
     order_id: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    provider_code: Option<String>,
+    #[serde(default)]
+    currency_code: Option<String>,
+    #[serde(default)]
+    created_after: Option<String>,
+    #[serde(default)]
+    created_before: Option<String>,
     #[serde(default)]
     page: Option<i64>,
     #[serde(default, rename = "page_size")]
@@ -126,6 +145,14 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
         Box::pin(async move {
             // C12 修复：强制 tenant_id 谓词。
             // Phase 1.3：LIMIT/OFFSET 下推到 SQL，COUNT(*) OVER() 一次往返给出总记录数。
+            // 支付记录查询：状态、归属用户、订单、服务商、币种、创建时间窗与关键词搜索
+            // 全部下推到 SQL，禁止 fetch_all + 进程内过滤（PAGINATION_SPEC §2）。
+            let q = query
+                .q
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("%{}%", value.to_ascii_lowercase()));
             let rows = sqlx::query(
                 r#"
                 SELECT id, tenant_id, organization_id, owner_user_id, order_id, payment_intent_no,
@@ -138,8 +165,18 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
                   AND ($4::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($4::text))
                   AND ($5::text IS NULL OR owner_user_id = CAST($5 AS TEXT))
                   AND ($6::text IS NULL OR order_id = CAST($6 AS TEXT))
+                  AND ($7::text IS NULL OR (
+                        LOWER(payment_intent_no) LIKE $7
+                        OR LOWER(order_id) LIKE $7
+                        OR LOWER(owner_user_id) LIKE $7
+                  ))
+                  AND ($8::text IS NULL OR LOWER(provider_code) = LOWER($8::text))
+                  AND ($9::text IS NULL OR UPPER(currency_code) = UPPER($9::text))
+                  AND ($10::text IS NULL OR created_at >= CAST($10 AS TIMESTAMPTZ))
+                  AND ($11::text IS NULL OR created_at < CAST($11 AS TIMESTAMPTZ))
+                  AND deleted_at IS NULL
                 ORDER BY created_at DESC, id DESC
-                LIMIT $7 OFFSET $8
+                LIMIT $12 OFFSET $13
                 "#,
             )
             .bind(&query.tenant_scope.tenant_id)
@@ -148,6 +185,11 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
             .bind(query.status.as_deref())
             .bind(query.owner_user_id.as_deref())
             .bind(query.order_id.as_deref())
+            .bind(q.as_deref())
+            .bind(query.provider_code.as_deref())
+            .bind(query.currency_code.as_deref())
+            .bind(query.created_after.as_deref())
+            .bind(query.created_before.as_deref())
             .bind(query.limit)
             .bind(query.offset)
             .fetch_all(&self.pool)
@@ -226,14 +268,27 @@ async fn list_payment_intents(
     // Phase 1.3：在 handler 解析标准分页参数（page/page_size），下推为 offset/limit 到 SQL。
     // 默认 page=1, page_size=20，page_size 上限 200（PAGINATION_SPEC §2）。
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
+    // 创建时间窗是客户端输入，必须先校验再下推：非法时间串在 SQL 层会退化成 500。
+    let created_bounds = match parse_created_at_bounds(
+        params.created_after.as_deref(),
+        params.created_before.as_deref(),
+    ) {
+        Ok(bounds) => bounds,
+        Err(message) => return validation(ctx, message),
+    };
     let query = BackendPaymentIntentListQuery {
         tenant_scope: TenantScope {
             tenant_id: subject.tenant_id,
             organization_id: subject.organization_id,
         },
-        status: params.status,
-        owner_user_id: params.owner_user_id,
-        order_id: params.order_id,
+        status: normalize_filter_value(params.status),
+        owner_user_id: normalize_filter_value(params.owner_user_id),
+        order_id: normalize_filter_value(params.order_id),
+        q: normalize_filter_value(params.q),
+        provider_code: normalize_filter_value(params.provider_code),
+        currency_code: normalize_filter_value(params.currency_code),
+        created_after: created_bounds.from_inclusive,
+        created_before: created_bounds.before_exclusive,
         offset: page_params.offset,
         limit: page_params.page_size,
     };
