@@ -27,10 +27,10 @@ use crate::api_response::{
     map_service_error, not_found, success_command_accepted, success_created_item, success_item,
     success_list, unauthorized, validation,
 };
-use crate::list_query_bounds::{normalize_filter_value, parse_created_at_bounds};
 use crate::command_headers::{
     validate_write_payload, AppWriteCommandHeaders, WriteCommandHeaderError,
 };
+use crate::list_query_bounds::{normalize_filter_value, parse_created_at_bounds};
 use crate::subject::{backend_runtime_subject_from_extension, AppRuntimeSubject};
 
 const REFUND_PROVIDER_SUBMIT_ATTEMPTS: u32 = 3;
@@ -119,6 +119,60 @@ struct BackendRefundListPage {
     total_items: i64,
 }
 
+/// Aggregated view of the filtered refunds. Amounts are integer minor-unit
+/// strings, matching the refund list and every other payment money field.
+#[derive(Debug, Default)]
+struct BackendRefundSummary {
+    total_count: i64,
+    total_amounts: Vec<BackendRefundSummaryAmount>,
+    status_counts: Vec<BackendRefundSummaryCount>,
+    reason_counts: Vec<BackendRefundSummaryCount>,
+}
+
+#[derive(Debug)]
+struct BackendRefundSummaryAmount {
+    currency_code: String,
+    amount: String,
+    count: i64,
+}
+
+#[derive(Debug)]
+struct BackendRefundSummaryCount {
+    key: String,
+    count: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendRefundSummaryResponse {
+    total_count: String,
+    total_amounts: Vec<BackendRefundSummaryAmountResponse>,
+    status_counts: Vec<BackendRefundSummaryStatusResponse>,
+    reason_counts: Vec<BackendRefundSummaryReasonResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendRefundSummaryAmountResponse {
+    currency_code: String,
+    amount: String,
+    count: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendRefundSummaryStatusResponse {
+    status: String,
+    count: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendRefundSummaryReasonResponse {
+    reason_code: String,
+    count: String,
+}
+
 pub fn backend_payment_refund_router_with_postgres_pool(pool: PgPool) -> Router {
     build_router(BackendRefundState {
         pool: BackendRefundPool::Postgres(pool),
@@ -131,6 +185,10 @@ fn build_router(state: BackendRefundState) -> Router {
         .route(
             "/backend/v3/api/payments/refunds",
             get(list_refunds).post(create_refund),
+        )
+        .route(
+            "/backend/v3/api/payments/refunds/summary",
+            get(summarize_refunds),
         )
         .route(
             "/backend/v3/api/payments/refunds/{refundId}",
@@ -186,6 +244,50 @@ async fn list_refunds(
     params.created_before = created_bounds.before_exclusive;
     match state.pool.list_refunds(&subject, params, page_params).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
+        Err(error) => map_service_error(ctx, error),
+    }
+}
+
+async fn summarize_refunds(
+    State(state): State<BackendRefundState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    Query(mut params): Query<BackendRefundListParams>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized(ctx, message),
+    };
+    let created_bounds = match parse_created_at_bounds(
+        params.created_after.as_deref(),
+        params.created_before.as_deref(),
+    ) {
+        Ok(bounds) => bounds,
+        Err(message) => return validation(ctx, message),
+    };
+    if let Some(reason_code) = params.reason_code.as_deref().map(str::trim) {
+        if !reason_code.is_empty() && !REFUND_REASON_CODES.contains(&reason_code) {
+            return validation(
+                ctx,
+                format!(
+                    "reason_code must be one of: {}",
+                    REFUND_REASON_CODES.join(", ")
+                ),
+            );
+        }
+    }
+    params.status = normalize_filter_value(params.status);
+    params.order_id = normalize_filter_value(params.order_id);
+    params.payment_intent_id = normalize_filter_value(params.payment_intent_id);
+    params.provider_code = normalize_filter_value(params.provider_code);
+    params.currency_code = normalize_filter_value(params.currency_code);
+    params.reason_code = normalize_filter_value(params.reason_code);
+    params.q = normalize_filter_value(params.q);
+    params.created_after = created_bounds.from_inclusive;
+    params.created_before = created_bounds.before_exclusive;
+    match state.pool.summarize_refunds(&subject, params).await {
+        Ok(summary) => success_item(ctx, map_refund_summary(summary)),
         Err(error) => map_service_error(ctx, error),
     }
 }
@@ -541,6 +643,72 @@ impl BackendRefundPool {
                     total_items: postgres_total(&rows),
                     items: rows.iter().map(map_postgres_refund).collect(),
                 })
+            }
+        }
+    }
+
+    /// Same predicate set as `list_refunds`, grouped instead of paged, so the
+    /// console summary describes the whole filtered result set.
+    async fn summarize_refunds(
+        &self,
+        subject: &AppRuntimeSubject,
+        params: BackendRefundListParams,
+    ) -> Result<BackendRefundSummary, CommerceServiceError> {
+        let q = params
+            .q
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("%{}%", value.to_ascii_lowercase()));
+        match self {
+            Self::Postgres(pool) => {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT UPPER(r.currency_code) AS currency_code,
+                           LOWER(r.status) AS status,
+                           LOWER(COALESCE(r.refund_reason_code, '')) AS reason_code,
+                           COUNT(*)::BIGINT AS bucket_count,
+                           COALESCE(SUM(CAST(r.amount AS BIGINT)), 0)::TEXT AS bucket_amount
+                    FROM commerce_refund r
+                    INNER JOIN commerce_payment_attempt a ON a.id = r.payment_attempt_id
+                    LEFT JOIN commerce_payment_channel c ON c.id = a.channel_id
+                    WHERE r.tenant_id = CAST($1 AS TEXT)
+                      AND ((r.organization_id = CAST($2 AS TEXT)) OR (r.organization_id = '0' AND $3 IS NULL))
+                      AND ($4::text IS NULL OR LOWER(r.status) = LOWER($4::text))
+                      AND ($5::text IS NULL OR r.order_id = CAST($5 AS TEXT))
+                      AND ($6::text IS NULL OR a.payment_intent_id = CAST($6 AS TEXT))
+                      AND ($7::text IS NULL OR (
+                            LOWER(r.refund_no) LIKE $7
+                            OR LOWER(r.order_id) LIKE $7
+                      ))
+                      AND ($8::text IS NULL OR LOWER(a.provider_code) = LOWER($8::text))
+                      AND ($9::text IS NULL OR UPPER(r.currency_code) = UPPER($9::text))
+                      AND ($10::text IS NULL OR LOWER(r.refund_reason_code) = LOWER($10::text))
+                      AND ($11::text IS NULL OR r.created_at >= CAST($11 AS TIMESTAMPTZ))
+                      AND ($12::text IS NULL OR r.created_at < CAST($12 AS TIMESTAMPTZ))
+                      AND r.deleted_at IS NULL
+                    GROUP BY UPPER(r.currency_code), LOWER(r.status),
+                             LOWER(COALESCE(r.refund_reason_code, ''))
+                    "#,
+                )
+                .bind(&subject.tenant_id)
+                .bind(subject.organization_id.as_deref())
+                .bind(subject.organization_id.as_deref())
+                .bind(params.status.as_deref())
+                .bind(params.order_id.as_deref())
+                .bind(params.payment_intent_id.as_deref())
+                .bind(q.as_deref())
+                .bind(params.provider_code.as_deref())
+                .bind(params.currency_code.as_deref())
+                .bind(params.reason_code.as_deref())
+                .bind(params.created_after.as_deref())
+                .bind(params.created_before.as_deref())
+                .fetch_all(pool)
+                .await
+                .map_err(|error| {
+                    CommerceServiceError::storage(format!("failed to summarize refunds: {error}"))
+                })?;
+                Ok(aggregate_refund_summary(&rows))
             }
         }
     }
@@ -964,6 +1132,92 @@ fn map_postgres_payment_context(row: &PgRow) -> RefundPaymentContext {
         order_id: postgres_string(row, "order_id"),
         payment_attempt_id: postgres_string(row, "payment_attempt_id"),
         currency_code: postgres_string(row, "currency_code"),
+    }
+}
+
+fn summary_text_cell(row: &PgRow, column: &str) -> String {
+    row.try_get::<Option<String>, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+fn aggregate_refund_summary(rows: &[PgRow]) -> BackendRefundSummary {
+    use std::collections::BTreeMap;
+    let mut amounts: BTreeMap<String, (i128, i64)> = BTreeMap::new();
+    let mut statuses: BTreeMap<String, i64> = BTreeMap::new();
+    let mut reasons: BTreeMap<String, i64> = BTreeMap::new();
+    let mut total_count: i64 = 0;
+    for row in rows {
+        let currency_code = summary_text_cell(row, "currency_code");
+        let status = summary_text_cell(row, "status");
+        let reason_code = summary_text_cell(row, "reason_code");
+        let bucket_count = row.try_get::<i64, _>("bucket_count").unwrap_or(0);
+        let bucket_amount = summary_text_cell(row, "bucket_amount")
+            .parse::<i128>()
+            .unwrap_or(0);
+        total_count = total_count.saturating_add(bucket_count);
+        let amount_entry = amounts.entry(currency_code).or_insert((0, 0));
+        amount_entry.0 += bucket_amount;
+        amount_entry.1 = amount_entry.1.saturating_add(bucket_count);
+        let status_entry = statuses.entry(status).or_insert(0);
+        *status_entry = status_entry.saturating_add(bucket_count);
+        if !reason_code.is_empty() {
+            let entry = reasons.entry(reason_code).or_insert(0);
+            *entry = entry.saturating_add(bucket_count);
+        }
+    }
+    BackendRefundSummary {
+        total_count,
+        total_amounts: amounts
+            .into_iter()
+            .map(
+                |(currency_code, (amount, count))| BackendRefundSummaryAmount {
+                    currency_code,
+                    amount: amount.to_string(),
+                    count,
+                },
+            )
+            .collect(),
+        status_counts: statuses
+            .into_iter()
+            .map(|(key, count)| BackendRefundSummaryCount { key, count })
+            .collect(),
+        reason_counts: reasons
+            .into_iter()
+            .map(|(key, count)| BackendRefundSummaryCount { key, count })
+            .collect(),
+    }
+}
+
+fn map_refund_summary(summary: BackendRefundSummary) -> BackendRefundSummaryResponse {
+    BackendRefundSummaryResponse {
+        total_count: summary.total_count.to_string(),
+        total_amounts: summary
+            .total_amounts
+            .into_iter()
+            .map(|bucket| BackendRefundSummaryAmountResponse {
+                currency_code: bucket.currency_code,
+                amount: bucket.amount,
+                count: bucket.count.to_string(),
+            })
+            .collect(),
+        status_counts: summary
+            .status_counts
+            .into_iter()
+            .map(|bucket| BackendRefundSummaryStatusResponse {
+                status: bucket.key,
+                count: bucket.count.to_string(),
+            })
+            .collect(),
+        reason_counts: summary
+            .reason_counts
+            .into_iter()
+            .map(|bucket| BackendRefundSummaryReasonResponse {
+                reason_code: bucket.key,
+                count: bucket.count.to_string(),
+            })
+            .collect(),
     }
 }
 

@@ -188,6 +188,156 @@
         "x-sdkwork-permission": "commerce.payments.intents.read"
       }
     },
+    "/backend/v3/api/payments/intents/summary": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Payment intents summary.",
+        "description": "Aggregates the filtered payment record set: total record count, amount totals per currency (integer minor units), and counts per status. Uses the same filters as the intents list.",
+        "operationId": "intents.summary.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Q"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "currency_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{3}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CreatedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBefore"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentIntentSummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentIntents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.intents.read"
+      }
+    },
     "/backend/v3/api/payments/intents/{paymentIntentId}": {
       "get": {
         "tags": [
@@ -626,6 +776,178 @@
         "x-sdkwork-server-request-id": true,
         "x-sdkwork-permission": "commerce.payments.refunds.create",
         "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/refunds/summary": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Refunds summary.",
+        "description": "Aggregates the filtered refund set: total record count, refunded amount totals per currency (integer minor units), counts per status, and counts per reason code. Uses the same filters as the refunds list.",
+        "operationId": "refunds.summary.retrieve",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Q"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "submitted",
+                "processing",
+                "succeeded",
+                "failed",
+                "closed"
+              ]
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "payment_intent_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "provider_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "currency_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z]{3}$"
+            }
+          },
+          {
+            "name": "reason_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "customer_request",
+                "duplicate",
+                "fraud",
+                "service_failure",
+                "other"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CreatedAfter"
+          },
+          {
+            "$ref": "#/components/parameters/CreatedBefore"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundSummaryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "refunds",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.refunds.read"
       }
     },
     "/backend/v3/api/payments/refunds/{refundId}": {
@@ -7094,6 +7416,176 @@
             }
           }
         ]
+      },
+      "PaymentIntentSummaryResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/PaymentIntentSummary"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PaymentIntentSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "totalCount",
+          "totalAmounts",
+          "statusCounts"
+        ],
+        "properties": {
+          "totalCount": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "totalAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAmountBucket"
+            }
+          },
+          "statusCounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentStatusBucket"
+            }
+          }
+        }
+      },
+      "RefundSummaryResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/RefundSummary"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RefundSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "totalCount",
+          "totalAmounts",
+          "statusCounts",
+          "reasonCounts"
+        ],
+        "properties": {
+          "totalCount": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "totalAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentAmountBucket"
+            }
+          },
+          "statusCounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentStatusBucket"
+            }
+          },
+          "reasonCounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentReasonBucket"
+            }
+          }
+        }
+      },
+      "PaymentAmountBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "currencyCode",
+          "amount",
+          "count"
+        ],
+        "properties": {
+          "currencyCode": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Aggregated amount as an integer in the currency's smallest unit (minor units, e.g. cents).",
+            "pattern": "^[0-9]+$"
+          },
+          "count": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      },
+      "PaymentStatusBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "count"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "count": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
+      },
+      "PaymentReasonBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reasonCode",
+          "count"
+        ],
+        "properties": {
+          "reasonCode": {
+            "type": "string"
+          },
+          "count": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        }
       },
       "Refund": {
         "type": "object",

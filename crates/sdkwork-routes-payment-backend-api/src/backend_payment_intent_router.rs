@@ -1,4 +1,6 @@
-use crate::api_response::{map_service_error, not_found, success_item, success_list, unauthorized, validation};
+use crate::api_response::{
+    map_service_error, not_found, success_item, success_list, unauthorized, validation,
+};
 use crate::list_query_bounds::{normalize_filter_value, parse_created_at_bounds};
 use crate::subject::backend_runtime_subject_from_extension;
 use axum::extract::{Extension, Path, Query, State};
@@ -21,12 +23,43 @@ pub trait CommerceBackendPaymentIntentStore: Send + Sync {
         &'a self,
         query: BackendPaymentIntentListQuery,
     ) -> CommerceBackendPaymentIntentFuture<'a, BackendPaymentIntentListPage>;
+    /// Aggregates the same filter set as the list, without paging: the admin
+    /// console needs a result-set total per currency and per status, and a
+    /// page-local sum would understate every figure as soon as a filter is set.
+    fn summarize_payment_intents<'a>(
+        &'a self,
+        query: BackendPaymentIntentListQuery,
+    ) -> CommerceBackendPaymentIntentFuture<'a, BackendPaymentIntentSummary>;
     fn retrieve_payment_intent<'a>(
         &'a self,
         payment_intent_id: String,
         tenant_scope: TenantScope,
     ) -> CommerceBackendPaymentIntentFuture<'a, Option<BackendPaymentIntentView>>;
 }
+
+/// One currency bucket of the filtered result set. `amount` is an integer
+/// minor-unit string, matching every other payment money field on the wire.
+#[derive(Debug, Clone)]
+pub struct BackendSummaryAmount {
+    pub currency_code: String,
+    pub amount: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendSummaryCount {
+    pub key: String,
+    pub count: i64,
+}
+
+/// Aggregated view of the filtered payment records.
+#[derive(Debug, Clone, Default)]
+pub struct BackendPaymentIntentSummary {
+    pub total_count: i64,
+    pub total_amounts: Vec<BackendSummaryAmount>,
+    pub status_counts: Vec<BackendSummaryCount>,
+}
+
 /// Phase 1.3：标准分页结果，store 一次性返回当前页 items + 满足条件的总记录数。
 ///
 /// `total_items` 来自 SQL `COUNT(*) OVER()` 窗口函数（单次往返），
@@ -128,6 +161,26 @@ struct BackendPaymentIntentResponse {
     created_at: String,
     updated_at: String,
 }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendPaymentIntentSummaryResponse {
+    total_count: String,
+    total_amounts: Vec<BackendSummaryAmountResponse>,
+    status_counts: Vec<BackendSummaryStatusResponse>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendSummaryAmountResponse {
+    currency_code: String,
+    amount: String,
+    count: String,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendSummaryStatusResponse {
+    status: String,
+    count: String,
+}
 #[derive(Clone)]
 struct PostgresBackendPaymentIntentStore {
     pool: PgPool,
@@ -205,6 +258,65 @@ impl CommerceBackendPaymentIntentStore for PostgresBackendPaymentIntentStore {
             Ok(BackendPaymentIntentListPage { items, total_items })
         })
     }
+    fn summarize_payment_intents<'a>(
+        &'a self,
+        query: BackendPaymentIntentListQuery,
+    ) -> CommerceBackendPaymentIntentFuture<'a, BackendPaymentIntentSummary> {
+        Box::pin(async move {
+            let q = query
+                .q
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("%{}%", value.to_ascii_lowercase()));
+            // Aggregation shares the list's predicate set so the summary always
+            // describes exactly the rows the operator is looking at.
+            let rows = sqlx::query(
+                r#"
+                SELECT UPPER(currency_code) AS currency_code,
+                       LOWER(COALESCE(status, '')) AS status,
+                       COUNT(*)::BIGINT AS bucket_count,
+                       COALESCE(SUM(CAST(amount AS BIGINT)), 0)::TEXT AS bucket_amount
+                FROM commerce_payment_intent
+                WHERE tenant_id = CAST($1 AS TEXT)
+                  AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $3 IS NULL))
+                  AND ($4::text IS NULL OR LOWER(COALESCE(status, '')) = LOWER($4::text))
+                  AND ($5::text IS NULL OR owner_user_id = CAST($5 AS TEXT))
+                  AND ($6::text IS NULL OR order_id = CAST($6 AS TEXT))
+                  AND ($7::text IS NULL OR (
+                        LOWER(payment_intent_no) LIKE $7
+                        OR LOWER(order_id) LIKE $7
+                        OR LOWER(owner_user_id) LIKE $7
+                  ))
+                  AND ($8::text IS NULL OR LOWER(provider_code) = LOWER($8::text))
+                  AND ($9::text IS NULL OR UPPER(currency_code) = UPPER($9::text))
+                  AND ($10::text IS NULL OR created_at >= CAST($10 AS TIMESTAMPTZ))
+                  AND ($11::text IS NULL OR created_at < CAST($11 AS TIMESTAMPTZ))
+                  AND deleted_at IS NULL
+                GROUP BY UPPER(currency_code), LOWER(COALESCE(status, ''))
+                "#,
+            )
+            .bind(&query.tenant_scope.tenant_id)
+            .bind(query.tenant_scope.organization_id.as_deref())
+            .bind(query.tenant_scope.organization_id.as_deref())
+            .bind(query.status.as_deref())
+            .bind(query.owner_user_id.as_deref())
+            .bind(query.order_id.as_deref())
+            .bind(q.as_deref())
+            .bind(query.provider_code.as_deref())
+            .bind(query.currency_code.as_deref())
+            .bind(query.created_after.as_deref())
+            .bind(query.created_before.as_deref())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to summarize payment intents: {error}"
+                ))
+            })?;
+            Ok(aggregate_payment_intent_summary(&rows))
+        })
+    }
     fn retrieve_payment_intent<'a>(
         &'a self,
         payment_intent_id: String,
@@ -248,11 +360,59 @@ pub fn build_backend_payment_intent_router(
             get(list_payment_intents),
         )
         .route(
+            "/backend/v3/api/payments/intents/summary",
+            get(summarize_payment_intents),
+        )
+        .route(
             "/backend/v3/api/payments/intents/{paymentIntentId}",
             get(retrieve_payment_intent),
         )
         .with_state(BackendPaymentIntentState { store })
 }
+async fn summarize_payment_intents(
+    State(state): State<BackendPaymentIntentState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    Query(params): Query<BackendPaymentIntentListQueryParams>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized(ctx, message),
+    };
+    let created_bounds = match parse_created_at_bounds(
+        params.created_after.as_deref(),
+        params.created_before.as_deref(),
+    ) {
+        Ok(bounds) => bounds,
+        Err(message) => return validation(ctx, message),
+    };
+    let query = BackendPaymentIntentListQuery {
+        tenant_scope: TenantScope {
+            tenant_id: subject.tenant_id,
+            organization_id: subject.organization_id,
+        },
+        status: normalize_filter_value(params.status),
+        owner_user_id: normalize_filter_value(params.owner_user_id),
+        order_id: normalize_filter_value(params.order_id),
+        q: normalize_filter_value(params.q),
+        provider_code: normalize_filter_value(params.provider_code),
+        currency_code: normalize_filter_value(params.currency_code),
+        created_after: created_bounds.from_inclusive,
+        created_before: created_bounds.before_exclusive,
+        offset: 0,
+        limit: 0,
+    };
+    match state.store.summarize_payment_intents(query).await {
+        Ok(summary) => success_item(ctx, map_payment_intent_summary(summary)),
+        Err(error) => backend_payment_intent_error_response(
+            ctx,
+            "payment intent summary is unavailable",
+            error,
+        ),
+    }
+}
+
 async fn list_payment_intents(
     State(state): State<BackendPaymentIntentState>,
     runtime_context: Option<Extension<IamAppContext>>,
@@ -377,6 +537,65 @@ fn map_payment_intent(value: BackendPaymentIntentView) -> BackendPaymentIntentRe
         updated_at: value.updated_at,
     }
 }
+fn aggregate_payment_intent_summary(rows: &[PgRow]) -> BackendPaymentIntentSummary {
+    use std::collections::BTreeMap;
+    let mut amounts: BTreeMap<String, (i128, i64)> = BTreeMap::new();
+    let mut statuses: BTreeMap<String, i64> = BTreeMap::new();
+    let mut total_count: i64 = 0;
+    for row in rows {
+        let currency_code = pg_string(row, "currency_code");
+        let status = pg_string(row, "status");
+        let bucket_count = row.try_get::<i64, _>("bucket_count").unwrap_or(0);
+        let bucket_amount = pg_string(row, "bucket_amount").parse::<i128>().unwrap_or(0);
+        total_count = total_count.saturating_add(bucket_count);
+        let amount_entry = amounts.entry(currency_code).or_insert((0, 0));
+        amount_entry.0 += bucket_amount;
+        amount_entry.1 = amount_entry.1.saturating_add(bucket_count);
+        let status_entry = statuses.entry(status).or_insert(0);
+        *status_entry = status_entry.saturating_add(bucket_count);
+    }
+    BackendPaymentIntentSummary {
+        total_count,
+        total_amounts: amounts
+            .into_iter()
+            .map(|(currency_code, (amount, count))| BackendSummaryAmount {
+                currency_code,
+                amount: amount.to_string(),
+                count,
+            })
+            .collect(),
+        status_counts: statuses
+            .into_iter()
+            .map(|(key, count)| BackendSummaryCount { key, count })
+            .collect(),
+    }
+}
+
+fn map_payment_intent_summary(
+    summary: BackendPaymentIntentSummary,
+) -> BackendPaymentIntentSummaryResponse {
+    BackendPaymentIntentSummaryResponse {
+        total_count: summary.total_count.to_string(),
+        total_amounts: summary
+            .total_amounts
+            .into_iter()
+            .map(|bucket| BackendSummaryAmountResponse {
+                currency_code: bucket.currency_code,
+                amount: bucket.amount,
+                count: bucket.count.to_string(),
+            })
+            .collect(),
+        status_counts: summary
+            .status_counts
+            .into_iter()
+            .map(|bucket| BackendSummaryStatusResponse {
+                status: bucket.key,
+                count: bucket.count.to_string(),
+            })
+            .collect(),
+    }
+}
+
 fn pg_optional_string(row: &PgRow, column: &str) -> Option<String> {
     row.try_get::<Option<String>, _>(column).ok().flatten()
 }
