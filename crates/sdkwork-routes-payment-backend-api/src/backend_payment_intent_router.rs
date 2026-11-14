@@ -103,8 +103,11 @@ pub struct BackendPaymentIntentListQuery {
     pub limit: i64,
 }
 /// C12 修复：URL 查询参数仅暴露过滤/分页字段，tenant_scope 强制从 IAM context 解析。
+///
+/// 线缆名是 snake_case（`owner_user_id`、`created_after`……），与 OpenAPI 契约和
+/// 生成的 SDK 一致；`serde` 默认按字段名反序列化会把这些过滤器静默丢弃。
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct BackendPaymentIntentListQueryParams {
     #[serde(default)]
     status: Option<String>,
