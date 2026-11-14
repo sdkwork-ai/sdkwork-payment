@@ -97,6 +97,78 @@ pub fn cashier_url_for_token(token: &str, h5_base_url: Option<&str>) -> Option<S
         .or_else(|| build_commerce_cashier_token_url(token))
 }
 
+/// Stamps a capability-token cashier link onto an outcome that skipped provider
+/// enrichment.
+///
+/// Provider enrichment is what normally mints the token, but a deployment without
+/// PSP credentials (or a provider outage) falls back to the pre-enrichment outcome.
+/// Leaving that outcome on the legacy link would silently turn the scanned QR back
+/// into a login-required page, so the capability is applied here as well.
+///
+/// Returns the outcome unchanged when no capability can be minted (no secret, no
+/// currency on the attempt); the caller must never invent an amount or currency.
+pub async fn apply_cashier_capability_to_outcome(
+    pool: &sqlx::PgPool,
+    tenant_id: &str,
+    mut outcome: sdkwork_payment_service::PayOwnerOrderOutcome,
+) -> sdkwork_payment_service::PayOwnerOrderOutcome {
+    let Some(currency_code) = load_attempt_currency_code(pool, tenant_id, &outcome.payment_id).await
+    else {
+        return outcome;
+    };
+    let scene = outcome
+        .payment_params
+        .get("cashierScene")
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("checkout")
+        .to_owned();
+    let subject = CashierTokenSubject {
+        tenant_id,
+        order_id: &outcome.order_id,
+        out_trade_no: &outcome.out_trade_no,
+        amount: outcome.amount.as_str(),
+        currency_code: &currency_code,
+        scene: &scene,
+    };
+    let Ok(Some(token)) = mint_cashier_token(&subject) else {
+        return outcome;
+    };
+    let Some(cashier_url) = cashier_url_for_token(&token, None) else {
+        return outcome;
+    };
+    outcome
+        .payment_params
+        .insert("cashierUrl".to_owned(), cashier_url.clone());
+    outcome
+        .payment_params
+        .insert("qrCodePayload".to_owned(), cashier_url);
+    outcome
+}
+
+/// Reads the currency bound to a payment attempt.
+async fn load_attempt_currency_code(
+    pool: &sqlx::PgPool,
+    tenant_id: &str,
+    payment_id: &str,
+) -> Option<String> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT currency_code FROM commerce_payment_attempt \
+         WHERE tenant_id = CAST($1 AS TEXT) AND id = CAST($2 AS TEXT) LIMIT 1",
+    )
+    .bind(tenant_id)
+    .bind(payment_id)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+    row.try_get::<Option<String>, _>("currency_code")
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
