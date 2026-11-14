@@ -113,7 +113,8 @@ pub async fn load_payment_attempt_provider_context_postgres(
     let row = sqlx::query(
         r#"
         SELECT pa.id, pa.channel_id, c.provider_account_id, pa.provider_code, pa.out_trade_no,
-               pa.amount, pa.currency_code, pa.tenant_id, pa.callback_payload, pa.idempotency_key
+               CAST(pa.amount AS BIGINT)::TEXT AS amount, pa.currency_code, pa.tenant_id,
+               pa.callback_payload, pa.idempotency_key
         FROM commerce_payment_attempt pa
         LEFT JOIN commerce_payment_channel c ON c.id = pa.channel_id
         WHERE pa.tenant_id = CAST($1 AS TEXT)
@@ -155,7 +156,8 @@ pub async fn load_payment_attempt_provider_context_by_id_postgres(
     let row = sqlx::query(
         r#"
         SELECT pa.id, pa.channel_id, c.provider_account_id, pa.provider_code, pa.out_trade_no,
-               pa.amount, pa.currency_code, pa.tenant_id, pa.callback_payload, pa.idempotency_key
+               CAST(pa.amount AS BIGINT)::TEXT AS amount, pa.currency_code, pa.tenant_id,
+               pa.callback_payload, pa.idempotency_key
         FROM commerce_payment_attempt pa
         LEFT JOIN commerce_payment_channel c ON c.id = pa.channel_id
         WHERE pa.id = CAST($1 AS TEXT)
