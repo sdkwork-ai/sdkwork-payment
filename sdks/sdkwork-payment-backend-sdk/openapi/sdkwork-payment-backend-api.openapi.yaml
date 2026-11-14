@@ -5282,7 +5282,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "accountNo",
           "providerCode",
           "merchantId",
           "environment",
@@ -5294,7 +5293,8 @@
           "accountNo": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 64,
+            "description": "Optional. Omit it and the server generates a unique readable account number (`{providerCode}-{environment}-{12 hex}`). Admin clients never send it on create; an explicit value is accepted only for imports and seeds, and it is immutable afterwards."
           },
           "providerCode": {
             "type": "string",

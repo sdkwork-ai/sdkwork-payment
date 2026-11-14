@@ -1,5 +1,6 @@
 export interface CreateProviderAccountCommand {
-  accountNo: string;
+  /** Optional. Omit it and the server generates a unique readable account number (`{providerCode}-{environment}-{12 hex}`). Admin clients never send it on create; an explicit value is accepted only for imports and seeds, and it is immutable afterwards. */
+  accountNo?: string;
   providerCode: 'stripe' | 'alipay' | 'wechat_pay' | 'sandbox';
   merchantId: string;
   /** Operator-facing account name shown in admin surfaces. Optional; defaults to the account no when absent. */

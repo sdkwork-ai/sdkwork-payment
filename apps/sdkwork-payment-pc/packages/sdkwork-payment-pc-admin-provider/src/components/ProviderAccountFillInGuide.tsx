@@ -35,7 +35,7 @@ export function ProviderAccountFillInGuide(props: ProviderAccountFillInGuideProp
             <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed">
               <li>
                 <strong className="font-medium text-[var(--sdk-color-text-primary)]">{t("Account No")}</strong>{" "}
-                {t("— unique identifier for this account (e.g., stripe-live-primary). Cannot be changed after creation.")}
+                {t("— generated automatically on save (e.g., stripe-sandbox-4f3c9a2b1d6e). Leave it to the system; it is unique per merchant account and cannot be changed after creation.")}
               </li>
               <li>
                 <strong className="font-medium text-[var(--sdk-color-text-primary)]">{t("Merchant ID")}</strong>{" "}

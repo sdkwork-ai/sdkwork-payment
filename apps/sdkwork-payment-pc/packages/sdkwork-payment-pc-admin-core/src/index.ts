@@ -143,6 +143,18 @@ export {
   type PaymentSceneIconProps,
 } from "./components/PaymentIdentityIcon";
 export {
+  PaymentProviderBrandMark,
+  type PaymentProviderBrandMarkProps,
+  type PaymentProviderBrandMarkSize,
+} from "./components/PaymentProviderBrandMark";
+export {
+  paymentProviderBrandInk,
+  providerMonogram,
+  resolvePaymentProviderBrand,
+  resolveProviderDisplayLabel,
+  type ResolvedPaymentProviderBrand,
+} from "./components/payment-provider-brand";
+export {
   PaymentAdminTabsContent,
   PaymentAdminTabsList,
   PaymentAdminTabsTrigger,

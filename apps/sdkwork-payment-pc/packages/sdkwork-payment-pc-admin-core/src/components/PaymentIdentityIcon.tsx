@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { AdminProviderCode } from "./admin-constants";
+import { PaymentProviderBrandMark } from "./PaymentProviderBrandMark";
 
 export type PaymentIdentityIconSize = "xs" | "sm" | "md";
 
@@ -116,13 +117,25 @@ function renderIdentityIcon(
   );
 }
 
+/**
+ * Provider identity: the provider's **official brand mark**, not a generic
+ * credit-card/chat glyph. Operators recognise a provider by its logo, and a
+ * generic icon made every non-first-party provider look identical (or, before
+ * this change, like the same "dollar sign" placeholder).
+ *
+ * The mark set is shared with the Cloud Router payment console through the
+ * canonical generator, so both consoles show the same artwork and brand colour.
+ */
 export function PaymentProviderIcon({ providerCode, ...props }: PaymentProviderIconProps) {
-  const normalizedProvider = normalizeProviderCode(providerCode);
-  const Icon = normalizedProvider ? PROVIDER_ICON[normalizedProvider] : BadgeDollarSign;
-  const toneClassName = normalizedProvider
-    ? PROVIDER_TONE_CLASS[normalizedProvider]
-    : "border-[var(--sdk-color-border-default)] bg-[var(--sdk-color-surface-panel-muted)] text-[var(--sdk-color-text-secondary)]";
-  return renderIdentityIcon(Icon, toneClassName, props, { "data-provider": providerCode });
+  return (
+    <PaymentProviderBrandMark
+      className={props.className}
+      dataProvider={providerCode}
+      label={props.label}
+      providerCode={providerCode}
+      size={props.size === "md" ? "md" : props.size === "xs" ? "xs" : "sm"}
+    />
+  );
 }
 
 export function PaymentMethodIcon({ methodKey, providerCode, ...props }: PaymentMethodIconProps) {

@@ -142,7 +142,12 @@ export interface PaymentProviderAccountTestResult {
 export type { PaymentBaseDataOption } from "@sdkwork/payment-pc-admin-core";
 
 export interface PaymentProviderAccountDraft {
-  readonly accountNo: string;
+  /**
+   * Optional: leave it out and the backend generates a unique account number
+   * (`{provider}-{environment}-{hex}`). Admin surfaces never ask an operator to
+   * type it; the value is fixed once the account exists.
+   */
+  readonly accountNo?: string;
   readonly providerCode: PaymentProviderCode;
   readonly merchantId: string;
   readonly accountName?: string;

@@ -163,9 +163,13 @@ export function PaymentProviderAdminWorkspace(
   }, [state.subMerchants, selectedPartnerAccount]);
 
   async function handleCreate(draft: PaymentProviderAccountDraft) {
-    await controller.createProviderAccount(draft);
+    const created = await controller.createProviderAccount(draft);
     setDialog({ kind: "closed" });
-    toast.success(t("Provider account created."));
+    // Surface the server-generated account number so the operator knows the
+    // value to reference elsewhere without opening the account again.
+    toast.success(t("Provider account created."), {
+      description: `${t("Account No")}: ${created.accountNo}`,
+    });
   }
 
   async function handleUpdate(draft: PaymentProviderAccountUpdateDraft) {

@@ -3,10 +3,10 @@ use axum::response::Response;
 
 use crate::api_response::validation;
 use sdkwork_utils_rust::command_headers::{
-    parse_sdkwork_write_command_headers, sdkwork_stable_json_request_hash,
-    sdkwork_write_payload_with_route_param, SdkWorkWriteCommandHeaderError,
-    SdkWorkWriteCommandHeaders, SDKWORK_IDEMPOTENCY_KEY_HEADER, SDKWORK_REQUEST_HASH_HEADER,
-    SDKWORK_REQUEST_NO_HEADER,
+    SDKWORK_IDEMPOTENCY_KEY_HEADER, SDKWORK_REQUEST_HASH_HEADER, SDKWORK_REQUEST_NO_HEADER,
+    SdkWorkWriteCommandHeaderError, SdkWorkWriteCommandHeaders,
+    parse_sdkwork_write_command_headers_with_derived_hash, sdkwork_stable_json_request_hash,
+    sdkwork_write_payload_with_route_param,
 };
 
 pub(crate) const IDEMPOTENCY_KEY_HEADER: &str = SDKWORK_IDEMPOTENCY_KEY_HEADER;
@@ -16,6 +16,12 @@ pub(crate) const REQUEST_NO_HEADER: &str = SDKWORK_REQUEST_NO_HEADER;
 pub(crate) type AppWriteCommandHeaders = SdkWorkWriteCommandHeaders;
 pub(crate) type WriteCommandHeaderError = SdkWorkWriteCommandHeaderError;
 
+/// Validates app-surface write-command headers.
+///
+/// `Idempotency-Key` is required. `Sdkwork-Request-Hash` is verified when the
+/// client supplies it and derived server-side from the parsed payload when it
+/// is absent, because the authority OpenAPI declares only `Idempotency-Key` for
+/// these operations.
 #[allow(clippy::result_large_err)]
 pub(crate) fn validate_write_payload(
     headers: &HeaderMap,
@@ -23,8 +29,14 @@ pub(crate) fn validate_write_payload(
     body: &impl serde::Serialize,
     fallback_request_no: impl FnOnce(&str) -> String,
 ) -> Result<AppWriteCommandHeaders, WriteCommandHeaderError> {
-    let write_headers = parse_required_write_command_headers(headers, fallback_request_no)?;
     let expected_hash = sdkwork_stable_json_request_hash(scope, body)?;
+    let write_headers = parse_sdkwork_write_command_headers_with_derived_hash(
+        header_text(headers, IDEMPOTENCY_KEY_HEADER).as_deref(),
+        header_text(headers, REQUEST_HASH_HEADER).as_deref(),
+        header_text(headers, REQUEST_NO_HEADER).as_deref(),
+        || Ok(expected_hash.clone()),
+        fallback_request_no,
+    )?;
     if expected_hash.trim() != write_headers.request_hash.trim() {
         return Err(WriteCommandHeaderError::InvalidHeader(
             "Sdkwork-Request-Hash does not match the command payload",
@@ -70,12 +82,13 @@ fn header_text(headers: &HeaderMap, name: &'static str) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[cfg(test)]
 #[allow(clippy::result_large_err)]
 pub(crate) fn parse_required_write_command_headers(
     headers: &HeaderMap,
     fallback_request_no: impl FnOnce(&str) -> String,
 ) -> Result<AppWriteCommandHeaders, WriteCommandHeaderError> {
-    parse_sdkwork_write_command_headers(
+    sdkwork_utils_rust::command_headers::parse_sdkwork_write_command_headers(
         header_text(headers, IDEMPOTENCY_KEY_HEADER).as_deref(),
         header_text(headers, REQUEST_HASH_HEADER).as_deref(),
         header_text(headers, REQUEST_NO_HEADER).as_deref(),
@@ -146,7 +159,8 @@ mod tests {
 
         let body_json = r#"{"methodKey":"wechat_pay","displayName":"WeChat Pay","providerCode":"wechat_pay","status":"active"}"#;
         let value: serde_json::Value = serde_json::from_str(body_json).expect("json");
-        let from_value = sdkwork_stable_canonical_json_request_hash("payment-method-upsert", &value);
+        let from_value =
+            sdkwork_stable_canonical_json_request_hash("payment-method-upsert", &value);
 
         #[derive(Serialize, Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -163,6 +177,20 @@ mod tests {
             sdkwork_stable_json_request_hash("payment-method-upsert", &body).expect("hash");
 
         assert_eq!(from_value, from_struct);
+    }
+
+    #[test]
+    fn missing_request_hash_is_derived_from_the_payload() {
+        let scope = "payment-intent-upsert";
+        let body = serde_json::json!({"orderId": "o-1"});
+        let mut headers = HeaderMap::new();
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_static("idem-1"));
+        let parsed = validate_write_payload(&headers, scope, &body, |_| "request-1".to_owned())
+            .expect("contract-only client omitting the hash must be accepted");
+        assert_eq!(
+            parsed.request_hash,
+            sdkwork_stable_json_request_hash(scope, &body).expect("hash")
+        );
     }
 
     #[test]

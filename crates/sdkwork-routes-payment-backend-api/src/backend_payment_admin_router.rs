@@ -2260,16 +2260,6 @@ async fn upsert_provider_account_inner(
         Ok(headers) => headers,
         Err(response) => return response,
     };
-    let account_no = match body.account_no {
-        Some(value) => match require_trimmed_string(ctx, Some(value), "accountNo") {
-            Ok(value) => value,
-            Err(response) => return response,
-        },
-        None => match provider_account_id.as_ref() {
-            Some(value) => value.clone(),
-            None => return validation(ctx, "accountNo is required"),
-        },
-    };
     let required_for_create = move |value: Option<String>, field: &str| {
         let value = value
             .map(|value| value.trim().to_owned())
@@ -2301,6 +2291,24 @@ async fn upsert_provider_account_inner(
     let environment = match required_for_create(body.environment, "environment") {
         Ok(value) => value,
         Err(response) => return response,
+    };
+    // The account number is a server-owned identity, not operator input: a
+    // create request always receives a generated unique code so operators never
+    // have to invent (and potentially collide on) one. Updates keep the stored
+    // number, and an explicit `accountNo` is still honored for imports/seeds.
+    let account_no = match body
+        .account_no
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => value,
+        None => match provider_account_id.as_ref() {
+            Some(value) => value.clone(),
+            None => generate_provider_account_no(
+                provider_code.as_deref().unwrap_or("psp"),
+                environment.as_deref().unwrap_or("production"),
+            ),
+        },
     };
     let country_code = match required_for_create(body.country_code, "countryCode") {
         Ok(value) => value,
@@ -3315,6 +3323,53 @@ fn masked_secret_preview(value: Option<&str>) -> String {
     format!("****{last4}")
 }
 
+/// Server-owned account number for a newly created provider account.
+///
+/// Format: `{providerCode}-{environment}-{12 hex}`, e.g.
+/// `stripe-sandbox-7f3c1a9b2d40`. The readable prefix keeps the account
+/// recognisable in lists, exports, and logs, while the random suffix makes two
+/// generated numbers differ; the tenant-scoped unique index
+/// (`tenant_id, COALESCE(organization_id, ''), account_no`) is the hard
+/// guarantee that a duplicate can never be stored. Because operators no longer
+/// type this value, a mistyped or copy-pasted number can no longer silently
+/// overwrite another account through the upsert conflict path.
+fn generate_provider_account_no(provider_code: &str, environment: &str) -> String {
+    let token: String = sdkwork_utils_rust::uuid()
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .take(12)
+        .collect();
+    format!(
+        "{}-{}-{}",
+        account_no_segment(provider_code),
+        account_no_segment(environment),
+        token
+    )
+}
+
+/// Normalizes one segment of a generated account number: lowercase ASCII
+/// alphanumerics are kept, everything else collapses to `-`, and an empty
+/// result falls back to `psp` so the number always has a readable prefix.
+fn account_no_segment(value: &str) -> String {
+    let segment: String = value
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = segment.trim_matches('-');
+    if trimmed.is_empty() {
+        "psp".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 fn stable_storage_id(parts: &[&str]) -> String {
     parts
         .iter()
@@ -3332,7 +3387,6 @@ fn stable_storage_id(parts: &[&str]) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
-
 
 #[cfg(test)]
 mod masked_secret_preview_tests {
@@ -3355,5 +3409,42 @@ mod masked_secret_preview_tests {
     #[test]
     fn short_secrets_stay_masked() {
         assert_eq!(masked_secret_preview(Some("abc")), "****abc");
+    }
+}
+
+#[cfg(test)]
+mod generated_account_no_tests {
+    use super::{account_no_segment, generate_provider_account_no};
+
+    #[test]
+    fn generated_number_carries_a_readable_prefixed_suffix() {
+        let account_no = generate_provider_account_no("stripe", "sandbox");
+        let (prefix, token) = account_no
+            .rsplit_once('-')
+            .expect("generated number must have a suffix");
+        assert_eq!(prefix, "stripe-sandbox");
+        assert_eq!(token.len(), 12, "suffix must be 12 hex characters: {token}");
+        assert!(
+            token.chars().all(|character| character.is_ascii_hexdigit()),
+            "suffix must be hexadecimal: {token}"
+        );
+    }
+
+    #[test]
+    fn generated_numbers_are_distinct_across_calls() {
+        let first = generate_provider_account_no("wechat_pay", "production");
+        let second = generate_provider_account_no("wechat_pay", "production");
+        assert_ne!(
+            first, second,
+            "two create requests must never share a generated account number"
+        );
+    }
+
+    #[test]
+    fn segments_are_normalized_and_never_empty() {
+        assert_eq!(account_no_segment("WeChat Pay"), "wechat-pay");
+        assert_eq!(account_no_segment("  PRODUCTION  "), "production");
+        assert_eq!(account_no_segment("///"), "psp");
+        assert_eq!(account_no_segment(""), "psp");
     }
 }
