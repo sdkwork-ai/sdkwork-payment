@@ -1602,7 +1602,11 @@ async fn insert_test_order(
             "amount overflows the supported range",
         )
     })?;
-    let amount_minor = amount_minor.to_string();
+    // Bind the canonical minor-unit integer (not a text value): the order
+    // module migrated its money columns to native NUMERIC
+    // (`0016_money_columns_native_numeric`), and a text parameter cannot be
+    // assigned to NUMERIC. An integer parameter is accepted by both the
+    // NUMERIC columns and the older text columns (assignment cast).
     // Platform rows persist the sentinel organization scope (`"0"`) so
     // tenant (personal) sessions never write NULL into the NOT NULL
     // `organization_id` column.
@@ -1637,8 +1641,8 @@ async fn insert_test_order(
             .bind(&subject.tenant_id)
             .bind(organization_id)
             .bind(order_id)
-            .bind(&amount_minor)
-            .bind(&amount_minor)
+            .bind(amount_minor)
+            .bind(amount_minor)
             .bind(currency_code)
             .bind(now)
             .execute(pool)
