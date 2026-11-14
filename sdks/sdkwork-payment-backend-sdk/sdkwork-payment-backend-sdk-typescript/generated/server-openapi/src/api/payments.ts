@@ -728,6 +728,11 @@ export interface PaymentsRefundsListParams {
   status?: 'submitted' | 'processing' | 'succeeded' | 'failed' | 'closed';
   orderId?: string;
   paymentIntentId?: string;
+  providerCode?: string;
+  currencyCode?: string;
+  reasonCode?: 'customer_request' | 'duplicate' | 'fraud' | 'service_failure' | 'other';
+  createdAfter?: string;
+  createdBefore?: string;
 }
 
 export interface PaymentsRefundsCreateParams {
@@ -755,6 +760,11 @@ export class PaymentsRefundsApi {
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
       { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
       { name: 'payment_intent_id', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'currency_code', value: params?.currencyCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'reason_code', value: params?.reasonCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_after', value: params?.createdAfter, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_before', value: params?.createdBefore, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: Refund[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/refunds`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }
@@ -795,6 +805,10 @@ export interface PaymentsIntentsListParams {
   status?: string;
   ownerUserId?: string;
   orderId?: string;
+  providerCode?: string;
+  currencyCode?: string;
+  createdAfter?: string;
+  createdBefore?: string;
 }
 
 export class PaymentsIntentsApi {
@@ -815,6 +829,10 @@ export class PaymentsIntentsApi {
       { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
       { name: 'owner_user_id', value: params?.ownerUserId, style: 'form', explode: true, allowReserved: false },
       { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'currency_code', value: params?.currencyCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_after', value: params?.createdAfter, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_before', value: params?.createdBefore, style: 'form', explode: true, allowReserved: false },
     ]);
     return this.client.request<{ items: PaymentIntent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/intents`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
   }

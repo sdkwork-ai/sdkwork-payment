@@ -27,6 +27,7 @@ use crate::api_response::{
     map_service_error, not_found, success_command_accepted, success_created_item, success_item,
     success_list, unauthorized, validation,
 };
+use crate::list_query_bounds::{normalize_filter_value, parse_created_at_bounds};
 use crate::command_headers::{
     validate_write_payload, AppWriteCommandHeaders, WriteCommandHeaderError,
 };
@@ -57,6 +58,11 @@ struct BackendRefundListParams {
     status: Option<String>,
     order_id: Option<String>,
     payment_intent_id: Option<String>,
+    provider_code: Option<String>,
+    currency_code: Option<String>,
+    reason_code: Option<String>,
+    created_after: Option<String>,
+    created_before: Option<String>,
     q: Option<String>,
     page: Option<i64>,
     page_size: Option<i64>,
@@ -141,7 +147,7 @@ async fn list_refunds(
     State(state): State<BackendRefundState>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
-    Query(params): Query<BackendRefundListParams>,
+    Query(mut params): Query<BackendRefundListParams>,
 ) -> Response {
     let ctx = request_context.as_ref().map(|Extension(value)| value);
     let subject = match backend_runtime_subject_from_extension(runtime_context) {
@@ -149,6 +155,35 @@ async fn list_refunds(
         Err(message) => return unauthorized(ctx, message),
     };
     let page_params = OffsetListPageParams::parse(params.page, params.page_size);
+    // 创建时间窗是客户端输入，必须先校验再下推：非法时间串在 SQL 层会退化成 500。
+    let created_bounds = match parse_created_at_bounds(
+        params.created_after.as_deref(),
+        params.created_before.as_deref(),
+    ) {
+        Ok(bounds) => bounds,
+        Err(message) => return validation(ctx, message),
+    };
+    if let Some(reason_code) = params.reason_code.as_deref().map(str::trim) {
+        if !reason_code.is_empty() && !REFUND_REASON_CODES.contains(&reason_code) {
+            return validation(
+                ctx,
+                format!(
+                    "reason_code must be one of: {}",
+                    REFUND_REASON_CODES.join(", ")
+                ),
+            );
+        }
+    }
+    // 空字符串必须等价于「未筛选」，否则未填写的输入框会把结果集收窄为零。
+    params.status = normalize_filter_value(params.status);
+    params.order_id = normalize_filter_value(params.order_id);
+    params.payment_intent_id = normalize_filter_value(params.payment_intent_id);
+    params.provider_code = normalize_filter_value(params.provider_code);
+    params.currency_code = normalize_filter_value(params.currency_code);
+    params.reason_code = normalize_filter_value(params.reason_code);
+    params.q = normalize_filter_value(params.q);
+    params.created_after = created_bounds.from_inclusive;
+    params.created_before = created_bounds.before_exclusive;
     match state.pool.list_refunds(&subject, params, page_params).await {
         Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
         Err(error) => map_service_error(ctx, error),
@@ -458,7 +493,7 @@ impl BackendRefundPool {
                     r#"
                     SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
                            a.payment_intent_id, a.provider_code, c.provider_account_id,
-                           CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
+                           CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status,
                            r.refund_reason_code, r.requested_by_type, r.requested_by,
                            CAST(r.created_at AS TEXT) AS created_at,
                            CAST(r.updated_at AS TEXT) AS updated_at,
@@ -471,10 +506,18 @@ impl BackendRefundPool {
                       AND ($4::text IS NULL OR LOWER(r.status) = LOWER($4::text))
                       AND ($5::text IS NULL OR r.order_id = CAST($5 AS TEXT))
                       AND ($6::text IS NULL OR a.payment_intent_id = CAST($6 AS TEXT))
-                      AND ($7::text IS NULL OR LOWER(r.refund_no) LIKE $7 OR LOWER(r.order_id) LIKE $7)
+                      AND ($7::text IS NULL OR (
+                            LOWER(r.refund_no) LIKE $7
+                            OR LOWER(r.order_id) LIKE $7
+                      ))
+                      AND ($8::text IS NULL OR LOWER(a.provider_code) = LOWER($8::text))
+                      AND ($9::text IS NULL OR UPPER(r.currency_code) = UPPER($9::text))
+                      AND ($10::text IS NULL OR LOWER(r.refund_reason_code) = LOWER($10::text))
+                      AND ($11::text IS NULL OR r.created_at >= CAST($11 AS TIMESTAMPTZ))
+                      AND ($12::text IS NULL OR r.created_at < CAST($12 AS TIMESTAMPTZ))
                       AND r.deleted_at IS NULL
                     ORDER BY r.created_at DESC, r.id DESC
-                    LIMIT $8 OFFSET $9
+                    LIMIT $13 OFFSET $14
                     "#,
                 )
                 .bind(&subject.tenant_id)
@@ -484,6 +527,11 @@ impl BackendRefundPool {
                 .bind(params.order_id.as_deref())
                 .bind(params.payment_intent_id.as_deref())
                 .bind(q.as_deref())
+                .bind(params.provider_code.as_deref())
+                .bind(params.currency_code.as_deref())
+                .bind(params.reason_code.as_deref())
+                .bind(params.created_after.as_deref())
+                .bind(params.created_before.as_deref())
                 .bind(page.page_size)
                 .bind(page.offset)
                 .fetch_all(pool)
@@ -507,7 +555,7 @@ impl BackendRefundPool {
                 r#"
                 SELECT r.id, r.refund_no, r.order_id, r.payment_attempt_id,
                        a.payment_intent_id, a.provider_code, c.provider_account_id,
-                       CAST(r.amount AS TEXT) AS amount, r.currency_code, r.status,
+                       CAST(r.amount AS BIGINT)::TEXT AS amount, r.currency_code, r.status,
                        r.refund_reason_code, r.requested_by_type, r.requested_by,
                        CAST(r.created_at AS TEXT) AS created_at,
                        CAST(r.updated_at AS TEXT) AS updated_at
