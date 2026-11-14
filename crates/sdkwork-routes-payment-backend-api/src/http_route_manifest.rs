@@ -38,6 +38,13 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     .with_required_permission("commerce.payments.intents.read"),
     HttpRoute::dual_token(
         HttpMethod::Get,
+        "/backend/v3/api/payments/intents/summary",
+        "payments",
+        "intents.summary.retrieve",
+    )
+    .with_required_permission("commerce.payments.intents.read"),
+    HttpRoute::dual_token(
+        HttpMethod::Get,
         "/backend/v3/api/payments/intents/{paymentIntentId}",
         "payments",
         "intents.retrieve",
@@ -49,6 +56,13 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "/backend/v3/api/payments/refunds",
         "payments",
         "refunds.list",
+    )
+    .with_required_permission("commerce.payments.refunds.read"),
+    HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/refunds/summary",
+        "payments",
+        "refunds.summary.retrieve",
     )
     .with_required_permission("commerce.payments.refunds.read"),
     HttpRoute::dual_token(
@@ -556,11 +570,7 @@ mod tests {
                 let permission = operation["x-sdkwork-permission"]
                     .as_str()
                     .expect("every backend operation declares x-sdkwork-permission");
-                expected.insert((
-                    method.to_owned(),
-                    path.to_owned(),
-                    permission.to_owned(),
-                ));
+                expected.insert((method.to_owned(), path.to_owned(), permission.to_owned()));
             }
         }
         let declared = backend_route_manifest()

@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -721,6 +721,43 @@ export class PaymentsMethodsApi {
   }
 }
 
+export interface PaymentsRefundsSummaryRetrieveParams {
+  q?: string;
+  status?: 'submitted' | 'processing' | 'succeeded' | 'failed' | 'closed';
+  orderId?: string;
+  paymentIntentId?: string;
+  providerCode?: string;
+  currencyCode?: string;
+  reasonCode?: 'customer_request' | 'duplicate' | 'fraud' | 'service_failure' | 'other';
+  createdAfter?: string;
+  createdBefore?: string;
+}
+
+export class PaymentsRefundsSummaryApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Refunds summary. */
+  async retrieve(params?: PaymentsRefundsSummaryRetrieveParams, requestOptions?: ApiRequestOptions): Promise<RefundSummary> {
+    const query = buildQueryString([
+      { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
+      { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
+      { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
+      { name: 'payment_intent_id', value: params?.paymentIntentId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'currency_code', value: params?.currencyCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'reason_code', value: params?.reasonCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_after', value: params?.createdAfter, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_before', value: params?.createdBefore, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<RefundSummary>(appendQueryString(backendApiPath(`/payments/refunds/summary`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+}
+
 export interface PaymentsRefundsListParams {
   page?: number;
   pageSize?: number;
@@ -745,9 +782,11 @@ export interface PaymentsRefundsRetryParams {
 
 export class PaymentsRefundsApi {
   private client: HttpClient;
+  public readonly summary: PaymentsRefundsSummaryApi;
 
   constructor(client: HttpClient) {
     this.client = client;
+    this.summary = new PaymentsRefundsSummaryApi(client);
   }
 
 
@@ -797,6 +836,41 @@ export class PaymentsRefundsApi {
   }
 }
 
+export interface PaymentsIntentsSummaryRetrieveParams {
+  q?: string;
+  status?: string;
+  ownerUserId?: string;
+  orderId?: string;
+  providerCode?: string;
+  currencyCode?: string;
+  createdAfter?: string;
+  createdBefore?: string;
+}
+
+export class PaymentsIntentsSummaryApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Payment intents summary. */
+  async retrieve(params?: PaymentsIntentsSummaryRetrieveParams, requestOptions?: ApiRequestOptions): Promise<PaymentIntentSummary> {
+    const query = buildQueryString([
+      { name: 'q', value: params?.q, style: 'form', explode: true, allowReserved: false },
+      { name: 'status', value: params?.status, style: 'form', explode: true, allowReserved: false },
+      { name: 'owner_user_id', value: params?.ownerUserId, style: 'form', explode: true, allowReserved: false },
+      { name: 'order_id', value: params?.orderId, style: 'form', explode: true, allowReserved: false },
+      { name: 'provider_code', value: params?.providerCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'currency_code', value: params?.currencyCode, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_after', value: params?.createdAfter, style: 'form', explode: true, allowReserved: false },
+      { name: 'created_before', value: params?.createdBefore, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<PaymentIntentSummary>(appendQueryString(backendApiPath(`/payments/intents/summary`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+}
+
 export interface PaymentsIntentsListParams {
   page?: number;
   pageSize?: number;
@@ -813,9 +887,11 @@ export interface PaymentsIntentsListParams {
 
 export class PaymentsIntentsApi {
   private client: HttpClient;
+  public readonly summary: PaymentsIntentsSummaryApi;
 
   constructor(client: HttpClient) {
     this.client = client;
+    this.summary = new PaymentsIntentsSummaryApi(client);
   }
 
 

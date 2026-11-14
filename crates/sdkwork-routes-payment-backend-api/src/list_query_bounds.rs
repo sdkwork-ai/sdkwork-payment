@@ -53,9 +53,7 @@ fn parse_bound(raw: Option<&str>, field: &str) -> Result<Option<DateTime<Utc>>, 
     DateTime::parse_from_rfc3339(value)
         .map(|parsed| Some(parsed.with_timezone(&Utc)))
         .map_err(|_| {
-            format!(
-                "{field} must be an RFC 3339 date-time, for example 2026-01-31T00:00:00Z"
-            )
+            format!("{field} must be an RFC 3339 date-time, for example 2026-01-31T00:00:00Z")
         })
 }
 
@@ -93,18 +91,22 @@ mod tests {
     fn offsets_are_normalized_to_utc() {
         let bounds = parse_created_at_bounds(Some("2026-03-01T08:00:00+08:00"), None)
             .expect("offset bound is valid");
-        assert_eq!(bounds.from_inclusive.as_deref(), Some("2026-03-01T00:00:00Z"));
+        assert_eq!(
+            bounds.from_inclusive.as_deref(),
+            Some("2026-03-01T00:00:00Z")
+        );
         assert_eq!(bounds.before_exclusive, None);
     }
 
     #[test]
     fn forward_window_keeps_both_bounds() {
-        let bounds = parse_created_at_bounds(
-            Some("2026-03-01T00:00:00Z"),
-            Some("2026-03-02T00:00:00Z"),
-        )
-        .expect("forward window is valid");
-        assert_eq!(bounds.from_inclusive.as_deref(), Some("2026-03-01T00:00:00Z"));
+        let bounds =
+            parse_created_at_bounds(Some("2026-03-01T00:00:00Z"), Some("2026-03-02T00:00:00Z"))
+                .expect("forward window is valid");
+        assert_eq!(
+            bounds.from_inclusive.as_deref(),
+            Some("2026-03-01T00:00:00Z")
+        );
         assert_eq!(
             bounds.before_exclusive.as_deref(),
             Some("2026-03-02T00:00:00Z")
@@ -121,21 +123,17 @@ mod tests {
 
     #[test]
     fn inverted_window_is_rejected() {
-        let error = parse_created_at_bounds(
-            Some("2026-03-02T00:00:00Z"),
-            Some("2026-03-01T00:00:00Z"),
-        )
-        .expect_err("inverted window is not a valid query");
+        let error =
+            parse_created_at_bounds(Some("2026-03-02T00:00:00Z"), Some("2026-03-01T00:00:00Z"))
+                .expect_err("inverted window is not a valid query");
         assert!(error.contains("earlier"), "{error}");
     }
 
     #[test]
     fn empty_window_is_rejected() {
-        let error = parse_created_at_bounds(
-            Some("2026-03-01T00:00:00Z"),
-            Some("2026-03-01T00:00:00Z"),
-        )
-        .expect_err("an empty window can never match a record");
+        let error =
+            parse_created_at_bounds(Some("2026-03-01T00:00:00Z"), Some("2026-03-01T00:00:00Z"))
+                .expect_err("an empty window can never match a record");
         assert!(error.contains("earlier"), "{error}");
     }
 }

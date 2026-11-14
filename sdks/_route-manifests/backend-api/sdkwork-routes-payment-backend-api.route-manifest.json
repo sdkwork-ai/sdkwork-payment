@@ -18,6 +18,15 @@
     },
     {
       "method": "GET",
+      "path": "/backend/v3/api/payments/intents/summary",
+      "operationId": "intents.summary.retrieve",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/backend/v3/api/payments/intents/{paymentIntentId}",
       "operationId": "intents.retrieve",
       "source": {
@@ -38,6 +47,15 @@
       "method": "POST",
       "path": "/backend/v3/api/payments/refunds",
       "operationId": "refunds.create",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend/v3/api/payments/refunds/summary",
+      "operationId": "refunds.summary.retrieve",
       "source": {
         "routeCrate": "sdkwork-routes-payment-backend-api",
         "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
