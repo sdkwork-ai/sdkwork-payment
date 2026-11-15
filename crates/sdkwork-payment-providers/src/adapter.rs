@@ -104,6 +104,11 @@ pub struct PaymentCreateRefundRequest {
     pub refund_no: Option<String>,
     pub amount_minor: Option<i64>,
     pub reason: Option<String>,
+    /// Refund-result callback URL for channels whose refund contract carries
+    /// one (`RefundNotifyCapability::DedicatedUrl`). Channels that deliver
+    /// refund events on the payment URL must receive `None` so no channel is
+    /// ever asked to call a URL its contract does not define.
+    pub notify_url: Option<String>,
     pub metadata: Value,
 }
 

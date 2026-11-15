@@ -94,7 +94,12 @@ mod tests {
         let subject = backend_runtime_subject_from_extension(Some(Extension(context)))
             .expect("tenant session must be accepted");
         assert_eq!(subject.tenant_id, "100001");
-        assert_eq!(subject.organization_id, None);
+        // A tenant session carries the platform sentinel `"0"`, never `NULL`:
+        // `IamAppContext::new` normalizes the resolved organization scope so
+        // every downstream SQL predicate and cache key sees one representation
+        // (`DATABASE_SPEC` DB090: NULL is never a scope). `None` in the subject
+        // would mean "no scope", which the query layer rejects.
+        assert_eq!(subject.organization_id.as_deref(), Some("0"));
         assert_eq!(subject.user_id, "1");
     }
 

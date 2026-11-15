@@ -8,9 +8,10 @@ import { PAYMENT_PROVIDER_BRAND_ICONS, type PaymentProviderBrandIcon } from "./p
  *
  * `payment-provider-brand-icons.generated.ts` is produced by the canonical
  * generator in the Cloud Router workspace:
- * `apps/sdkwork-cloudrouter-pc/scripts/generate-payment-provider-brand-icons.mjs`
- * (`--out <path>` writes this copy). One brand table, two consumer workspaces,
- * so a provider can never show a different mark or colour in the two consoles.
+ * `apps/sdkwork-cloudrouter-pc/scripts/generate-provider-brand-icons.mjs`
+ * (`--set payment --out <path>` writes this copy). One brand table, two consumer
+ * workspaces, so a provider can never show a different mark or colour in the two
+ * consoles.
  */
 const BRAND_ICONS: Readonly<Record<string, PaymentProviderBrandIcon>> = PAYMENT_PROVIDER_BRAND_ICONS;
 

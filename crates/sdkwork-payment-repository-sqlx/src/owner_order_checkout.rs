@@ -718,9 +718,7 @@ fn provider_checkout_context(
     // entirely to compensation sweeps — that must never be silent.
     let notify_url = notify_domain_base
         .map(|base| {
-            let path = crate::notify_domain::ORDER_PAYMENT_WEBHOOK_PATH
-                .replace("{providerCode}", &normalize_provider_code(provider_code));
-            format!("{}{}", base.trim_end_matches('/'), path)
+            sdkwork_payment_providers::build_order_payment_webhook_url(base, provider_code)
         })
         .or_else(|| {
             context
@@ -753,11 +751,10 @@ fn provider_checkout_context(
     }
 }
 /// `{protocol}://{hostname}{:port}` base for building notify URLs.
+/// Delegates to the notify-domain owner so checkout and refund submission
+/// cannot disagree on the base form.
 fn build_notify_domain_base_url(protocol: &str, hostname: &str, port: Option<i32>) -> String {
-    match port {
-        Some(port) => format!("{protocol}://{hostname}:{port}"),
-        None => format!("{protocol}://{hostname}"),
-    }
+    crate::notify_domain::build_notify_domain_base_url(protocol, hostname, port)
 }
 
 fn ensure_provider_attempt_snapshot(

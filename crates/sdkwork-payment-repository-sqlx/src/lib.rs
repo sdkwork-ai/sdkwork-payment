@@ -31,10 +31,11 @@ pub use compensation_claim::{
     ClaimAttemptProviderContext, ClaimedPaymentAttempt, ClaimedRefund,
 };
 pub use notify_domain::{
-    build_notify_domain_urls, delete_notify_domain_postgres, list_notify_domains_postgres,
-    load_default_notify_domain_postgres, upsert_notify_domain_postgres, NotifyDomainListPage,
-    NotifyDomainView, UpsertNotifyDomainCommand, ORDER_PAYMENT_WEBHOOK_PATH,
-    ORDER_REFUND_WEBHOOK_PATH,
+    build_notify_domain_base_url, build_notify_domain_urls, delete_notify_domain_postgres,
+    list_notify_domains_postgres, load_default_notify_domain_postgres,
+    resolve_provider_notify_urls_postgres, resolve_refund_notify_url_postgres,
+    upsert_notify_domain_postgres, NotifyDomainListPage, NotifyDomainView,
+    UpsertNotifyDomainCommand, ORDER_PAYMENT_WEBHOOK_PATH, ORDER_REFUND_WEBHOOK_PATH,
 };
 pub use owner_order_checkout::{
     cancel_owner_order_payments_with_provider_postgres, enrich_owner_order_payment_postgres,

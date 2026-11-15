@@ -631,6 +631,15 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
             if let Some(reason) = normalized_optional(request.reason) {
                 payload["reason"] = json!(reason);
             }
+            // WeChat Pay v3 refund notifications are OPT-IN: without
+            // `notify_url` on the refund request the channel never reports the
+            // refund result, leaving it to the query/compensation path. The
+            // URL is the canonical order refund intake
+            // (`notify_url::ORDER_REFUND_WEBHOOK_PATH`); WeChat requires https,
+            // which the notify-domain validator enforces outside development.
+            if let Some(notify_url) = normalized_optional(request.notify_url) {
+                payload["notify_url"] = json!(notify_url);
+            }
             let response = self
                 .client
                 .post_json("/v3/refund/domestic/refunds", payload)

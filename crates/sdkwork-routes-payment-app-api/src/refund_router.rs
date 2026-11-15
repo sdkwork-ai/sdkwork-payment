@@ -18,8 +18,8 @@ use sdkwork_payment_providers::{
 use sdkwork_payment_repository_sqlx::{
     ensure_provider_account_matches, load_active_provider_account_postgres,
     load_payment_attempt_provider_context_by_id_postgres,
-    load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
-    PostgresCommerceRefundStore,
+    load_provider_account_for_existing_payment_postgres, resolve_refund_notify_url_postgres,
+    PaymentProviderAccountRecord, PostgresCommerceRefundStore,
 };
 use sdkwork_payment_service::{
     CreateOwnerRefundCommand, RefundDetailQuery, RefundListPage, RefundListQuery, RefundView,
@@ -198,6 +198,19 @@ async fn submit_provider_refund_postgres(
             return Ok(state);
         }
     }
+    // The refund result callback is resolved exactly like the payment success
+    // callback: tenant default notify domain, then the deployment webhook base.
+    // Only channels with a dedicated refund-notify contract receive it
+    // (`create_provider_refund` drops it otherwise), so a merchant can never
+    // point a channel at a URL its refund contract does not define.
+    let refund_notify_url = resolve_refund_notify_url_postgres(
+        pool,
+        tenant_id,
+        organization_id,
+        &ctx.provider_code,
+        credentials.webhook_base_url.as_deref(),
+    )
+    .await?;
     create_provider_refund(
         &registry,
         &ctx.provider_code,
@@ -207,6 +220,7 @@ async fn submit_provider_refund_postgres(
         &refund.amount,
         &total_amount,
         reason_code,
+        refund_notify_url.as_deref(),
     )
     .await
 }
