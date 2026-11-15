@@ -88,6 +88,15 @@ pub enum ProviderRefundSubmissionState {
     Failed,
 }
 
+/// Submits a refund to the channel.
+///
+/// `refund_notify_url` is the canonical order refund callback URL and is only
+/// forwarded to channels whose refund contract defines one
+/// ([`crate::RefundNotifyCapability::DedicatedUrl`]); for every other channel
+/// the value is dropped rather than emitted into a payload the provider does
+/// not define. Callers resolve it from the tenant notify domain and must pass
+/// `None` when the channel does not support it.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_provider_refund(
     registry: &PaymentProviderRegistry,
     provider_code: &str,
@@ -97,6 +106,7 @@ pub async fn create_provider_refund(
     refund_amount: &CommerceMoney,
     total_amount: &CommerceMoney,
     reason: Option<String>,
+    refund_notify_url: Option<&str>,
 ) -> Result<ProviderRefundSubmissionState, CommerceServiceError> {
     let provider_code = normalize_provider_code(provider_code);
     if provider_code == "sandbox" || provider_code.is_empty() {
@@ -113,12 +123,14 @@ pub async fn create_provider_refund(
         provider_refund_reference(&provider_code, out_trade_no, provider_transaction_id)?;
     let idempotency_key =
         provider_operation_idempotency_key("refund", &provider_code, &[out_trade_no, refund_no]);
+    let notify_url = crate::notify_url::refund_notify_url_for_channel(&provider_code, refund_notify_url);
     let outcome = adapter
         .create_refund(PaymentCreateRefundRequest {
             payment_intent_id: Some(payment_reference.to_owned()),
             refund_no: Some(refund_no.to_owned()),
             amount_minor: Some(amount_minor),
             reason,
+            notify_url,
             metadata: json!({
                 "idempotency_key": idempotency_key,
                 "total_amount_minor": total_amount_minor,

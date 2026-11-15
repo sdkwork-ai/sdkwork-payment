@@ -920,6 +920,19 @@ async fn submit_provider_refund(
             .ok_or_else(|| {
                 CommerceServiceError::conflict("original payment account is unavailable")
             })?;
+            // Same resolution as the payment success callback: the tenant
+            // notify domain owns the URL, the deployment webhook base is the
+            // fallback, and channels without a refund-notify contract drop it
+            // inside `create_provider_refund`.
+            let refund_notify_url = sdkwork_payment_repository_sqlx::
+                resolve_refund_notify_url_postgres(
+                    pool,
+                    &subject.tenant_id,
+                    subject.organization_id.as_deref(),
+                    &attempt.provider_code,
+                    state.credentials.webhook_base_url.as_deref(),
+                )
+                .await?;
             submit_with_account(
                 &state.credentials,
                 account,
@@ -929,6 +942,7 @@ async fn submit_provider_refund(
                 attempt.amount,
                 refund,
                 reason_code,
+                refund_notify_url,
             )
             .await
         }
@@ -944,6 +958,7 @@ async fn submit_with_account(
     total_amount: String,
     refund: &impl RefundSubmission,
     reason_code: Option<String>,
+    refund_notify_url: Option<String>,
 ) -> Result<ProviderRefundSubmissionState, CommerceServiceError> {
     ensure_provider_account_matches(Some(&account), &provider_code)?;
     let registry =
@@ -973,6 +988,7 @@ async fn submit_with_account(
         &refund_amount,
         &total_amount,
         reason_code,
+        refund_notify_url.as_deref(),
     )
     .await
 }

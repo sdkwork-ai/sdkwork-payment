@@ -3,9 +3,8 @@ use std::sync::Arc;
 
 use crate::adapter::PaymentProviderAdapter;
 use crate::alipay::{AlipayPaymentProviderAdapter, AlipayPaymentProviderConfig, RsaAlipaySigner};
-use crate::credentials::{
-    build_order_payment_webhook_url, ProviderAccountBinding, ProviderCredentialBundle,
-};
+use crate::credentials::{ProviderAccountBinding, ProviderCredentialBundle};
+use crate::notify_url::build_order_payment_webhook_url;
 use crate::paypal::PayPalPaymentProviderAdapter;
 use crate::stripe::{StripePaymentProviderAdapter, StripePaymentProviderConfig};
 use crate::wechat_pay::{

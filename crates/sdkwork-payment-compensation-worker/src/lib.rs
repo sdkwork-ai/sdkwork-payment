@@ -468,12 +468,27 @@ async fn submit_refund(
             &refund.provider_code,
             &[attempt.out_trade_no.as_str(), refund.refund_no.as_str()],
         );
+    let refund_notify_url = sdkwork_payment_repository_sqlx::resolve_refund_notify_url_postgres(
+        pool,
+        &refund.tenant_id,
+        refund.organization_id.as_deref(),
+        &refund.provider_code,
+        credentials.webhook_base_url.as_deref(),
+    )
+    .await?;
     let outcome = adapter
         .create_refund(PaymentCreateRefundRequest {
             payment_intent_id: Some(attempt.provider_transaction_id.clone().unwrap_or_else(|| attempt.out_trade_no.clone())),
             refund_no: Some(refund.refund_no.clone()),
             amount_minor: Some(amount_minor),
             reason: None,
+            // Re-submission obeys the same refund callback contract as the
+            // original submission: the tenant notify domain owns the URL and
+            // channels without a dedicated refund-notify contract receive none.
+            notify_url: sdkwork_payment_providers::refund_notify_url_for_channel(
+                &refund.provider_code,
+                refund_notify_url.as_deref(),
+            ),
             metadata: serde_json::json!({
                 "idempotency_key": idempotency_key,
                 "refund_no": refund.refund_no,

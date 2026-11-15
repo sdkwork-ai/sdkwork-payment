@@ -1,18 +1,10 @@
+use crate::notify_url::{
+    build_order_payment_webhook_url, build_provider_notify_urls, provider_supports_refund_notify,
+    NotifyFamily, ProviderNotifyUrls,
+};
 use crate::registry::{AlipayRegistryConfig, PayPalRegistryConfig, WeChatPayRegistryConfig};
 use crate::stripe::StripePaymentProviderConfig;
 use crate::wechat_pay::WeChatPaySignVerifyMode;
-
-/// Canonical PSP notify path (HTTP owned by sdkwork-order).
-pub const ORDER_PAYMENT_WEBHOOK_PATH: &str = "/app/v3/api/orders/payments/webhooks/{providerCode}";
-
-/// Builds the order-gateway PSP notify URL for `provider_code`.
-pub fn build_order_payment_webhook_url(base: &str, provider_code: &str) -> String {
-    format!(
-        "{}{}",
-        base.trim_end_matches('/'),
-        ORDER_PAYMENT_WEBHOOK_PATH.replace("{providerCode}", provider_code)
-    )
-}
 
 /// Resolves a legacy `secret_ref` pointer to a runtime secret.
 ///
@@ -59,9 +51,35 @@ impl ProviderCredentialBundle {
         }
     }
 
+    /// Deployment-level payment notify URL (`ORDER_PAYMENT_WEBHOOK_BASE_URL`).
     pub fn provider_notify_url(&self, provider_code: &str) -> Option<String> {
         let base = self.webhook_base_url.as_deref()?;
         Some(build_order_payment_webhook_url(base, provider_code))
+    }
+
+    /// Deployment-level notify URL pair for `provider_code`.
+    pub fn provider_notify_urls(&self, provider_code: &str) -> Option<ProviderNotifyUrls> {
+        let base = self.webhook_base_url.as_deref()?;
+        Some(build_provider_notify_urls(base, provider_code))
+    }
+
+    /// Refund notify URL for `provider_code`, or `None` when the channel does
+    /// not accept an async refund callback (see
+    /// [`provider_supports_refund_notify`]).
+    ///
+    /// Channels without refund-notify support still resolve well-formed URLs
+    /// from the same base; refusing here keeps "we sent a refund notify URL
+    /// nobody will ever call" from looking like configuration.
+    pub fn provider_refund_notify_url(&self, provider_code: &str) -> Option<String> {
+        if !provider_supports_refund_notify(provider_code) {
+            return None;
+        }
+        let base = self.webhook_base_url.as_deref()?;
+        Some(crate::notify_url::build_provider_notify_url(
+            base,
+            provider_code,
+            NotifyFamily::Refund,
+        ))
     }
 
     /// Merges tenant-scoped `commerce_payment_provider_account` credentials.

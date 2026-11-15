@@ -7,15 +7,16 @@
 //! webhook URL from it.
 
 use sdkwork_contract_service::CommerceServiceError;
+use sdkwork_payment_providers::{build_provider_notify_urls, NotifyFamily, ProviderNotifyUrls};
 use serde::Serialize;
 use sqlx::{Pool, Postgres, Row};
 
 use crate::shared::{stable_storage_id, store_error};
 
-/// Canonical order payment webhook path (HTTP-owned by sdkwork-order).
-pub const ORDER_PAYMENT_WEBHOOK_PATH: &str = "/app/v3/api/orders/payments/webhooks/{providerCode}";
-/// Canonical order refund webhook path (HTTP-owned by sdkwork-order).
-pub const ORDER_REFUND_WEBHOOK_PATH: &str = "/app/v3/api/orders/refunds/webhooks/{providerCode}";
+/// Canonical order payment webhook path — owned by the channel-facing notify
+/// contract in `sdkwork_payment_providers` and re-exported here for the
+/// repository's existing consumers.
+pub use sdkwork_payment_providers::{ORDER_PAYMENT_WEBHOOK_PATH, ORDER_REFUND_WEBHOOK_PATH};
 
 /// Notify domain row projection with the full notify URL templates.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -52,19 +53,85 @@ pub struct UpsertNotifyDomainCommand {
     pub idempotency_key: String,
 }
 
+/// `{protocol}://{hostname}{:port}` base for building notify URLs.
+pub fn build_notify_domain_base_url(
+    protocol: &str,
+    hostname: &str,
+    port: Option<i32>,
+) -> String {
+    match port {
+        Some(port) => format!("{protocol}://{hostname}:{port}"),
+        None => format!("{protocol}://{hostname}"),
+    }
+}
+
+/// Notify-URL templates for a configured domain.
+///
+/// The paths come from the single channel-facing contract
+/// (`NotifyFamily::path_template`) while the `{providerCode}` placeholder stays
+/// literal, so the admin view shows the template a channel will be configured
+/// with — not one already bound to a channel.
 pub fn build_notify_domain_urls(
     protocol: &str,
     hostname: &str,
     port: Option<i32>,
 ) -> (String, String) {
-    let base = match port {
-        Some(port) => format!("{protocol}://{hostname}:{port}"),
-        None => format!("{protocol}://{hostname}"),
-    };
+    let base = build_notify_domain_base_url(protocol, hostname, port);
     (
-        format!("{base}{ORDER_PAYMENT_WEBHOOK_PATH}"),
-        format!("{base}{ORDER_REFUND_WEBHOOK_PATH}"),
+        format!("{base}{}", NotifyFamily::Payment.path_template()),
+        format!("{base}{}", NotifyFamily::Refund.path_template()),
     )
+}
+
+/// Resolves the canonical payment + refund notify URLs for a tenant scope.
+///
+/// Resolution order is the checkout contract, applied identically to refund
+/// submission: the tenant's active default notify domain (exact organization
+/// row, then the platform `'0'` row) wins, then the deployment
+/// `ORDER_PAYMENT_WEBHOOK_BASE_URL` fallback. `None` means the PSP has nowhere
+/// to call back for this scope — callers must log that rather than silently
+/// proceeding.
+pub async fn resolve_provider_notify_urls_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    organization_id: Option<&str>,
+    provider_code: &str,
+    env_webhook_base_url: Option<&str>,
+) -> Result<Option<ProviderNotifyUrls>, CommerceServiceError> {
+    if let Some(domain) =
+        load_default_notify_domain_postgres(pool, tenant_id, organization_id).await?
+    {
+        let base = build_notify_domain_base_url(&domain.protocol, &domain.hostname, domain.port);
+        return Ok(Some(build_provider_notify_urls(&base, provider_code)));
+    }
+    Ok(env_webhook_base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|base| build_provider_notify_urls(base, provider_code)))
+}
+
+/// Resolves the refund notify URL for a channel refund request.
+///
+/// Equivalent to [`resolve_provider_notify_urls_postgres`] projected onto the
+/// refund family. Channels without a dedicated refund-notify contract receive
+/// `None` from `create_provider_refund` regardless of this value, so the caller
+/// can pass the URL unconditionally.
+pub async fn resolve_refund_notify_url_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    organization_id: Option<&str>,
+    provider_code: &str,
+    env_webhook_base_url: Option<&str>,
+) -> Result<Option<String>, CommerceServiceError> {
+    Ok(resolve_provider_notify_urls_postgres(
+        pool,
+        tenant_id,
+        organization_id,
+        provider_code,
+        env_webhook_base_url,
+    )
+    .await?
+    .map(|urls| urls.refund))
 }
 
 /// Loads the active default notify domain for a tenant scope. Resolution:
