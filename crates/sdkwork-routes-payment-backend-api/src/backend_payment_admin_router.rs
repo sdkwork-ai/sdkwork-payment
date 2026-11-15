@@ -112,6 +112,15 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         payload: BackendPaymentDomainSettingPayload,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    fn retrieve_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    fn rotate_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        rotated_by: String,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn list_attempts<'a>(
         &'a self,
         query: BackendFilteredListQuery,
@@ -1635,6 +1644,50 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             })
         })
     }
+    fn retrieve_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let view = sdkwork_payment_repository_sqlx::retrieve_cashier_token_setting_postgres(
+                &self.pool,
+                &scope.tenant_id,
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to load cashier token setting: {error:?}"
+                ))
+            })?;
+            serde_json::to_value(view).map_err(|error| {
+                CommerceServiceError::storage(format!("cashier token setting json: {error:?}"))
+            })
+        })
+    }
+    fn rotate_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        rotated_by: String,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_epoch_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                &rotated_by,
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to rotate cashier token setting: {error:?}"
+                ))
+            })?;
+            serde_json::to_value(view).map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "cashier token setting rotation json: {error:?}"
+                ))
+            })
+        })
+    }
     fn list_attempts<'a>(
         &'a self,
         query: BackendFilteredListQuery,
@@ -1967,6 +2020,14 @@ pub fn build_backend_payment_admin_router(
         .route(
             "/backend/v3/api/payments/domain_settings",
             get(retrieve_payment_domain_setting).put(update_payment_domain_setting),
+        )
+        .route(
+            "/backend/v3/api/payments/cashier_token_settings",
+            get(retrieve_cashier_token_setting),
+        )
+        .route(
+            "/backend/v3/api/payments/cashier_token_settings/rotate",
+            post(rotate_cashier_token_setting),
         )
         .route("/backend/v3/api/payments/attempts", get(list_attempts))
         .route(
@@ -2850,6 +2911,54 @@ async fn update_payment_domain_setting(
         Ok(item) => success_item(ctx, item),
         Err(error) => {
             backend_payment_error_response(ctx, "payment domain setting save failed", error)
+        }
+    }
+}
+
+async fn retrieve_cashier_token_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state.store.retrieve_cashier_token_setting(scope).await {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token setting is unavailable", error)
+        }
+    }
+}
+
+async fn rotate_cashier_token_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state
+        .store
+        .rotate_cashier_token_setting(scope, subject.user_id)
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token setting rotation failed", error)
         }
     }
 }

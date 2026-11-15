@@ -308,11 +308,13 @@ async fn enrich_owner_order_payment_postgres_locked(
     // (and the legacy login-required link is kept) when the attempt has no currency
     // to bind, or when the host has not installed a payment credential cipher.
     let cashier_token = mint_cashier_token_for_outcome(
+        pool,
         &context,
         &outcome,
         &cashier_scene,
         attempt_context.currency_code.as_deref(),
-    )?;
+    )
+    .await?;
     let mut checkout_metadata = attempt_context.payment_metadata.clone();
     if let Some(base) = h5_domain_base.as_deref() {
         apply_default_h5_return_url(
@@ -379,7 +381,8 @@ fn cashier_scene_from_payment_params(
 /// Skipped (returns `Ok(None)`) when the attempt has no bound currency: the
 /// anonymous cashier verifies the charged amount against the token, so a token
 /// without a currency cannot be validated and must not be issued.
-fn mint_cashier_token_for_outcome(
+async fn mint_cashier_token_for_outcome(
+    pool: &PgPool,
     context: &OwnerOrderPaymentEnrichmentContext<'_>,
     outcome: &PayOwnerOrderOutcome,
     scene: &str,
@@ -388,6 +391,12 @@ fn mint_cashier_token_for_outcome(
     let Some(currency_code) = currency_code.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
+    let key_epoch = crate::cashier_token_setting::load_cashier_token_epoch_postgres(
+        pool,
+        context.tenant_id,
+    )
+    .await
+    .unwrap_or(crate::cashier_token_setting::DEFAULT_CASHIER_TOKEN_EPOCH);
     mint_cashier_token(&CashierTokenSubject {
         tenant_id: context.tenant_id,
         order_id: &outcome.order_id,
@@ -395,6 +404,7 @@ fn mint_cashier_token_for_outcome(
         amount: outcome.amount.as_str(),
         currency_code,
         scene,
+        key_epoch,
     })
 }
 

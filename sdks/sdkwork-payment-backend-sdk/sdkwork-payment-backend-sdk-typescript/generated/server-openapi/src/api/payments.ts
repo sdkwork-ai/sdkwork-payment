@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { CashierTokenSetting, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -575,6 +575,25 @@ export class PaymentsProviderAccountsApi {
   }
 }
 
+export class PaymentsCashierTokenSettingsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Read the anonymous cashier key epoch */
+  async retrieve(requestOptions?: ApiRequestOptions): Promise<CashierTokenSetting> {
+    return this.client.request<CashierTokenSetting>(backendApiPath(`/payments/cashier_token_settings`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+
+/** Rotate the anonymous cashier key epoch */
+  async rotate(requestOptions?: ApiRequestOptions): Promise<CashierTokenSetting> {
+    return this.client.request<CashierTokenSetting>(backendApiPath(`/payments/cashier_token_settings/rotate`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, sdkworkUnwrapKind: 'item' });
+  }
+}
+
 export interface PaymentsDomainSettingsUpdateParams {
   idempotencyKey: string;
 }
@@ -925,6 +944,7 @@ export class PaymentsApi {
   public readonly methods: PaymentsMethodsApi;
   public readonly notifyDomains: PaymentsNotifyDomainsApi;
   public readonly domainSettings: PaymentsDomainSettingsApi;
+  public readonly cashierTokenSettings: PaymentsCashierTokenSettingsApi;
   public readonly providerAccounts: PaymentsProviderAccountsApi;
   public readonly channels: PaymentsChannelsApi;
   public readonly routeRules: PaymentsRouteRulesApi;
@@ -941,6 +961,7 @@ export class PaymentsApi {
     this.methods = new PaymentsMethodsApi(client);
     this.notifyDomains = new PaymentsNotifyDomainsApi(client);
     this.domainSettings = new PaymentsDomainSettingsApi(client);
+    this.cashierTokenSettings = new PaymentsCashierTokenSettingsApi(client);
     this.providerAccounts = new PaymentsProviderAccountsApi(client);
     this.channels = new PaymentsChannelsApi(client);
     this.routeRules = new PaymentsRouteRulesApi(client);

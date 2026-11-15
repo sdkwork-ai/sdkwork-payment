@@ -7,6 +7,8 @@ export type { NotifyDomainListResponse } from './notify-domain-list-response';
 export type { PaymentDomainSetting } from './payment-domain-setting';
 export type { UpdatePaymentDomainSettingRequest } from './update-payment-domain-setting-request';
 export type { PaymentDomainSettingItemResponse } from './payment-domain-setting-item-response';
+export type { CashierTokenSetting } from './cashier-token-setting';
+export type { CashierTokenSettingItemResponse } from './cashier-token-setting-item-response';
 export type { SdkWorkApiResponse } from './sdk-work-api-response';
 export type { SdkWorkResourceData } from './sdk-work-resource-data';
 export type { SdkWorkPageData } from './sdk-work-page-data';
