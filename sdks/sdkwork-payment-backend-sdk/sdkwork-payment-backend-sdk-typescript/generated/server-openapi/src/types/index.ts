@@ -9,6 +9,7 @@ export type { UpdatePaymentDomainSettingRequest } from './update-payment-domain-
 export type { PaymentDomainSettingItemResponse } from './payment-domain-setting-item-response';
 export type { CashierTokenSetting } from './cashier-token-setting';
 export type { CashierTokenSettingUpdateCommand } from './cashier-token-setting-update-command';
+export type { CashierTokenSettingRotateCommand } from './cashier-token-setting-rotate-command';
 export type { CashierTokenSettingItemResponse } from './cashier-token-setting-item-response';
 export type { SdkWorkApiResponse } from './sdk-work-api-response';
 export type { SdkWorkResourceData } from './sdk-work-resource-data';

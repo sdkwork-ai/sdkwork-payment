@@ -20,10 +20,11 @@
 //! without a stored secret is a legacy epoch-only row; callers then fall back
 //! to the deployment secret. Rotation always writes the exact tenant row.
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
-    cashier_signing_key_cipher, cashier_signing_key_provider_id, CashierTokenError,
+    cashier_signing_key_cipher, cashier_signing_key_provider_id, CashierSigningKeyCipher,
+    CashierTokenError,
 };
 use serde::Serialize;
 use sqlx::{Pool, Postgres, Row};
@@ -222,15 +223,15 @@ pub async fn ensure_cashier_token_signing_secrets_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
 ) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
-    let view = retrieve_cashier_token_setting_postgres(pool, tenant_id).await?;
-    if !view.enabled {
-        // A disabled tenant must not auto-provision a secret.
-        return Ok(None);
-    }
     if let Some(secrets) = load_cashier_token_signing_secrets_postgres(pool, tenant_id).await? {
         return Ok(Some(secrets));
     }
     let tenant_id = normalize_tenant_id(tenant_id);
+    let view = retrieve_cashier_token_setting_postgres(pool, &tenant_id).await?;
+    if !view.enabled {
+        // A disabled tenant must not auto-provision a secret.
+        return Ok(None);
+    }
     let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
     // 64 hex characters from two v4 UUIDs: 32 bytes of CSPRNG material. The
     // deployment KEK is never used as the signing key itself.
@@ -244,10 +245,43 @@ pub async fn ensure_cashier_token_signing_secrets_postgres(
             )))
         }
     };
-    let key_epoch = view.key_epoch;
-    // `ON CONFLICT ... WHERE secret_ciphertext = ''` provisions only a row that
-    // does not have a secret yet: concurrent first requests converge on whichever
-    // writer won, and a real rotation is never overwritten by a request racing it.
+    // Serialize first-use provisioning across replicas. The advisory lock covers
+    // the check-then-insert window, so two processes cannot publish competing
+    // secrets; the row lock and `ON CONFLICT ... WHERE secret_ciphertext = ''`
+    // guard remain as a second line of defense.
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| store_error("failed to begin cashier token provisioning", error))?;
+    lock_cashier_token_scope(&mut transaction, &tenant_id).await?;
+    let existing = load_locked_cashier_token_row(&mut transaction, &tenant_id).await?;
+    if existing
+        .as_ref()
+        .is_some_and(|row| !row.secret_ciphertext.trim().is_empty())
+    {
+        // Another replica won the provisioning race; use its secret instead.
+        transaction
+            .commit()
+            .await
+            .map_err(|error| store_error("failed to commit cashier token provisioning", error))?;
+        return load_cashier_token_signing_secrets_postgres(pool, &tenant_id).await;
+    }
+    let key_epoch = match existing.as_ref() {
+        Some(row) => row.key_epoch,
+        None => {
+            // The platform epoch may have moved between the pre-lock view read
+            // and the lock; re-read it under the locked transaction.
+            let platform_epoch = if tenant_id != PLATFORM_CASHIER_TOKEN_TENANT_ID {
+                load_locked_cashier_token_row(&mut transaction, PLATFORM_CASHIER_TOKEN_TENANT_ID)
+                    .await?
+                    .map(|row| row.key_epoch)
+            } else {
+                None
+            };
+            platform_epoch.unwrap_or(view.key_epoch)
+        }
+    }
+    .max(DEFAULT_CASHIER_TOKEN_EPOCH);
     sqlx::query(
         r#"
         INSERT INTO commerce_payment_cashier_token_setting
@@ -272,9 +306,13 @@ pub async fn ensure_cashier_token_signing_secrets_postgres(
     .bind(&sealed.encryption_key_id)
     .bind(&sealed.encryption_algorithm)
     .bind(&sealed.fingerprint_sha256)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await
     .map_err(|error| store_error("failed to provision cashier token signing secret", error))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| store_error("failed to commit cashier token provisioning", error))?;
     load_cashier_token_signing_secrets_postgres(pool, &tenant_id).await
 }
 
@@ -288,6 +326,7 @@ pub async fn rotate_cashier_token_secret_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
     rotated_by: &str,
+    expected_epoch: Option<i64>,
 ) -> Result<CashierTokenSettingView, CommerceServiceError> {
     let tenant_id = normalize_tenant_id(tenant_id);
     let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
@@ -300,47 +339,44 @@ pub async fn rotate_cashier_token_secret_postgres(
                 "failed to seal the rotated cashier token signing secret: {error}"
             ))
         })?;
-    let previous_plain = load_cashier_token_signing_secrets_postgres(pool, &tenant_id)
-        .await?
-        .map(|resolved| resolved.current_secret);
-    let sealed_previous = previous_plain
-        .as_deref()
-        .map(|secret| cipher.seal(&tenant_id, secret))
-        .transpose()
-        .map_err(|error| {
-            CommerceServiceError::storage(format!(
-                "failed to seal the previous cashier token signing secret: {error}"
-            ))
-        })?;
-    let previous_expires_at = sealed_previous
-        .as_ref()
-        .map(|_| Utc::now() + Duration::seconds(CASHIER_TOKEN_PREVIOUS_SECRET_GRACE_SECONDS));
-
     let mut transaction = pool
         .begin()
         .await
         .map_err(|error| store_error("failed to begin cashier token rotation", error))?;
-    let tenant_epoch: Option<i64> = sqlx::query_scalar(
-        "SELECT key_epoch FROM commerce_payment_cashier_token_setting \
-         WHERE tenant_id = CAST($1 AS TEXT) LIMIT 1",
-    )
-    .bind(&tenant_id)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(|error| store_error("failed to read the tenant cashier token epoch", error))?;
-    let platform_epoch: Option<i64> = sqlx::query_scalar(
-        "SELECT key_epoch FROM commerce_payment_cashier_token_setting \
-         WHERE tenant_id = '0' LIMIT 1",
-    )
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(|error| store_error("failed to read the platform cashier token epoch", error))?;
-    // A tenant that inherits the platform epoch continues from it instead of
-    // restarting at 2.
-    let key_epoch = tenant_epoch
-        .unwrap_or_else(|| platform_epoch.unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH))
-        .max(DEFAULT_CASHIER_TOKEN_EPOCH)
-        .saturating_add(1);
+    // Serialize rotations and enable/disable changes for the same scope. Lock
+    // order is tenant -> platform everywhere, so concurrent rotations cannot
+    // compute the same epoch or overwrite each other's previous secret.
+    lock_cashier_token_scope(&mut transaction, &tenant_id).await?;
+    let tenant_row = load_locked_cashier_token_row(&mut transaction, &tenant_id).await?;
+    let platform_row = if tenant_id != PLATFORM_CASHIER_TOKEN_TENANT_ID {
+        load_locked_cashier_token_row(&mut transaction, PLATFORM_CASHIER_TOKEN_TENANT_ID).await?
+    } else {
+        None
+    };
+    let (previous_ciphertext, previous_key_id, previous_algorithm) =
+        effective_previous_ciphertext(
+            cipher.as_ref(),
+            &tenant_id,
+            tenant_row.as_ref(),
+            platform_row.as_ref(),
+        )?;
+    let base_epoch = tenant_row
+        .as_ref()
+        .map(|row| row.key_epoch)
+        .or_else(|| platform_row.as_ref().map(|row| row.key_epoch))
+        .unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH)
+        .max(DEFAULT_CASHIER_TOKEN_EPOCH);
+    // Optimistic concurrency: the admin rotates the epoch it saw. A double-click,
+    // a retried request after an unknown outcome, or two concurrent admins
+    // otherwise rotate twice and the second rotation would overwrite the first
+    // one's grace secret, invalidating links issued before the first rotation.
+    ensure_expected_rotation_epoch(expected_epoch, base_epoch)?;
+    let key_epoch = base_epoch.saturating_add(1);
+    let previous_expires_at = if previous_ciphertext.is_empty() {
+        None
+    } else {
+        Some(Utc::now() + Duration::seconds(CASHIER_TOKEN_PREVIOUS_SECRET_GRACE_SECONDS))
+    };
     sqlx::query(
         r#"
         INSERT INTO commerce_payment_cashier_token_setting
@@ -375,24 +411,9 @@ pub async fn rotate_cashier_token_secret_postgres(
     .bind(&sealed.encryption_key_id)
     .bind(&sealed.encryption_algorithm)
     .bind(&sealed.fingerprint_sha256)
-    .bind(
-        sealed_previous
-            .as_ref()
-            .map(|sealed| sealed.ciphertext.as_str())
-            .unwrap_or_default(),
-    )
-    .bind(
-        sealed_previous
-            .as_ref()
-            .map(|sealed| sealed.encryption_key_id.as_str())
-            .unwrap_or_default(),
-    )
-    .bind(
-        sealed_previous
-            .as_ref()
-            .map(|sealed| sealed.encryption_algorithm.as_str())
-            .unwrap_or_default(),
-    )
+    .bind(&previous_ciphertext)
+    .bind(&previous_key_id)
+    .bind(&previous_algorithm)
     .bind(previous_expires_at)
     .execute(&mut *transaction)
     .await
@@ -414,21 +435,76 @@ pub async fn update_cashier_token_enabled_postgres(
     enabled: bool,
 ) -> Result<CashierTokenSettingView, CommerceServiceError> {
     let tenant_id = normalize_tenant_id(tenant_id);
-    sqlx::query(
-        r#"
-        INSERT INTO commerce_payment_cashier_token_setting
-            (tenant_id, enabled, created_at, updated_at)
-        VALUES (CAST($1 AS TEXT), $2, NOW(), NOW())
-        ON CONFLICT (tenant_id) DO UPDATE
-        SET enabled = EXCLUDED.enabled,
-            updated_at = NOW()
-        "#,
-    )
-    .bind(&tenant_id)
-    .bind(enabled)
-    .execute(pool)
-    .await
-    .map_err(|error| store_error("failed to update the cashier token setting", error))?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| store_error("failed to begin cashier token setting update", error))?;
+    lock_cashier_token_scope(&mut transaction, &tenant_id).await?;
+    let tenant_row = load_locked_cashier_token_row(&mut transaction, &tenant_id).await?;
+    if tenant_row.is_some() {
+        // The row already owns its secret/epoch; only the flag changes.
+        sqlx::query(
+            "UPDATE commerce_payment_cashier_token_setting \
+             SET enabled = $2, updated_at = NOW() \
+             WHERE tenant_id = CAST($1 AS TEXT)",
+        )
+        .bind(&tenant_id)
+        .bind(enabled)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| store_error("failed to update the cashier token setting", error))?;
+    } else {
+        // Creating a tenant row must not shadow a platform secret: materialize
+        // the effective platform secret (and its rotation grace secret) under
+        // this tenant's cipher scope before inserting the row.
+        let platform_row = if tenant_id != PLATFORM_CASHIER_TOKEN_TENANT_ID {
+            load_locked_cashier_token_row(&mut transaction, PLATFORM_CASHIER_TOKEN_TENANT_ID).await?
+        } else {
+            None
+        };
+        let key_epoch = platform_row
+            .as_ref()
+            .map(|row| row.key_epoch)
+            .unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH)
+            .max(DEFAULT_CASHIER_TOKEN_EPOCH);
+        let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
+        let materialized =
+            materialize_effective_secret_for_tenant(cipher.as_ref(), &tenant_id, platform_row.as_ref())?;
+        sqlx::query(
+            r#"
+            INSERT INTO commerce_payment_cashier_token_setting
+                (tenant_id, key_epoch, enabled, created_at, updated_at,
+                 secret_ciphertext, secret_encryption_key_id, secret_encryption_algorithm,
+                 secret_fingerprint_sha256, secret_updated_at,
+                 previous_secret_ciphertext, previous_secret_encryption_key_id,
+                 previous_secret_encryption_algorithm, previous_secret_expires_at)
+            VALUES
+                (CAST($1 AS TEXT), $2, $3, NOW(), NOW(),
+                 $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
+            ON CONFLICT (tenant_id) DO UPDATE
+            SET enabled = EXCLUDED.enabled,
+                updated_at = NOW()
+            "#,
+        )
+        .bind(&tenant_id)
+        .bind(key_epoch)
+        .bind(enabled)
+        .bind(&materialized.secret_ciphertext)
+        .bind(&materialized.secret_key_id)
+        .bind(&materialized.secret_algorithm)
+        .bind(&materialized.secret_fingerprint_sha256)
+        .bind(&materialized.previous_ciphertext)
+        .bind(&materialized.previous_key_id)
+        .bind(&materialized.previous_algorithm)
+        .bind(materialized.previous_expires_at)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| store_error("failed to update the cashier token setting", error))?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| store_error("failed to commit cashier token setting update", error))?;
     retrieve_cashier_token_setting_postgres(pool, &tenant_id).await
 }
 
@@ -450,6 +526,247 @@ pub async fn seed_cashier_token_setting_postgres(
     .execute(pool)
     .await
     .map_err(|error| store_error("failed to seed cashier token setting", error))?;
+    Ok(())
+}
+
+/// Serializes mutations for one cashier-token scope.
+///
+/// The advisory lock is transaction-scoped and taken in a stable order (tenant,
+/// then platform), so concurrent rotations, enable/disable changes, and first-use
+/// provisioning for the same tenant cannot interleave their check-then-write
+/// sequences. Row locks alone would not cover the "no tenant row yet" race.
+async fn lock_cashier_token_scope(
+    transaction: &mut sqlx::Transaction<'_, Postgres>,
+    tenant_id: &str,
+) -> Result<(), CommerceServiceError> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+        .bind(format!("sdkwork.cashier-token:{tenant_id}"))
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| store_error("failed to lock the cashier token scope", error))?;
+    if tenant_id != PLATFORM_CASHIER_TOKEN_TENANT_ID {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!(
+                "sdkwork.cashier-token:{PLATFORM_CASHIER_TOKEN_TENANT_ID}"
+            ))
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| {
+                store_error("failed to lock the platform cashier token scope", error)
+            })?;
+    }
+    Ok(())
+}
+
+/// A cashier-token row locked for update, including the rotation grace columns.
+#[derive(Debug)]
+struct LockedCashierTokenRow {
+    key_epoch: i64,
+    secret_ciphertext: String,
+    secret_encryption_key_id: String,
+    secret_encryption_algorithm: String,
+    previous_secret_ciphertext: String,
+    previous_secret_encryption_key_id: String,
+    previous_secret_encryption_algorithm: String,
+    previous_secret_expires_at_unix: Option<i64>,
+}
+
+async fn load_locked_cashier_token_row(
+    transaction: &mut sqlx::Transaction<'_, Postgres>,
+    tenant_id: &str,
+) -> Result<Option<LockedCashierTokenRow>, CommerceServiceError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            key_epoch,
+            secret_ciphertext,
+            secret_encryption_key_id,
+            secret_encryption_algorithm,
+            previous_secret_ciphertext,
+            previous_secret_encryption_key_id,
+            previous_secret_encryption_algorithm,
+            EXTRACT(EPOCH FROM previous_secret_expires_at)::BIGINT
+                AS previous_secret_expires_at_unix
+        FROM commerce_payment_cashier_token_setting
+        WHERE tenant_id = CAST($1 AS TEXT)
+        FOR UPDATE
+        "#,
+    )
+    .bind(tenant_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|error| store_error("failed to lock the cashier token setting", error))?;
+    Ok(row.map(|row| LockedCashierTokenRow {
+        key_epoch: row
+            .try_get::<i64, _>("key_epoch")
+            .unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH)
+            .max(DEFAULT_CASHIER_TOKEN_EPOCH),
+        secret_ciphertext: string_cell(&row, "secret_ciphertext"),
+        secret_encryption_key_id: string_cell(&row, "secret_encryption_key_id"),
+        secret_encryption_algorithm: string_cell(&row, "secret_encryption_algorithm"),
+        previous_secret_ciphertext: string_cell(&row, "previous_secret_ciphertext"),
+        previous_secret_encryption_key_id: string_cell(
+            &row,
+            "previous_secret_encryption_key_id",
+        ),
+        previous_secret_encryption_algorithm: string_cell(
+            &row,
+            "previous_secret_encryption_algorithm",
+        ),
+        previous_secret_expires_at_unix: row
+            .try_get::<Option<i64>, _>("previous_secret_expires_at_unix")
+            .ok()
+            .flatten(),
+    }))
+}
+
+/// Returns the effective current secret sealed under the tenant scope for use as
+/// the rotation's previous secret.
+fn effective_previous_ciphertext(
+    cipher: &dyn CashierSigningKeyCipher,
+    tenant_id: &str,
+    tenant_row: Option<&LockedCashierTokenRow>,
+    platform_row: Option<&LockedCashierTokenRow>,
+) -> Result<(String, String, String), CommerceServiceError> {
+    let empty = || (String::new(), String::new(), String::new());
+    if let Some(row) = tenant_row {
+        if row.secret_ciphertext.trim().is_empty() {
+            return Ok(empty());
+        }
+        // Already sealed under this tenant's scope: copy it atomically instead
+        // of decrypting and re-encrypting.
+        return Ok((
+            row.secret_ciphertext.clone(),
+            row.secret_encryption_key_id.clone(),
+            row.secret_encryption_algorithm.clone(),
+        ));
+    }
+    let Some(row) = platform_row else {
+        return Ok(empty());
+    };
+    if row.secret_ciphertext.trim().is_empty() {
+        return Ok(empty());
+    }
+    // The inherited platform secret is sealed under the platform scope; opening
+    // and re-sealing it under the tenant scope keeps the tenant row self-contained.
+    let current = cipher
+        .open(
+            PLATFORM_CASHIER_TOKEN_TENANT_ID,
+            &row.secret_ciphertext,
+            &row.secret_encryption_key_id,
+            &row.secret_encryption_algorithm,
+        )
+        .map_err(|error| {
+            CommerceServiceError::storage(format!(
+                "failed to open the inherited cashier token signing secret: {error}"
+            ))
+        })?;
+    let sealed = cipher.seal(tenant_id, &current).map_err(|error| {
+        CommerceServiceError::storage(format!(
+            "failed to seal the inherited cashier token signing secret: {error}"
+        ))
+    })?;
+    Ok((
+        sealed.ciphertext,
+        sealed.encryption_key_id,
+        sealed.encryption_algorithm,
+    ))
+}
+
+/// A materialized secret for a newly created tenant row.
+#[derive(Debug, Default)]
+struct MaterializedCashierSecret {
+    secret_ciphertext: String,
+    secret_key_id: String,
+    secret_algorithm: String,
+    secret_fingerprint_sha256: String,
+    previous_ciphertext: String,
+    previous_key_id: String,
+    previous_algorithm: String,
+    previous_expires_at: Option<DateTime<Utc>>,
+}
+
+/// Re-seals the platform scope's effective secret under a tenant scope.
+///
+/// Creating a tenant row for an enable/disable flag must not shadow the platform
+/// secret the tenant was already using; both the active and the in-grace previous
+/// secret are materialized under the tenant scope.
+fn materialize_effective_secret_for_tenant(
+    cipher: &dyn CashierSigningKeyCipher,
+    tenant_id: &str,
+    platform_row: Option<&LockedCashierTokenRow>,
+) -> Result<MaterializedCashierSecret, CommerceServiceError> {
+    let mut materialized = MaterializedCashierSecret::default();
+    let Some(row) = platform_row else {
+        return Ok(materialized);
+    };
+    if !row.secret_ciphertext.trim().is_empty() {
+        let current = cipher
+            .open(
+                PLATFORM_CASHIER_TOKEN_TENANT_ID,
+                &row.secret_ciphertext,
+                &row.secret_encryption_key_id,
+                &row.secret_encryption_algorithm,
+            )
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to open the platform cashier token signing secret: {error}"
+                ))
+            })?;
+        let sealed = cipher.seal(tenant_id, &current).map_err(|error| {
+            CommerceServiceError::storage(format!(
+                "failed to seal the platform cashier token signing secret for the tenant: {error}"
+            ))
+        })?;
+        materialized.secret_ciphertext = sealed.ciphertext;
+        materialized.secret_key_id = sealed.encryption_key_id;
+        materialized.secret_algorithm = sealed.encryption_algorithm;
+        materialized.secret_fingerprint_sha256 = sealed.fingerprint_sha256;
+    }
+    let now_unix = Utc::now().timestamp();
+    if let Some(expires_at) = row
+        .previous_secret_expires_at_unix
+        .filter(|expires_at| *expires_at > now_unix)
+    {
+        if !row.previous_secret_ciphertext.trim().is_empty() {
+            let previous = cipher
+                .open(
+                    PLATFORM_CASHIER_TOKEN_TENANT_ID,
+                    &row.previous_secret_ciphertext,
+                    &row.previous_secret_encryption_key_id,
+                    &row.previous_secret_encryption_algorithm,
+                )
+                .map_err(|error| {
+                    CommerceServiceError::storage(format!(
+                        "failed to open the platform previous cashier token signing secret: {error}"
+                    ))
+                })?;
+            let sealed_previous = cipher.seal(tenant_id, &previous).map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to seal the platform previous cashier token signing secret for the tenant: {error}"
+                ))
+            })?;
+            materialized.previous_ciphertext = sealed_previous.ciphertext;
+            materialized.previous_key_id = sealed_previous.encryption_key_id;
+            materialized.previous_algorithm = sealed_previous.encryption_algorithm;
+            materialized.previous_expires_at = DateTime::from_timestamp(expires_at, 0);
+        }
+    }
+    Ok(materialized)
+}
+
+/// Rejects a rotation whose observed epoch no longer matches.
+fn ensure_expected_rotation_epoch(
+    expected_epoch: Option<i64>,
+    current_epoch: i64,
+) -> Result<(), CommerceServiceError> {
+    if let Some(expected) = expected_epoch {
+        if expected != current_epoch {
+            return Err(CommerceServiceError::conflict(
+                "cashier token setting changed; reload and retry the rotation",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -679,5 +996,116 @@ mod tests {
             open_cashier_token_secret_row(row, "100001", CashierTokenSettingSource::Tenant),
             Ok(None)
         );
+    }
+
+    #[test]
+    fn rotation_epoch_optimistic_check_rejects_a_stale_epoch() {
+        assert!(ensure_expected_rotation_epoch(Some(2), 2).is_ok());
+        assert!(ensure_expected_rotation_epoch(None, 2).is_ok());
+        assert!(ensure_expected_rotation_epoch(Some(1), 2).is_err());
+    }
+
+    #[test]
+    fn rotation_copies_a_tenant_scoped_previous_secret_without_reencrypting() {
+        let cipher = sdkwork_utils_rust::LocalFileCashierSigningKeyCipher::from_key_material(
+            vec![42_u8; 64],
+        )
+        .expect("cipher");
+        let sealed = cipher.seal("100001", b"tenant-secret").expect("seal");
+        let row = LockedCashierTokenRow {
+            key_epoch: 2,
+            secret_ciphertext: sealed.ciphertext.clone(),
+            secret_encryption_key_id: sealed.encryption_key_id.clone(),
+            secret_encryption_algorithm: sealed.encryption_algorithm.clone(),
+            previous_secret_ciphertext: String::new(),
+            previous_secret_encryption_key_id: String::new(),
+            previous_secret_encryption_algorithm: String::new(),
+            previous_secret_expires_at_unix: None,
+        };
+        let (ciphertext, key_id, algorithm) =
+            effective_previous_ciphertext(&cipher, "100001", Some(&row), None).expect("previous");
+        assert_eq!(ciphertext, sealed.ciphertext);
+        assert_eq!(key_id, sealed.encryption_key_id);
+        assert_eq!(algorithm, sealed.encryption_algorithm);
+    }
+
+    #[test]
+    fn platform_previous_secret_is_resealed_under_the_tenant_scope() {
+        let cipher = sdkwork_utils_rust::LocalFileCashierSigningKeyCipher::from_key_material(
+            vec![43_u8; 64],
+        )
+        .expect("cipher");
+        let sealed = cipher.seal("0", b"platform-secret").expect("seal");
+        let platform_row = LockedCashierTokenRow {
+            key_epoch: 5,
+            secret_ciphertext: sealed.ciphertext.clone(),
+            secret_encryption_key_id: sealed.encryption_key_id.clone(),
+            secret_encryption_algorithm: sealed.encryption_algorithm.clone(),
+            previous_secret_ciphertext: String::new(),
+            previous_secret_encryption_key_id: String::new(),
+            previous_secret_encryption_algorithm: String::new(),
+            previous_secret_expires_at_unix: None,
+        };
+        let (ciphertext, key_id, algorithm) =
+            effective_previous_ciphertext(&cipher, "100001", None, Some(&platform_row))
+                .expect("previous");
+        let opened = cipher
+            .open("100001", &ciphertext, &key_id, &algorithm)
+            .expect("open as tenant");
+        assert_eq!(opened, b"platform-secret");
+        // Re-sealed under the tenant scope, not copied: the platform scope must
+        // no longer open it.
+        assert!(cipher.open("0", &ciphertext, &key_id, &algorithm).is_err());
+    }
+
+    #[test]
+    fn enable_toggle_materializes_current_and_previous_under_the_tenant_scope() {
+        let cipher = sdkwork_utils_rust::LocalFileCashierSigningKeyCipher::from_key_material(
+            vec![44_u8; 64],
+        )
+        .expect("cipher");
+        let current = cipher.seal("0", b"platform-current").expect("seal current");
+        let previous = cipher.seal("0", b"platform-previous").expect("seal previous");
+        let expires_at = Utc::now().timestamp() + 3600;
+        let platform_row = LockedCashierTokenRow {
+            key_epoch: 5,
+            secret_ciphertext: current.ciphertext.clone(),
+            secret_encryption_key_id: current.encryption_key_id.clone(),
+            secret_encryption_algorithm: current.encryption_algorithm.clone(),
+            previous_secret_ciphertext: previous.ciphertext.clone(),
+            previous_secret_encryption_key_id: previous.encryption_key_id.clone(),
+            previous_secret_encryption_algorithm: previous.encryption_algorithm.clone(),
+            previous_secret_expires_at_unix: Some(expires_at),
+        };
+        let materialized =
+            materialize_effective_secret_for_tenant(&cipher, "100001", Some(&platform_row))
+                .expect("materialize");
+        assert_eq!(
+            cipher
+                .open(
+                    "100001",
+                    &materialized.secret_ciphertext,
+                    &materialized.secret_key_id,
+                    &materialized.secret_algorithm,
+                )
+                .expect("open current"),
+            b"platform-current"
+        );
+        assert_eq!(
+            cipher
+                .open(
+                    "100001",
+                    &materialized.previous_ciphertext,
+                    &materialized.previous_key_id,
+                    &materialized.previous_algorithm,
+                )
+                .expect("open previous"),
+            b"platform-previous"
+        );
+        assert_eq!(
+            materialized.previous_expires_at,
+            DateTime::from_timestamp(expires_at, 0)
+        );
+        assert!(!materialized.secret_fingerprint_sha256.is_empty());
     }
 }

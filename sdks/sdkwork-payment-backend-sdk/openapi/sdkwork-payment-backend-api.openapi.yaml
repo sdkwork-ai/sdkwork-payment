@@ -1433,6 +1433,16 @@
         "summary": "Rotate the anonymous cashier key epoch",
         "description": "Generates a new signing secret for the tenant, stores it encrypted, and increments the key epoch. New capability tokens use the new key immediately; tokens issued before the rotation keep verifying under the previous key for one hour (the capability TTL is 15 minutes). Rotation needs no restart and no key propagation.",
         "operationId": "cashierTokenSettings.rotate",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashierTokenSettingRotateCommand"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Rotated cashier token key setting",
@@ -4775,6 +4785,19 @@
           "enabled": {
             "type": "boolean",
             "description": "Enable or disable the anonymous cashier for the tenant."
+          }
+        }
+      },
+      "CashierTokenSettingRotateCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedEpoch": {
+            "type": "string",
+            "format": "int64",
+            "pattern": "^[0-9]+$",
+            "x-sdkwork-int64-string": true,
+            "description": "Epoch the operator saw. A stale value is rejected with a conflict instead of rotating twice and overwriting the rotation grace secret."
           }
         }
       },

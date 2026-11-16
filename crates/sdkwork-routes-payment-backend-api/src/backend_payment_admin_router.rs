@@ -125,6 +125,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
         rotated_by: String,
+        expected_epoch: Option<i64>,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn list_attempts<'a>(
         &'a self,
@@ -1697,12 +1698,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         &'a self,
         scope: BackendTenantScope,
         rotated_by: String,
+        expected_epoch: Option<i64>,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
         Box::pin(async move {
             let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_secret_postgres(
                 &self.pool,
                 &scope.tenant_id,
                 &rotated_by,
+                expected_epoch,
             )
             .await
             .map_err(|error| {
@@ -3000,10 +3003,20 @@ async fn update_cashier_token_setting(
     }
 }
 
+/// Rotate command for the anonymous cashier signing key.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RotateCashierTokenSettingRequest {
+    /// Epoch the operator saw. A stale epoch is rejected instead of rotating
+    /// twice (double-click / retried request) and overwriting the grace secret.
+    expected_epoch: Option<String>,
+}
+
 async fn rotate_cashier_token_setting(
     State(state): State<BackendPaymentAdminState>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
+    body: Option<Json<RotateCashierTokenSettingRequest>>,
 ) -> Response {
     let ctx = request_context.as_ref().map(|Extension(value)| value);
     let subject = match backend_runtime_subject_from_extension(runtime_context) {
@@ -3014,9 +3027,19 @@ async fn rotate_cashier_token_setting(
         tenant_id: subject.tenant_id,
         organization_id: subject.organization_id,
     };
+    let expected_epoch = match body
+        .as_ref()
+        .and_then(|Json(value)| value.expected_epoch.as_deref())
+    {
+        Some(value) => match value.trim().parse::<i64>() {
+            Ok(epoch) if epoch >= 1 => Some(epoch),
+            _ => return validation(ctx, "expectedEpoch must be a positive int64 string"),
+        },
+        None => None,
+    };
     match state
         .store
-        .rotate_cashier_token_setting(scope, subject.user_id)
+        .rotate_cashier_token_setting(scope, subject.user_id, expected_epoch)
         .await
     {
         Ok(item) => success_item(ctx, item),
