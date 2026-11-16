@@ -5,22 +5,22 @@
 //! **without a login session**: the URL proves "this order may be paid" instead
 //! of "this user is authenticated".
 //!
-//! Key material comes from a dedicated deployment secret
-//! (`SDKWORK_COMMERCE_CASHIER_TOKEN_SECRET`), never from the payment
-//! provider-credential master key. Verification lives in the order service and
-//! later in IAM; sharing the credential master key would make every verifier a
-//! PSP-credential decryptor.
+//! The signing secret is managed by the payment center and stored, sealed, in
+//! `commerce_payment_cashier_token_setting` (see `cashier_token_setting`). A
+//! host-installed `CashierSigningKeyCipher` wraps it with a deployment KEK; the
+//! signing secret itself never leaves the database in plaintext.
 //!
-//! Rollout model: the token's **presence in the URL is the feature flag**. When the
-//! secret is unset minting returns `Ok(None)` and the caller keeps the legacy
-//! login-required cashier link. A secret that is present but invalid fails loudly
-//! instead of silently degrading.
+//! Rollout model: the token's **presence in the URL is the feature flag**. When
+//! the setting is disabled, no stored secret exists, or the key provider is
+//! unavailable, minting returns `Ok(None)` and the caller keeps the legacy
+//! login-required cashier link. A secret that is present but invalid fails
+//! loudly instead of silently degrading.
 
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
     build_commerce_cashier_token_url, build_commerce_cashier_token_url_with_base,
-    cashier_token_secret_from_env, derive_cashier_token_key_with_epoch, encode_cashier_token,
-    now, CashierTokenClaims, CashierTokenIssue,
+    derive_cashier_token_key_with_epoch, encode_cashier_token, now, CashierTokenClaims,
+    CashierTokenIssue,
 };
 
 /// Cashier capability lifetime, matching the H5 cashier state machine TTL.
@@ -76,22 +76,70 @@ pub fn mint_cashier_token_with_secret(
     })
 }
 
-/// Mints a cashier token with the deployment secret.
+/// Resolves the signing material new tokens must use for `tenant_id`.
 ///
-/// Returns `Ok(None)` when the deployment has not configured a secret, so the
-/// caller keeps the login-required cashier entry.
-pub fn mint_cashier_token(
-    subject: &CashierTokenSubject<'_>,
-) -> Result<Option<String>, CommerceServiceError> {
-    let Some(secret) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!("cashier token secret is invalid: {error}"))
-    })?
+/// The payment center generates and stores the signing secret; a disabled
+/// setting or an unavailable key provider yields `None`, which the caller maps
+/// to the anonymous-cashier-disabled path.
+pub async fn resolve_cashier_token_mint_material(
+    pool: &sqlx::PgPool,
+    tenant_id: &str,
+) -> Result<Option<(Vec<u8>, i64)>, CommerceServiceError> {
+    let Some(resolved) =
+        crate::cashier_token_setting::ensure_cashier_token_signing_secrets_postgres(pool, tenant_id)
+            .await?
     else {
         return Ok(None);
     };
-    let token_id = uuid::Uuid::new_v4().to_string();
-    let issued_at = now().timestamp();
-    mint_cashier_token_with_secret(&secret, subject, issued_at, &token_id).map(Some)
+    if !resolved.enabled || resolved.current_secret.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((resolved.current_secret, resolved.key_epoch)))
+}
+
+/// Verifies a capability token against the tenant's stored signing secret.
+///
+/// Tries the active secret, then the previous secret during its rotation grace
+/// window. The tenant and epoch are read from the payload only to select the key; the
+/// signature must still validate under that key.
+pub async fn verify_cashier_token_from_store(
+    pool: &sqlx::PgPool,
+    token: &str,
+    now_unix: i64,
+) -> Option<CashierTokenClaims> {
+    let tenant_id = sdkwork_utils_rust::peek_cashier_token_tenant(token)?;
+    let epoch = sdkwork_utils_rust::peek_cashier_token_epoch(token);
+    let candidates: Vec<Vec<u8>> =
+        match crate::cashier_token_setting::load_cashier_token_signing_secrets_postgres(
+            pool, &tenant_id,
+        )
+        .await
+        {
+            Ok(Some(resolved)) if resolved.enabled => {
+                let mut secrets = vec![resolved.current_secret];
+                if let Some(previous) = resolved.previous_secret {
+                    secrets.push(previous);
+                }
+                secrets
+            }
+            // Disabled, no stored secret, or an unreadable stored secret all
+            // fail closed. There is no deployment-secret fallback.
+            _ => return None,
+        };
+    for secret in candidates {
+        let Ok(key) = derive_cashier_token_key_with_epoch(&secret, &tenant_id, epoch) else {
+            continue;
+        };
+        if let Ok(claims) = sdkwork_utils_rust::verify_cashier_token(
+            token,
+            &key,
+            now_unix,
+            sdkwork_utils_rust::CASHIER_TOKEN_AUDIENCE,
+        ) {
+            return Some(claims);
+        }
+    }
+    None
 }
 
 /// Builds the cashier URL for `token`, honouring the operator-configured H5 origin.
@@ -118,7 +166,8 @@ pub async fn apply_cashier_capability_to_outcome(
     tenant_id: &str,
     mut outcome: sdkwork_payment_service::PayOwnerOrderOutcome,
 ) -> sdkwork_payment_service::PayOwnerOrderOutcome {
-    let Some(currency_code) = load_attempt_currency_code(pool, tenant_id, &outcome.payment_id).await
+    let Some((currency_code, organization_id)) =
+        load_attempt_currency_and_organization(pool, tenant_id, &outcome.payment_id).await
     else {
         return outcome;
     };
@@ -129,9 +178,10 @@ pub async fn apply_cashier_capability_to_outcome(
         .filter(|value| !value.is_empty())
         .unwrap_or("checkout")
         .to_owned();
-    let key_epoch = crate::cashier_token_setting::load_cashier_token_epoch_postgres(pool, tenant_id)
-        .await
-        .unwrap_or(crate::cashier_token_setting::DEFAULT_CASHIER_TOKEN_EPOCH);
+    let Ok(Some((secret, key_epoch))) = resolve_cashier_token_mint_material(pool, tenant_id).await
+    else {
+        return outcome;
+    };
     let subject = CashierTokenSubject {
         tenant_id,
         order_id: &outcome.order_id,
@@ -141,10 +191,24 @@ pub async fn apply_cashier_capability_to_outcome(
         scene: &scene,
         key_epoch,
     };
-    let Ok(Some(token)) = mint_cashier_token(&subject) else {
+    let token_id = uuid::Uuid::new_v4().to_string();
+    let Ok(token) =
+        mint_cashier_token_with_secret(&secret, &subject, now().timestamp(), &token_id)
+    else {
         return outcome;
     };
-    let Some(cashier_url) = cashier_url_for_token(&token, None) else {
+    // The fallback path must still honour the operator-configured H5 domain;
+    // otherwise a provider-less deployment emits a QR that points at the
+    // deployment default instead of the configured cashier host.
+    let h5_base_url = crate::payment_domain_setting::resolve_h5_cashier_base_url_postgres(
+        pool,
+        tenant_id,
+        organization_id.as_deref(),
+    )
+    .await
+    .ok()
+    .flatten();
+    let Some(cashier_url) = cashier_url_for_token(&token, h5_base_url.as_deref()) else {
         return outcome;
     };
     outcome
@@ -156,15 +220,16 @@ pub async fn apply_cashier_capability_to_outcome(
     outcome
 }
 
-/// Reads the currency bound to a payment attempt.
-async fn load_attempt_currency_code(
+/// Reads the currency and organization bound to a payment attempt.
+async fn load_attempt_currency_and_organization(
     pool: &sqlx::PgPool,
     tenant_id: &str,
     payment_id: &str,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     use sqlx::Row;
     let row = sqlx::query(
-        "SELECT currency_code FROM commerce_payment_attempt \
+        "SELECT currency_code, NULLIF(organization_id, '') AS organization_id \
+         FROM commerce_payment_attempt \
          WHERE tenant_id = CAST($1 AS TEXT) AND id = CAST($2 AS TEXT) LIMIT 1",
     )
     .bind(tenant_id)
@@ -172,11 +237,22 @@ async fn load_attempt_currency_code(
     .fetch_optional(pool)
     .await
     .ok()??;
-    row.try_get::<Option<String>, _>("currency_code")
+    let currency_code = row
+        .try_get::<Option<String>, _>("currency_code")
+        .ok()
+        .flatten()?
+        .trim()
+        .to_owned();
+    if currency_code.is_empty() {
+        return None;
+    }
+    let organization_id = row
+        .try_get::<Option<String>, _>("organization_id")
         .ok()
         .flatten()
         .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty());
+    Some((currency_code, organization_id))
 }
 
 #[cfg(test)]
@@ -247,14 +323,19 @@ mod tests {
     }
 
     #[test]
-    fn cashier_url_honours_the_configured_h5_origin() {
-        let token = "v1.payload.sig";
-        assert_eq!(
-            cashier_url_for_token(token, Some("https://h5.example.com/")).as_deref(),
-            Some("https://h5.example.com/cashier/v1.payload.sig")
-        );
-        let fallback = cashier_url_for_token(token, None).expect("fallback url");
-        assert!(fallback.ends_with("/cashier/v1.payload.sig"));
+    fn cashier_url_honours_the_configured_base_and_keeps_the_token_path() {
+        let url = cashier_url_for_token("v1.a.b", Some("https://h5.example.com/"))
+            .expect("token url");
+        assert_eq!("https://h5.example.com/cashier/v1.a.b", url);
+        assert!(!url.contains('?'));
+        assert!(!url.contains('#'));
+    }
+
+    #[test]
+    fn cashier_url_falls_back_to_the_deployment_base() {
+        let url = cashier_url_for_token("v1.a.b", None).expect("token url");
+        assert!(url.starts_with("https://"));
+        assert!(url.ends_with("/cashier/v1.a.b"));
     }
 
     #[test]

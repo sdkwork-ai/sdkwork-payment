@@ -2555,6 +2555,7 @@ dependencies = [
  "sdkwork-payment-database-host",
  "sdkwork-payment-providers",
  "sdkwork-payment-repository-sqlx",
+ "sdkwork-utils-rust",
  "sdkwork-web-bootstrap",
  "sdkwork-web-core",
  "tokio",

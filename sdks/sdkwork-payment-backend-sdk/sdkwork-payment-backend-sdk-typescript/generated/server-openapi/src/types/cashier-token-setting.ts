@@ -10,4 +10,10 @@ export interface CashierTokenSetting {
   updatedAt?: string | null;
   /** Which scope supplied the effective epoch: the tenant row, the platform '0' fallback row, or the legacy default. */
   source: 'tenant' | 'platform' | 'default';
+  /** Whether the anonymous cashier is enabled for this scope. */
+  enabled: boolean;
+  /** Whether an encrypted signing secret is stored for this scope. */
+  signingKeyConfigured: boolean;
+  /** Installed key-encryption provider id (local-file, or a future vault/kms provider). */
+  keyProvider: string;
 }

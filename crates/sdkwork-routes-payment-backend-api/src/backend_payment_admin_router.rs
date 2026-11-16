@@ -116,10 +116,16 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    fn update_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        enabled: bool,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn rotate_cashier_token_setting<'a>(
         &'a self,
         scope: BackendTenantScope,
         rotated_by: String,
+        expected_epoch: Option<i64>,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn list_attempts<'a>(
         &'a self,
@@ -1664,16 +1670,42 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             })
         })
     }
+    fn update_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        enabled: bool,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let view = sdkwork_payment_repository_sqlx::update_cashier_token_enabled_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                enabled,
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to update cashier token setting: {error:?}"
+                ))
+            })?;
+            serde_json::to_value(view).map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "cashier token setting update json: {error:?}"
+                ))
+            })
+        })
+    }
     fn rotate_cashier_token_setting<'a>(
         &'a self,
         scope: BackendTenantScope,
         rotated_by: String,
+        expected_epoch: Option<i64>,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
         Box::pin(async move {
-            let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_epoch_postgres(
+            let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_secret_postgres(
                 &self.pool,
                 &scope.tenant_id,
                 &rotated_by,
+                expected_epoch,
             )
             .await
             .map_err(|error| {
@@ -2023,7 +2055,7 @@ pub fn build_backend_payment_admin_router(
         )
         .route(
             "/backend/v3/api/payments/cashier_token_settings",
-            get(retrieve_cashier_token_setting),
+            get(retrieve_cashier_token_setting).patch(update_cashier_token_setting),
         )
         .route(
             "/backend/v3/api/payments/cashier_token_settings/rotate",
@@ -2937,10 +2969,18 @@ async fn retrieve_cashier_token_setting(
     }
 }
 
-async fn rotate_cashier_token_setting(
+/// Enable/disable command for the anonymous cashier.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCashierTokenSettingRequest {
+    enabled: bool,
+}
+
+async fn update_cashier_token_setting(
     State(state): State<BackendPaymentAdminState>,
     runtime_context: Option<Extension<IamAppContext>>,
     request_context: Option<Extension<WebRequestContext>>,
+    Json(payload): Json<UpdateCashierTokenSettingRequest>,
 ) -> Response {
     let ctx = request_context.as_ref().map(|Extension(value)| value);
     let subject = match backend_runtime_subject_from_extension(runtime_context) {
@@ -2953,7 +2993,53 @@ async fn rotate_cashier_token_setting(
     };
     match state
         .store
-        .rotate_cashier_token_setting(scope, subject.user_id)
+        .update_cashier_token_setting(scope, payload.enabled)
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token setting update failed", error)
+        }
+    }
+}
+
+/// Rotate command for the anonymous cashier signing key.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RotateCashierTokenSettingRequest {
+    /// Epoch the operator saw. A stale epoch is rejected instead of rotating
+    /// twice (double-click / retried request) and overwriting the grace secret.
+    expected_epoch: Option<String>,
+}
+
+async fn rotate_cashier_token_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    body: Option<Json<RotateCashierTokenSettingRequest>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    let expected_epoch = match body
+        .as_ref()
+        .and_then(|Json(value)| value.expected_epoch.as_deref())
+    {
+        Some(value) => match value.trim().parse::<i64>() {
+            Ok(epoch) if epoch >= 1 => Some(epoch),
+            _ => return validation(ctx, "expectedEpoch must be a positive int64 string"),
+        },
+        None => None,
+    };
+    match state
+        .store
+        .rotate_cashier_token_setting(scope, subject.user_id, expected_epoch)
         .await
     {
         Ok(item) => success_item(ctx, item),
