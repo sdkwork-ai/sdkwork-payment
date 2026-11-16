@@ -476,27 +476,28 @@ fn open_cashier_token_secret_row(
         ))
     })?;
     let now_unix = Utc::now().timestamp();
-    let previous_secret = if row.previous_secret_ciphertext.trim().is_empty()
-        || row
-            .previous_secret_expires_at_unix
-            .is_some_and(|expires_at| expires_at <= now_unix)
-    {
-        None
-    } else {
-        Some(
-            open_cashier_token_secret(
-                &kek,
-                scope_tenant_id,
-                &row.previous_secret_ciphertext,
-                &row.previous_secret_encryption_key_id,
-                &row.previous_secret_encryption_algorithm,
+    let previous_secret = match row.previous_secret_expires_at_unix {
+        Some(expires_at)
+            if expires_at > now_unix && !row.previous_secret_ciphertext.trim().is_empty() =>
+        {
+            Some(
+                open_cashier_token_secret(
+                    &kek,
+                    scope_tenant_id,
+                    &row.previous_secret_ciphertext,
+                    &row.previous_secret_encryption_key_id,
+                    &row.previous_secret_encryption_algorithm,
+                )
+                .map_err(|error| {
+                    CommerceServiceError::storage(format!(
+                        "failed to open the previous cashier token signing secret: {error}"
+                    ))
+                })?,
             )
-            .map_err(|error| {
-                CommerceServiceError::storage(format!(
-                    "failed to open the previous cashier token signing secret: {error}"
-                ))
-            })?,
-        )
+        }
+        // A previous ciphertext without a future expiry is never accepted; a
+        // rotation must not leave an unbounded second key behind.
+        _ => None,
     };
     Ok(Some(CashierTokenSigningSecrets {
         scope_tenant_id: row.scope_tenant_id,
