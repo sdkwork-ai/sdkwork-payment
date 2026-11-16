@@ -23,7 +23,7 @@
 use chrono::{Duration, Utc};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
-    cashier_token_secret_from_env, open_cashier_token_secret, seal_cashier_token_secret,
+    cashier_signing_key_cipher, cashier_signing_key_provider_id, CashierTokenError,
 };
 use serde::Serialize;
 use sqlx::{Pool, Postgres, Row};
@@ -89,6 +89,12 @@ pub struct CashierTokenSettingView {
     pub updated_at: Option<String>,
     /// Which scope supplied the effective epoch.
     pub source: CashierTokenSettingSource,
+    /// Whether the anonymous cashier is enabled for this scope.
+    pub enabled: bool,
+    /// Whether a signing secret is stored (the admin UI shows "configured").
+    pub signing_key_configured: bool,
+    /// Installed key-encryption provider (`local-file`, future `vault`/`kms`).
+    pub key_provider: String,
 }
 
 impl CashierTokenSettingView {
@@ -102,6 +108,9 @@ impl CashierTokenSettingView {
             rotated_by: String::new(),
             updated_at: None,
             source: CashierTokenSettingSource::Default,
+            enabled: true,
+            signing_key_configured: false,
+            key_provider: cashier_signing_key_provider_id().to_owned(),
         }
     }
 }
@@ -113,6 +122,8 @@ pub struct CashierTokenSigningSecrets {
     pub scope_tenant_id: String,
     /// Active key epoch carried by new tokens.
     pub key_epoch: i64,
+    /// Whether the anonymous cashier is enabled for this scope.
+    pub enabled: bool,
     /// Active signing secret bytes.
     pub current_secret: Vec<u8>,
     /// Previous signing secret still accepted during the rotation grace window.
@@ -176,13 +187,9 @@ pub async fn load_cashier_token_signing_secrets_postgres(
         .await
         .map_err(|error| store_error("failed to load cashier token signing secret", error))?
     {
-        // An epoch-only tenant row (legacy) must still fall through to a
-        // platform secret that exists; only a row that stores a secret wins.
-        if let Some(secrets) =
-            open_cashier_token_secret_row(row, &tenant_id, CashierTokenSettingSource::Tenant)?
-        {
-            return Ok(Some(secrets));
-        }
+        // An existing tenant row is authoritative: if it has no stored secret,
+        // the tenant has no signing key (no platform inheritance).
+        return open_cashier_token_secret_row(row, &tenant_id, CashierTokenSettingSource::Tenant);
     }
     if tenant_id != PLATFORM_CASHIER_TOKEN_TENANT_ID {
         if let Some(row) =
@@ -205,40 +212,42 @@ pub async fn load_cashier_token_signing_secrets_postgres(
     Ok(None)
 }
 
-/// Loads a tenant's signing secret, importing the deployment secret on first use.
+/// Loads a tenant's signing secret, provisioning a fresh one on first use.
 ///
-/// The deployment value is sealed as the first database secret and the key
-/// epoch is preserved, so tokens minted before the upgrade keep verifying.
-/// Callers get `None` only when neither a stored secret nor a deployment secret
-/// exists (the anonymous cashier is then disabled).
+/// A disabled setting never provisions a secret. The generated secret is sealed
+/// by the host-installed `CashierSigningKeyCipher`; the deployment KEK is never
+/// used as the signing key itself. Callers get `None` when the setting is
+/// disabled or no key provider is available.
 pub async fn ensure_cashier_token_signing_secrets_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
 ) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+    let view = retrieve_cashier_token_setting_postgres(pool, tenant_id).await?;
+    if !view.enabled {
+        // A disabled tenant must not auto-provision a secret.
+        return Ok(None);
+    }
     if let Some(secrets) = load_cashier_token_signing_secrets_postgres(pool, tenant_id).await? {
         return Ok(Some(secrets));
     }
     let tenant_id = normalize_tenant_id(tenant_id);
-    let Some(kek) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "cashier token key-encryption secret is invalid: {error}"
-        ))
-    })?
-    else {
-        return Ok(None);
+    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
+    // 64 hex characters from two v4 UUIDs: 32 bytes of CSPRNG material. The
+    // deployment KEK is never used as the signing key itself.
+    let fresh_secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let sealed = match cipher.seal(&tenant_id, fresh_secret.as_bytes()) {
+        Ok(sealed) => sealed,
+        Err(CashierTokenError::SecretUnavailable) => return Ok(None),
+        Err(error) => {
+            return Err(CommerceServiceError::storage(format!(
+                "failed to seal the initial cashier token signing secret: {error}"
+            )))
+        }
     };
-    let sealed = seal_cashier_token_secret(&kek, &tenant_id, &kek).map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "failed to seal the initial cashier token signing secret: {error}"
-        ))
-    })?;
-    let key_epoch = load_cashier_token_epoch_postgres(pool, &tenant_id)
-        .await
-        .unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH);
-    // `ON CONFLICT ... WHERE secret_ciphertext = ''` imports the deployment
-    // secret only into a row that does not have one yet: concurrent first
-    // requests converge on whichever writer won, and a real rotation is never
-    // overwritten by a request racing it.
+    let key_epoch = view.key_epoch;
+    // `ON CONFLICT ... WHERE secret_ciphertext = ''` provisions only a row that
+    // does not have a secret yet: concurrent first requests converge on whichever
+    // writer won, and a real rotation is never overwritten by a request racing it.
     sqlx::query(
         r#"
         INSERT INTO commerce_payment_cashier_token_setting
@@ -281,36 +290,22 @@ pub async fn rotate_cashier_token_secret_postgres(
     rotated_by: &str,
 ) -> Result<CashierTokenSettingView, CommerceServiceError> {
     let tenant_id = normalize_tenant_id(tenant_id);
-    let Some(kek) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "cashier token key-encryption secret is invalid: {error}"
-        ))
-    })?
-    else {
-        return Err(CommerceServiceError::storage(
-            "cashier token key-encryption secret is not configured",
-        ));
-    };
+    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
     // 64 hex characters from two v4 UUIDs: 32 bytes of CSPRNG material.
     let fresh_secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let sealed =
-        seal_cashier_token_secret(&kek, &tenant_id, fresh_secret.as_bytes()).map_err(|error| {
+    let sealed = cipher
+        .seal(&tenant_id, fresh_secret.as_bytes())
+        .map_err(|error| {
             CommerceServiceError::storage(format!(
                 "failed to seal the rotated cashier token signing secret: {error}"
             ))
         })?;
-    let previous_plain = match load_cashier_token_signing_secrets_postgres(pool, &tenant_id).await?
-    {
-        Some(resolved) => Some(resolved.current_secret),
-        None => cashier_token_secret_from_env().map_err(|error| {
-            CommerceServiceError::storage(format!(
-                "cashier token key-encryption secret is invalid: {error}"
-            ))
-        })?,
-    };
+    let previous_plain = load_cashier_token_signing_secrets_postgres(pool, &tenant_id)
+        .await?
+        .map(|resolved| resolved.current_secret);
     let sealed_previous = previous_plain
         .as_deref()
-        .map(|secret| seal_cashier_token_secret(&kek, &tenant_id, secret))
+        .map(|secret| cipher.seal(&tenant_id, secret))
         .transpose()
         .map_err(|error| {
             CommerceServiceError::storage(format!(
@@ -409,6 +404,34 @@ pub async fn rotate_cashier_token_secret_postgres(
     retrieve_cashier_token_setting_postgres(pool, &tenant_id).await
 }
 
+/// Enables or disables the anonymous cashier for a tenant and returns the view.
+///
+/// Disabling stops new minting immediately; tokens already issued remain valid
+/// only until their own expiry, because verification reads the same setting.
+pub async fn update_cashier_token_enabled_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    enabled: bool,
+) -> Result<CashierTokenSettingView, CommerceServiceError> {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    sqlx::query(
+        r#"
+        INSERT INTO commerce_payment_cashier_token_setting
+            (tenant_id, enabled, created_at, updated_at)
+        VALUES (CAST($1 AS TEXT), $2, NOW(), NOW())
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET enabled = EXCLUDED.enabled,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(&tenant_id)
+    .bind(enabled)
+    .execute(pool)
+    .await
+    .map_err(|error| store_error("failed to update the cashier token setting", error))?;
+    retrieve_cashier_token_setting_postgres(pool, &tenant_id).await
+}
+
 /// Seeds the platform tenant with epoch 1 when the installation has no row.
 ///
 /// Idempotent; safe to call on every startup. A missing row already behaves as
@@ -435,6 +458,7 @@ pub async fn seed_cashier_token_setting_postgres(
 struct CashierTokenSecretRow {
     scope_tenant_id: String,
     key_epoch: i64,
+    enabled: bool,
     secret_ciphertext: String,
     secret_encryption_key_id: String,
     secret_encryption_algorithm: String,
@@ -453,44 +477,35 @@ fn open_cashier_token_secret_row(
     if row.secret_ciphertext.trim().is_empty() {
         return Ok(None);
     }
-    let Some(kek) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "cashier token key-encryption secret is invalid: {error}"
-        ))
-    })?
-    else {
-        return Err(CommerceServiceError::storage(
-            "cashier token key-encryption secret is not configured",
-        ));
-    };
-    let current_secret = open_cashier_token_secret(
-        &kek,
-        scope_tenant_id,
-        &row.secret_ciphertext,
-        &row.secret_encryption_key_id,
-        &row.secret_encryption_algorithm,
-    )
-    .map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "failed to open the stored cashier token signing secret: {error}"
-        ))
-    })?;
+    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
+    let current_secret = cipher
+        .open(
+            scope_tenant_id,
+            &row.secret_ciphertext,
+            &row.secret_encryption_key_id,
+            &row.secret_encryption_algorithm,
+        )
+        .map_err(|error| {
+            CommerceServiceError::storage(format!(
+                "failed to open the stored cashier token signing secret: {error}"
+            ))
+        })?;
     let now_unix = Utc::now().timestamp();
     let previous_secret = match row.previous_secret_expires_at_unix {
         Some(expires_at)
             if expires_at > now_unix && !row.previous_secret_ciphertext.trim().is_empty() =>
         {
             Some(
-                open_cashier_token_secret(
-                    &kek,
-                    scope_tenant_id,
-                    &row.previous_secret_ciphertext,
-                    &row.previous_secret_encryption_key_id,
-                    &row.previous_secret_encryption_algorithm,
-                )
-                .map_err(|error| {
-                    CommerceServiceError::storage(format!(
-                        "failed to open the previous cashier token signing secret: {error}"
+                cipher
+                    .open(
+                        scope_tenant_id,
+                        &row.previous_secret_ciphertext,
+                        &row.previous_secret_encryption_key_id,
+                        &row.previous_secret_encryption_algorithm,
+                    )
+                    .map_err(|error| {
+                        CommerceServiceError::storage(format!(
+                            "failed to open the previous cashier token signing secret: {error}"
                     ))
                 })?,
             )
@@ -502,6 +517,7 @@ fn open_cashier_token_secret_row(
     Ok(Some(CashierTokenSigningSecrets {
         scope_tenant_id: row.scope_tenant_id,
         key_epoch: row.key_epoch.max(DEFAULT_CASHIER_TOKEN_EPOCH),
+        enabled: row.enabled,
         current_secret,
         previous_secret,
         previous_expires_at_unix: row.previous_secret_expires_at_unix,
@@ -519,6 +535,8 @@ async fn load_cashier_token_setting_row_postgres(
         SELECT
             tenant_id,
             key_epoch,
+            enabled,
+            (secret_ciphertext <> '') AS signing_key_configured,
             TO_CHAR(rotated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS rotated_at,
             rotated_by,
             TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
@@ -541,6 +559,11 @@ async fn load_cashier_token_setting_row_postgres(
         rotated_by: string_cell(&row, "rotated_by"),
         updated_at: optional_string_cell(&row, "updated_at"),
         source,
+        enabled: row.try_get::<bool, _>("enabled").unwrap_or(true),
+        signing_key_configured: row
+            .try_get::<bool, _>("signing_key_configured")
+            .unwrap_or(false),
+        key_provider: cashier_signing_key_provider_id().to_owned(),
     }))
 }
 
@@ -553,6 +576,7 @@ async fn load_cashier_token_secret_row_postgres(
         SELECT
             tenant_id,
             key_epoch,
+            enabled,
             secret_ciphertext,
             secret_encryption_key_id,
             secret_encryption_algorithm,
@@ -576,6 +600,7 @@ async fn load_cashier_token_secret_row_postgres(
             .try_get::<i64, _>("key_epoch")
             .unwrap_or(DEFAULT_CASHIER_TOKEN_EPOCH)
             .max(DEFAULT_CASHIER_TOKEN_EPOCH),
+        enabled: row.try_get::<bool, _>("enabled").unwrap_or(true),
         secret_ciphertext: string_cell(&row, "secret_ciphertext"),
         secret_encryption_key_id: string_cell(&row, "secret_encryption_key_id"),
         secret_encryption_algorithm: string_cell(&row, "secret_encryption_algorithm"),
@@ -641,6 +666,7 @@ mod tests {
         let row = CashierTokenSecretRow {
             scope_tenant_id: "100001".to_owned(),
             key_epoch: 2,
+            enabled: true,
             secret_ciphertext: String::new(),
             secret_encryption_key_id: String::new(),
             secret_encryption_algorithm: String::new(),

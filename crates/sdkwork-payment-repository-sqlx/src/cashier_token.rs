@@ -6,24 +6,21 @@
 //! of "this user is authenticated".
 //!
 //! The signing secret is managed by the payment center and stored, sealed, in
-//! `commerce_payment_cashier_token_setting` (see `cashier_token_setting`). The
-//! deployment value `SDKWORK_COMMERCE_CASHIER_TOKEN_SECRET` is only the
-//! key-encryption key for that stored secret, never the payment
-//! provider-credential master key. Verification lives in the order service and
-//! later in IAM; sharing the credential master key would make every verifier a
-//! PSP-credential decryptor.
+//! `commerce_payment_cashier_token_setting` (see `cashier_token_setting`). A
+//! host-installed `CashierSigningKeyCipher` wraps it with a deployment KEK; the
+//! signing secret itself never leaves the database in plaintext.
 //!
 //! Rollout model: the token's **presence in the URL is the feature flag**. When
-//! neither a stored secret nor a deployment secret exists minting returns
-//! `Ok(None)` and the caller keeps the legacy login-required cashier link. A
-//! secret that is present but invalid fails loudly instead of silently
-//! degrading.
+//! the setting is disabled, no stored secret exists, or the key provider is
+//! unavailable, minting returns `Ok(None)` and the caller keeps the legacy
+//! login-required cashier link. A secret that is present but invalid fails
+//! loudly instead of silently degrading.
 
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
     build_commerce_cashier_token_url, build_commerce_cashier_token_url_with_base,
-    cashier_token_secret_from_env, derive_cashier_token_key_with_epoch, encode_cashier_token,
-    now, CashierTokenClaims, CashierTokenIssue,
+    derive_cashier_token_key_with_epoch, encode_cashier_token, now, CashierTokenClaims,
+    CashierTokenIssue,
 };
 
 /// Cashier capability lifetime, matching the H5 cashier state machine TTL.
@@ -79,58 +76,31 @@ pub fn mint_cashier_token_with_secret(
     })
 }
 
-/// Mints a cashier token with the deployment secret.
-///
-/// Returns `Ok(None)` when the deployment has not configured a secret, so the
-/// caller keeps the login-required cashier entry.
-pub fn mint_cashier_token(
-    subject: &CashierTokenSubject<'_>,
-) -> Result<Option<String>, CommerceServiceError> {
-    let Some(secret) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!("cashier token secret is invalid: {error}"))
-    })?
-    else {
-        return Ok(None);
-    };
-    let token_id = uuid::Uuid::new_v4().to_string();
-    let issued_at = now().timestamp();
-    mint_cashier_token_with_secret(&secret, subject, issued_at, &token_id).map(Some)
-}
-
 /// Resolves the signing material new tokens must use for `tenant_id`.
 ///
-/// Prefers the payment-center managed secret stored in
-/// `commerce_payment_cashier_token_setting` (importing the deployment secret on
-/// first use) and falls back to the deployment secret for installs that have
-/// never rotated. `None` means the anonymous cashier is not enabled.
+/// The payment center generates and stores the signing secret; a disabled
+/// setting or an unavailable key provider yields `None`, which the caller maps
+/// to the anonymous-cashier-disabled path.
 pub async fn resolve_cashier_token_mint_material(
     pool: &sqlx::PgPool,
     tenant_id: &str,
 ) -> Result<Option<(Vec<u8>, i64)>, CommerceServiceError> {
-    if let Some(resolved) =
+    let Some(resolved) =
         crate::cashier_token_setting::ensure_cashier_token_signing_secrets_postgres(pool, tenant_id)
             .await?
-    {
-        return Ok(Some((resolved.current_secret, resolved.key_epoch)));
-    }
-    let Some(secret) = cashier_token_secret_from_env().map_err(|error| {
-        CommerceServiceError::storage(format!("cashier token secret is invalid: {error}"))
-    })?
     else {
         return Ok(None);
     };
-    let key_epoch =
-        crate::cashier_token_setting::load_cashier_token_epoch_postgres(pool, tenant_id)
-            .await
-            .unwrap_or(crate::cashier_token_setting::DEFAULT_CASHIER_TOKEN_EPOCH);
-    Ok(Some((secret, key_epoch)))
+    if !resolved.enabled || resolved.current_secret.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((resolved.current_secret, resolved.key_epoch)))
 }
 
 /// Verifies a capability token against the tenant's stored signing secret.
 ///
 /// Tries the active secret, then the previous secret during its rotation grace
-/// window, then the deployment secret for installs with no stored secret. The
-/// tenant and epoch are read from the payload only to select the key; the
+/// window. The tenant and epoch are read from the payload only to select the key; the
 /// signature must still validate under that key.
 pub async fn verify_cashier_token_from_store(
     pool: &sqlx::PgPool,
@@ -145,21 +115,16 @@ pub async fn verify_cashier_token_from_store(
         )
         .await
         {
-            Ok(Some(resolved)) => {
+            Ok(Some(resolved)) if resolved.enabled => {
                 let mut secrets = vec![resolved.current_secret];
                 if let Some(previous) = resolved.previous_secret {
                     secrets.push(previous);
                 }
                 secrets
             }
-            Ok(None) => cashier_token_secret_from_env()
-                .ok()
-                .flatten()
-                .into_iter()
-                .collect(),
-            // A stored secret that cannot be opened must fail closed; dropping
-            // back to the deployment secret would bypass a rotation.
-            Err(_) => return None,
+            // Disabled, no stored secret, or an unreadable stored secret all
+            // fail closed. There is no deployment-secret fallback.
+            _ => return None,
         };
     for secret in candidates {
         let Ok(key) = derive_cashier_token_key_with_epoch(&secret, &tenant_id, epoch) else {

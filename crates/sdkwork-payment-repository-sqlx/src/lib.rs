@@ -29,7 +29,8 @@ pub use cashier_token_setting::{
     ensure_cashier_token_signing_secrets_postgres,
     load_cashier_token_epoch_postgres, load_cashier_token_signing_secrets_postgres,
     retrieve_cashier_token_setting_postgres, rotate_cashier_token_secret_postgres,
-    seed_cashier_token_setting_postgres, CashierTokenSettingSource, CashierTokenSettingView,
+    seed_cashier_token_setting_postgres, update_cashier_token_enabled_postgres,
+    CashierTokenSettingSource, CashierTokenSettingView,
     CashierTokenSigningSecrets, CASHIER_TOKEN_PREVIOUS_SECRET_GRACE_SECONDS,
     DEFAULT_CASHIER_TOKEN_EPOCH, PLATFORM_CASHIER_TOKEN_TENANT_ID,
 };

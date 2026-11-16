@@ -343,9 +343,10 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     )
     .with_required_permission("commerce.payments.domain_settings.update")
     .with_idempotent(true),
-    // === Anonymous cashier key epoch (支付设置 → 收银台密钥) ===
-    // The epoch is public metadata; the root signing secret stays a deployment
-    // secret, so the admin surface can rotate without ever reading a key.
+    // === Anonymous cashier signing key (支付设置 → 收银台密钥) ===
+    // The signing key is generated and stored encrypted in the payment database;
+    // the admin surface can enable/disable the anonymous cashier, rotate the key,
+    // and inspect the epoch/provider metadata without ever reading a key.
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/cashier_token_settings",
@@ -353,6 +354,13 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "cashierTokenSettings.retrieve",
     )
     .with_required_permission("commerce.payments.domain_settings.read"),
+    HttpRoute::dual_token(
+        HttpMethod::Patch,
+        "/backend/v3/api/payments/cashier_token_settings",
+        "payments",
+        "cashierTokenSettings.update",
+    )
+    .with_required_permission("commerce.payments.domain_settings.update"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/cashier_token_settings/rotate",

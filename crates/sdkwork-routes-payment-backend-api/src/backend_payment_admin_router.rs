@@ -116,6 +116,11 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    fn update_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        enabled: bool,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     fn rotate_cashier_token_setting<'a>(
         &'a self,
         scope: BackendTenantScope,
@@ -1664,6 +1669,30 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             })
         })
     }
+    fn update_cashier_token_setting<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        enabled: bool,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let view = sdkwork_payment_repository_sqlx::update_cashier_token_enabled_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                enabled,
+            )
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to update cashier token setting: {error:?}"
+                ))
+            })?;
+            serde_json::to_value(view).map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "cashier token setting update json: {error:?}"
+                ))
+            })
+        })
+    }
     fn rotate_cashier_token_setting<'a>(
         &'a self,
         scope: BackendTenantScope,
@@ -2023,7 +2052,7 @@ pub fn build_backend_payment_admin_router(
         )
         .route(
             "/backend/v3/api/payments/cashier_token_settings",
-            get(retrieve_cashier_token_setting),
+            get(retrieve_cashier_token_setting).patch(update_cashier_token_setting),
         )
         .route(
             "/backend/v3/api/payments/cashier_token_settings/rotate",
@@ -2933,6 +2962,40 @@ async fn retrieve_cashier_token_setting(
         Ok(item) => success_item(ctx, item),
         Err(error) => {
             backend_payment_error_response(ctx, "cashier token setting is unavailable", error)
+        }
+    }
+}
+
+/// Enable/disable command for the anonymous cashier.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateCashierTokenSettingRequest {
+    enabled: bool,
+}
+
+async fn update_cashier_token_setting(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    Json(payload): Json<UpdateCashierTokenSettingRequest>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state
+        .store
+        .update_cashier_token_setting(scope, payload.enabled)
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token setting update failed", error)
         }
     }
 }

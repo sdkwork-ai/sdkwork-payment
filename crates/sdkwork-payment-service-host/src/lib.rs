@@ -176,7 +176,11 @@ fn ensure_payment_credential_cipher_from_env() -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(_) if payment_credential_cipher_is_installed() => Ok(()),
         Err(error) => Err(error),
-    }
+    }?;
+    // The anonymous-cashier signing secrets are database-stored and sealed with
+    // the deployment KEK. Installing the provider here covers the composed
+    // gateway and the payment standalone host in one place.
+    sdkwork_utils_rust::install_local_file_cashier_signing_key_cipher_from_env()
 }
 
 fn nonempty_env_path(key: &str) -> Option<PathBuf> {

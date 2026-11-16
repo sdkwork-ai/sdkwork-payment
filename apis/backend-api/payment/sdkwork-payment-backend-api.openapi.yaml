@@ -1379,6 +1379,50 @@
         "x-sdkwork-owner": "sdkwork-payment",
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-permission": "commerce.payments.domain_settings.read"
+      },
+      "patch": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Enable or disable the anonymous cashier",
+        "description": "Turns the anonymous cashier on or off for the tenant. Disabling stops new capability-token minting immediately; tokens already issued remain valid only until their own expiry because verification reads the same setting.",
+        "operationId": "cashierTokenSettings.update",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashierTokenSettingUpdateCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated cashier token key setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashierTokenSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.update"
       }
     },
     "/backend/v3/api/payments/cashier_token_settings/rotate": {
@@ -4666,7 +4710,10 @@
         "required": [
           "keyEpoch",
           "rotatedBy",
-          "source"
+          "source",
+          "enabled",
+          "signingKeyConfigured",
+          "keyProvider"
         ],
         "properties": {
           "tenantId": {
@@ -4703,6 +4750,31 @@
               "default"
             ],
             "description": "Which scope supplied the effective epoch: the tenant row, the platform '0' fallback row, or the legacy default."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the anonymous cashier is enabled for this scope."
+          },
+          "signingKeyConfigured": {
+            "type": "boolean",
+            "description": "Whether an encrypted signing secret is stored for this scope."
+          },
+          "keyProvider": {
+            "type": "string",
+            "description": "Installed key-encryption provider id (local-file, or a future vault/kms provider)."
+          }
+        }
+      },
+      "CashierTokenSettingUpdateCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable or disable the anonymous cashier for the tenant."
           }
         }
       },
