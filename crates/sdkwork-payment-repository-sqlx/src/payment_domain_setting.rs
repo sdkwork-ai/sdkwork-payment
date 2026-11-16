@@ -73,8 +73,11 @@ pub struct UpsertPaymentDomainSettingCommand {
 }
 
 /// Canonical cashier route template appended to the configured H5 domain.
-pub const CASHIER_URL_TEMPLATE_SUFFIX: &str =
-    "/cashier/{orderId}?scene={scene}&outTradeNo={outTradeNo}";
+///
+/// The current QR carries a signed capability token as the path segment; the
+/// legacy `{orderId}?scene=..&outTradeNo=..` link is still exchanged for a token
+/// by the H5 entry but is no longer the primary cashier URL shape.
+pub const CASHIER_URL_TEMPLATE_SUFFIX: &str = "/cashier/{token}";
 
 /// Builds the origin for a configured domain row.
 #[must_use]
@@ -388,7 +391,7 @@ mod tests {
     fn cashier_url_template_uses_the_canonical_h5_route() {
         let base = build_payment_domain_base_url("https", "h5.example.com", None);
         assert_eq!(
-            "https://h5.example.com/cashier/{orderId}?scene={scene}&outTradeNo={outTradeNo}",
+            "https://h5.example.com/cashier/{token}",
             format!("{base}{CASHIER_URL_TEMPLATE_SUFFIX}")
         );
     }

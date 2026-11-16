@@ -166,7 +166,8 @@ pub async fn apply_cashier_capability_to_outcome(
     tenant_id: &str,
     mut outcome: sdkwork_payment_service::PayOwnerOrderOutcome,
 ) -> sdkwork_payment_service::PayOwnerOrderOutcome {
-    let Some(currency_code) = load_attempt_currency_code(pool, tenant_id, &outcome.payment_id).await
+    let Some((currency_code, organization_id)) =
+        load_attempt_currency_and_organization(pool, tenant_id, &outcome.payment_id).await
     else {
         return outcome;
     };
@@ -196,7 +197,18 @@ pub async fn apply_cashier_capability_to_outcome(
     else {
         return outcome;
     };
-    let Some(cashier_url) = cashier_url_for_token(&token, None) else {
+    // The fallback path must still honour the operator-configured H5 domain;
+    // otherwise a provider-less deployment emits a QR that points at the
+    // deployment default instead of the configured cashier host.
+    let h5_base_url = crate::payment_domain_setting::resolve_h5_cashier_base_url_postgres(
+        pool,
+        tenant_id,
+        organization_id.as_deref(),
+    )
+    .await
+    .ok()
+    .flatten();
+    let Some(cashier_url) = cashier_url_for_token(&token, h5_base_url.as_deref()) else {
         return outcome;
     };
     outcome
@@ -208,15 +220,16 @@ pub async fn apply_cashier_capability_to_outcome(
     outcome
 }
 
-/// Reads the currency bound to a payment attempt.
-async fn load_attempt_currency_code(
+/// Reads the currency and organization bound to a payment attempt.
+async fn load_attempt_currency_and_organization(
     pool: &sqlx::PgPool,
     tenant_id: &str,
     payment_id: &str,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     use sqlx::Row;
     let row = sqlx::query(
-        "SELECT currency_code FROM commerce_payment_attempt \
+        "SELECT currency_code, NULLIF(organization_id, '') AS organization_id \
+         FROM commerce_payment_attempt \
          WHERE tenant_id = CAST($1 AS TEXT) AND id = CAST($2 AS TEXT) LIMIT 1",
     )
     .bind(tenant_id)
@@ -224,11 +237,22 @@ async fn load_attempt_currency_code(
     .fetch_optional(pool)
     .await
     .ok()??;
-    row.try_get::<Option<String>, _>("currency_code")
+    let currency_code = row
+        .try_get::<Option<String>, _>("currency_code")
+        .ok()
+        .flatten()?
+        .trim()
+        .to_owned();
+    if currency_code.is_empty() {
+        return None;
+    }
+    let organization_id = row
+        .try_get::<Option<String>, _>("organization_id")
         .ok()
         .flatten()
         .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty());
+    Some((currency_code, organization_id))
 }
 
 #[cfg(test)]
@@ -299,14 +323,19 @@ mod tests {
     }
 
     #[test]
-    fn cashier_url_honours_the_configured_h5_origin() {
-        let token = "v1.payload.sig";
-        assert_eq!(
-            cashier_url_for_token(token, Some("https://h5.example.com/")).as_deref(),
-            Some("https://h5.example.com/cashier/v1.payload.sig")
-        );
-        let fallback = cashier_url_for_token(token, None).expect("fallback url");
-        assert!(fallback.ends_with("/cashier/v1.payload.sig"));
+    fn cashier_url_honours_the_configured_base_and_keeps_the_token_path() {
+        let url = cashier_url_for_token("v1.a.b", Some("https://h5.example.com/"))
+            .expect("token url");
+        assert_eq!("https://h5.example.com/cashier/v1.a.b", url);
+        assert!(!url.contains('?'));
+        assert!(!url.contains('#'));
+    }
+
+    #[test]
+    fn cashier_url_falls_back_to_the_deployment_base() {
+        let url = cashier_url_for_token("v1.a.b", None).expect("token url");
+        assert!(url.starts_with("https://"));
+        assert!(url.ends_with("/cashier/v1.a.b"));
     }
 
     #[test]
