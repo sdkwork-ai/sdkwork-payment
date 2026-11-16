@@ -1,5 +1,5 @@
 -- sdkwork:migration
--- id: 0006_payment_cashier_link
+-- id: 0008_payment_cashier_link
 -- engine: postgres
 -- module: sdkwork-payment
 -- purpose: Add `commerce_payment_cashier_link`, the server-side short-id mapping

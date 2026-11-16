@@ -1,5 +1,5 @@
 -- sdkwork:migration
--- id: 0006_payment_cashier_link_down
+-- id: 0008_payment_cashier_link_down
 -- engine: postgres
 -- module: sdkwork-payment
 -- purpose: Roll back the anonymous cashier short-link mapping.
