@@ -26,10 +26,12 @@ pub mod webhook_amount;
 pub mod webhook_status;
 
 pub use cashier_token_setting::{
-    load_cashier_token_epoch_postgres, retrieve_cashier_token_setting_postgres,
-    rotate_cashier_token_epoch_postgres, seed_cashier_token_setting_postgres,
-    CashierTokenSettingSource, CashierTokenSettingView, DEFAULT_CASHIER_TOKEN_EPOCH,
-    PLATFORM_CASHIER_TOKEN_TENANT_ID,
+    ensure_cashier_token_signing_secrets_postgres,
+    load_cashier_token_epoch_postgres, load_cashier_token_signing_secrets_postgres,
+    retrieve_cashier_token_setting_postgres, rotate_cashier_token_secret_postgres,
+    seed_cashier_token_setting_postgres, CashierTokenSettingSource, CashierTokenSettingView,
+    CashierTokenSigningSecrets, CASHIER_TOKEN_PREVIOUS_SECRET_GRACE_SECONDS,
+    DEFAULT_CASHIER_TOKEN_EPOCH, PLATFORM_CASHIER_TOKEN_TENANT_ID,
 };
 pub use compensation_claim::{
     claim_due_payment_attempts_postgres, claim_due_refunds_postgres,

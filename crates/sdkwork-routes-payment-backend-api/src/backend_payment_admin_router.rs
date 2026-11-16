@@ -1670,7 +1670,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         rotated_by: String,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
         Box::pin(async move {
-            let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_epoch_postgres(
+            let view = sdkwork_payment_repository_sqlx::rotate_cashier_token_secret_postgres(
                 &self.pool,
                 &scope.tenant_id,
                 &rotated_by,
