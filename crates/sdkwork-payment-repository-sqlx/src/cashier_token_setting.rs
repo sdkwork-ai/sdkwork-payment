@@ -149,12 +149,26 @@ pub async fn rotate_cashier_token_epoch_postgres(
 ) -> Result<CashierTokenSettingView, CommerceServiceError> {
     let tenant_id = normalize_tenant_id(tenant_id);
     let rotated_by = rotated_by.trim();
+    // First rotation of a tenant that inherits the platform row must continue
+    // from the effective platform epoch, not restart at 2. An existing tenant
+    // row is advanced by the ON CONFLICT branch instead.
     let row = sqlx::query(
         r#"
         INSERT INTO commerce_payment_cashier_token_setting
             (tenant_id, key_epoch, rotated_at, rotated_by, created_at, updated_at)
         VALUES
-            (CAST($1 AS TEXT), 2, NOW(), $2, NOW(), NOW())
+            (
+                CAST($1 AS TEXT),
+                COALESCE(
+                    (SELECT key_epoch FROM commerce_payment_cashier_token_setting
+                     WHERE tenant_id = '0' LIMIT 1),
+                    1
+                ) + 1,
+                NOW(),
+                $2,
+                NOW(),
+                NOW()
+            )
         ON CONFLICT (tenant_id) DO UPDATE
         SET key_epoch = commerce_payment_cashier_token_setting.key_epoch + 1,
             rotated_at = NOW(),
