@@ -1471,6 +1471,86 @@
         "x-sdkwork-permission": "commerce.payments.domain_settings.update"
       }
     },
+    "/backend/v3/api/payments/cashier_token_settings/key": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Reveal the anonymous cashier signing key",
+        "description": "Returns the tenant's stored signing key so an operator can back it up or compare it with the deployment key-encryption key. Requires the elevated payment-settings update permission and is audited. When no signing key is stored for the tenant, key is null and source is default; the deployment secret only encrypts stored keys and is never a signing-key fallback.",
+        "operationId": "cashierTokenSettings.key.retrieve",
+        "responses": {
+          "200": {
+            "description": "Stored cashier signing key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashierTokenSecretRevealItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.update"
+      },
+      "put": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Set the anonymous cashier signing key",
+        "description": "Stores an operator-supplied signing secret. The epoch advances exactly as a rotation does and the replaced secret keeps verifying for one hour, so links scanned just before the change keep working until they expire.",
+        "operationId": "cashierTokenSettings.key.update",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CashierTokenKeySetCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated cashier token key setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashierTokenSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.update"
+      }
+    },
     "/backend/v3/api/payments/provider_accounts": {
       "get": {
         "tags": [
@@ -4723,6 +4803,7 @@
           "source",
           "enabled",
           "signingKeyConfigured",
+          "keyFingerprint",
           "keyProvider"
         ],
         "properties": {
@@ -4769,6 +4850,10 @@
             "type": "boolean",
             "description": "Whether an encrypted signing secret is stored for this scope."
           },
+          "keyFingerprint": {
+            "type": "string",
+            "description": "SHA-256 fingerprint (hex) of the stored signing key; empty when no key is stored. Safe to expose for key comparison."
+          },
           "keyProvider": {
             "type": "string",
             "description": "Installed key-encryption provider id (local-file, or a future vault/kms provider)."
@@ -4800,6 +4885,91 @@
             "description": "Epoch the operator saw. A stale value is rejected with a conflict instead of rotating twice and overwriting the rotation grace secret."
           }
         }
+      },
+      "CashierTokenSecretReveal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "source"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "description": "Scope that supplied the signing key (a tenant id or the platform 0)."
+          },
+          "keyEpoch": {
+            "type": "string",
+            "format": "int64",
+            "pattern": "^[0-9]+$",
+            "x-sdkwork-int64-string": true,
+            "nullable": true,
+            "description": "Epoch the stored key signs under, as a decimal string; null when no key is stored."
+          },
+          "key": {
+            "type": "string",
+            "nullable": true,
+            "description": "Stored signing key material; null when no signing key is stored for the tenant."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "platform",
+              "default",
+              "deployment"
+            ],
+            "description": "Where the effective signing key comes from."
+          }
+        }
+      },
+      "CashierTokenKeySetCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 512,
+            "description": "New signing key material. Letters, digits and - _ + / = only; at least 32 characters."
+          },
+          "expectedEpoch": {
+            "type": "string",
+            "format": "int64",
+            "pattern": "^[0-9]+$",
+            "x-sdkwork-int64-string": true,
+            "description": "Epoch the operator saw; a stale value is rejected instead of overwriting a concurrent change."
+          }
+        }
+      },
+      "CashierTokenSecretRevealItemResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/CashierTokenSecretReveal"
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "CashierTokenSettingItemResponse": {
         "allOf": [

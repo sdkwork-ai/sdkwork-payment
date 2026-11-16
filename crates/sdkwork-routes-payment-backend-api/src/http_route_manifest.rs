@@ -368,6 +368,23 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "cashierTokenSettings.rotate",
     )
     .with_required_permission("commerce.payments.domain_settings.update"),
+    // Reading and replacing signing key material is operator maintenance. Both
+    // actions require the elevated update permission: a read-only operator can
+    // inspect epoch/rotation metadata but never the key itself.
+    HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/cashier_token_settings/key",
+        "payments",
+        "cashierTokenSettings.key.retrieve",
+    )
+    .with_required_permission("commerce.payments.domain_settings.update"),
+    HttpRoute::dual_token(
+        HttpMethod::Put,
+        "/backend/v3/api/payments/cashier_token_settings/key",
+        "payments",
+        "cashierTokenSettings.key.update",
+    )
+    .with_required_permission("commerce.payments.domain_settings.update"),
     HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/attempts",

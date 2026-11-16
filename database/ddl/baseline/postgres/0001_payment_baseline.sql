@@ -936,3 +936,35 @@ CREATE TABLE IF NOT EXISTS commerce_payment_cashier_token_setting (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+-- =============================================================================
+-- 19. commerce_payment_cashier_link
+-- =============================================================================
+-- Server-side short-id mapping for anonymous cashier links. The QR/URL carries
+-- only a 128-bit short id (`/cashier/s1.<22 chars>`); the real signed capability
+-- token is stored encrypted here and resolved by the order/IAM services. The
+-- existing `/cashier/{segment}` URL shape is unchanged. One active link per
+-- (tenant, order) keeps QR re-issues idempotent; the real token is AES-256-GCM
+-- encrypted with a key derived from the deployment secret + tenant + epoch, so a
+-- database dump cannot mint or redeem cashier tokens.
+CREATE TABLE IF NOT EXISTS commerce_payment_cashier_link (
+    short_id          TEXT PRIMARY KEY,
+    tenant_id         TEXT NOT NULL,
+    order_id          TEXT NOT NULL,
+    token_id          TEXT NOT NULL,
+    key_epoch         BIGINT NOT NULL CHECK (key_epoch >= 1),
+    token_ciphertext  TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'active'
+                      CHECK (status IN ('active', 'revoked', 'expired')),
+    expires_at        TIMESTAMPTZ NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_cashier_link_active_order
+    ON commerce_payment_cashier_link (tenant_id, order_id)
+    WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_cashier_link_expiry
+    ON commerce_payment_cashier_link (expires_at);
+

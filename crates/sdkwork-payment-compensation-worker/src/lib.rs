@@ -160,6 +160,14 @@ pub fn spawn_payment_compensation_worker(
                     return;
                 }
             }
+            // Independent housekeeping: expired anonymous-cashier short links
+            // only need a day of audit retention. Failure is logged, never fatal.
+            if let Err(error) =
+                sdkwork_payment_repository_sqlx::cashier_link::delete_expired_cashier_short_links_postgres(&pool)
+                    .await
+            {
+                tracing::warn!(?error, "cashier short-link cleanup failed");
+            }
             let report = run_payment_compensation_pass(&pool, &credentials, &config).await;
             if report.errors > 0 || report.provider_unavailable > 0 {
                 tracing::warn!(

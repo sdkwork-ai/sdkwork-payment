@@ -94,6 +94,10 @@ pub struct CashierTokenSettingView {
     pub enabled: bool,
     /// Whether a signing secret is stored (the admin UI shows "configured").
     pub signing_key_configured: bool,
+    /// SHA-256 fingerprint of the stored signing secret, hex. Empty when no
+    /// secret is stored. Safe to expose: it identifies the key for comparison
+    /// without revealing it (standard key-management UX).
+    pub key_fingerprint: String,
     /// Installed key-encryption provider (`local-file`, future `vault`/`kms`).
     pub key_provider: String,
 }
@@ -111,6 +115,7 @@ impl CashierTokenSettingView {
             source: CashierTokenSettingSource::Default,
             enabled: true,
             signing_key_configured: false,
+            key_fingerprint: String::new(),
             key_provider: cashier_signing_key_provider_id().to_owned(),
         }
     }
@@ -328,10 +333,113 @@ pub async fn rotate_cashier_token_secret_postgres(
     rotated_by: &str,
     expected_epoch: Option<i64>,
 ) -> Result<CashierTokenSettingView, CommerceServiceError> {
-    let tenant_id = normalize_tenant_id(tenant_id);
-    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
     // 64 hex characters from two v4 UUIDs: 32 bytes of CSPRNG material.
     let fresh_secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    store_cashier_token_secret_postgres(pool, tenant_id, &fresh_secret, rotated_by, expected_epoch)
+        .await
+}
+
+/// Shortest signing secret an operator may enter by hand.
+pub const CASHIER_TOKEN_MANUAL_SECRET_MIN_LEN: usize = 32;
+/// Longest signing secret accepted from an operator.
+pub const CASHIER_TOKEN_MANUAL_SECRET_MAX_LEN: usize = 512;
+
+/// Validates an operator-supplied signing secret.
+///
+/// The secret is used verbatim as HMAC key material, so it only has to be long
+/// enough and restricted to characters that survive being pasted from a password
+/// manager, a `.env` file, or a terminal.
+pub fn validate_manual_cashier_token_secret(secret: &str) -> Result<&str, String> {
+    let trimmed = secret.trim();
+    if trimmed.len() < CASHIER_TOKEN_MANUAL_SECRET_MIN_LEN {
+        return Err(format!(
+            "the signing key must be at least {CASHIER_TOKEN_MANUAL_SECRET_MIN_LEN} characters"
+        ));
+    }
+    if trimmed.len() > CASHIER_TOKEN_MANUAL_SECRET_MAX_LEN {
+        return Err(format!(
+            "the signing key must be at most {CASHIER_TOKEN_MANUAL_SECRET_MAX_LEN} characters"
+        ));
+    }
+    if !trimmed
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'+' | b'/' | b'='))
+    {
+        return Err(
+            "the signing key may only contain letters, digits and - _ + / =".to_owned(),
+        );
+    }
+    Ok(trimmed)
+}
+
+/// Stores an operator-supplied signing secret and returns the new view.
+///
+/// Behaves exactly like a rotation — the epoch advances and the replaced secret
+/// keeps verifying for the grace window — so manually configuring a key never
+/// invalidates links that were scanned moments earlier.
+pub async fn set_cashier_token_secret_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    secret: &str,
+    rotated_by: &str,
+    expected_epoch: Option<i64>,
+) -> Result<CashierTokenSettingView, CommerceServiceError> {
+    let secret = validate_manual_cashier_token_secret(secret)
+        .map_err(CommerceServiceError::validation)?;
+    store_cashier_token_secret_postgres(pool, tenant_id, secret, rotated_by, expected_epoch).await
+}
+
+/// Reports the tenant's stored signing secret for operator display.
+///
+/// Returns `None` when no signing key is stored for the tenant (nothing to
+/// reveal) or when the stored secret cannot be opened; the deployment secret is
+/// only the key-encryption key, never a signing-key fallback. The `enabled`
+/// switch is intentionally ignored here: an operator must still be able to back
+/// up or compare the stored key while the anonymous cashier is disabled.
+pub async fn reveal_cashier_token_secret_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+) -> Result<Option<CashierTokenSecretReveal>, CommerceServiceError> {
+    let Some(secrets) = load_cashier_token_signing_secrets_postgres(pool, tenant_id).await? else {
+        return Ok(None);
+    };
+    let secret = String::from_utf8(secrets.current_secret).map_err(|_| {
+        CommerceServiceError::storage("the stored cashier signing secret is not valid UTF-8")
+    })?;
+    Ok(Some(CashierTokenSecretReveal {
+        tenant_id: secrets.scope_tenant_id,
+        key_epoch: secrets.key_epoch,
+        secret,
+        source: secrets.source,
+    }))
+}
+
+/// The stored signing secret plus the metadata an operator needs to trust it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CashierTokenSecretReveal {
+    /// Scope that supplied the secret (`tenant` id or the platform `0`).
+    pub tenant_id: String,
+    /// Epoch the secret signs under.
+    pub key_epoch: i64,
+    /// Plaintext signing secret.
+    pub secret: String,
+    pub source: CashierTokenSettingSource,
+}
+
+/// Seals and stores `fresh_secret` as the active signing key.
+///
+/// Shared by rotation (generated secret) and manual configuration (operator
+/// secret) so both paths advance the epoch and retain the replaced secret for the
+/// same grace window.
+async fn store_cashier_token_secret_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+    fresh_secret: &str,
+    rotated_by: &str,
+    expected_epoch: Option<i64>,
+) -> Result<CashierTokenSettingView, CommerceServiceError> {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
     let sealed = cipher
         .seal(&tenant_id, fresh_secret.as_bytes())
         .map_err(|error| {
@@ -854,6 +962,7 @@ async fn load_cashier_token_setting_row_postgres(
             key_epoch,
             enabled,
             (secret_ciphertext <> '') AS signing_key_configured,
+            secret_fingerprint_sha256,
             TO_CHAR(rotated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS rotated_at,
             rotated_by,
             TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at
@@ -880,6 +989,7 @@ async fn load_cashier_token_setting_row_postgres(
         signing_key_configured: row
             .try_get::<bool, _>("signing_key_configured")
             .unwrap_or(false),
+        key_fingerprint: string_cell(&row, "secret_fingerprint_sha256"),
         key_provider: cashier_signing_key_provider_id().to_owned(),
     }))
 }

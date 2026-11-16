@@ -1,4 +1,5 @@
 pub mod cashier_token;
+pub mod cashier_link;
 pub mod cashier_token_setting;
 pub mod compensation_claim;
 pub mod notify_domain;
@@ -25,12 +26,17 @@ mod webhook_replay;
 pub mod webhook_amount;
 pub mod webhook_status;
 
+pub use cashier_link::{
+    delete_expired_cashier_short_links_postgres, mint_cashier_short_link_postgres,
+    resolve_cashier_short_link_token_postgres, revoke_cashier_short_links_for_order_postgres,
+};
 pub use cashier_token_setting::{
     ensure_cashier_token_signing_secrets_postgres,
     load_cashier_token_epoch_postgres, load_cashier_token_signing_secrets_postgres,
-    retrieve_cashier_token_setting_postgres, rotate_cashier_token_secret_postgres,
-    seed_cashier_token_setting_postgres, update_cashier_token_enabled_postgres,
-    CashierTokenSettingSource, CashierTokenSettingView,
+    retrieve_cashier_token_setting_postgres, reveal_cashier_token_secret_postgres,
+    rotate_cashier_token_secret_postgres, seed_cashier_token_setting_postgres,
+    set_cashier_token_secret_postgres, update_cashier_token_enabled_postgres,
+    CashierTokenSecretReveal, CashierTokenSettingSource, CashierTokenSettingView,
     CashierTokenSigningSecrets, CASHIER_TOKEN_PREVIOUS_SECRET_GRACE_SECONDS,
     DEFAULT_CASHIER_TOKEN_EPOCH, PLATFORM_CASHIER_TOKEN_TENANT_ID,
 };

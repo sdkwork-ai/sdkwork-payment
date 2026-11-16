@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { CashierTokenKeySetCommand, CashierTokenSecretReveal, CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -575,11 +575,32 @@ export class PaymentsProviderAccountsApi {
   }
 }
 
-export class PaymentsCashierTokenSettingsApi {
+export class PaymentsCashierTokenSettingsKeyApi {
   private client: HttpClient;
 
   constructor(client: HttpClient) {
     this.client = client;
+  }
+
+
+/** Reveal the anonymous cashier signing key */
+  async retrieve(requestOptions?: ApiRequestOptions): Promise<CashierTokenSecretReveal> {
+    return this.client.request<CashierTokenSecretReveal>(backendApiPath(`/payments/cashier_token_settings/key`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+
+/** Set the anonymous cashier signing key */
+  async update(body: CashierTokenKeySetCommand, requestOptions?: ApiRequestOptions): Promise<CashierTokenSetting> {
+    return this.client.request<CashierTokenSetting>(backendApiPath(`/payments/cashier_token_settings/key`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PUT' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+  }
+}
+
+export class PaymentsCashierTokenSettingsApi {
+  private client: HttpClient;
+  public readonly key: PaymentsCashierTokenSettingsKeyApi;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+    this.key = new PaymentsCashierTokenSettingsKeyApi(client);
   }
 
 
