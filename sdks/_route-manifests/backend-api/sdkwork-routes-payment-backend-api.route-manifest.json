@@ -162,6 +162,24 @@
     },
     {
       "method": "GET",
+      "path": "/backend/v3/api/payments/cashier_token_settings",
+      "operationId": "cashierTokenSettings.retrieve",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/cashier_token_settings/rotate",
+      "operationId": "cashierTokenSettings.rotate",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/backend/v3/api/payments/provider_accounts",
       "operationId": "providerAccounts.list",
       "source": {

@@ -1345,6 +1345,78 @@
         "x-sdkwork-permission": "commerce.payments.domain_settings.update"
       }
     },
+    "/backend/v3/api/payments/cashier_token_settings": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Read the anonymous cashier key epoch",
+        "description": "Returns the tenant's active capability-token key epoch plus rotation metadata. The epoch is public: the root signing secret stays a deployment secret and is never returned. A missing tenant row falls back to the platform '0' row and then to the legacy epoch 1.",
+        "operationId": "cashierTokenSettings.retrieve",
+        "responses": {
+          "200": {
+            "description": "Cashier token key setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashierTokenSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.read"
+      }
+    },
+    "/backend/v3/api/payments/cashier_token_settings/rotate": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Rotate the anonymous cashier key epoch",
+        "description": "Increments the tenant's key epoch. New capability tokens use the new epoch; already-issued tokens keep verifying under the epoch in their claims until they expire (15 minutes). Rotation needs no restart, no key propagation, and no grace table.",
+        "operationId": "cashierTokenSettings.rotate",
+        "responses": {
+          "200": {
+            "description": "Rotated cashier token key setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashierTokenSettingItemResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-permission": "commerce.payments.domain_settings.update"
+      }
+    },
     "/backend/v3/api/payments/provider_accounts": {
       "get": {
         "tags": [
@@ -4581,6 +4653,78 @@
                 "properties": {
                   "item": {
                     "$ref": "#/components/schemas/PaymentDomainSetting"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CashierTokenSetting": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keyEpoch",
+          "rotatedBy",
+          "source"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "description": "Tenant scope the effective setting belongs to."
+          },
+          "keyEpoch": {
+            "type": "string",
+            "format": "int64",
+            "pattern": "^[0-9]+$",
+            "x-sdkwork-int64-string": true,
+            "description": "Active key epoch, serialized as a decimal string per API_SPEC §13.6. Epoch 1 is the legacy derivation."
+          },
+          "rotatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Last rotation time, RFC 3339 UTC; null when the tenant never rotated."
+          },
+          "rotatedBy": {
+            "type": "string",
+            "description": "Operator id that performed the last rotation; empty when unavailable."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "platform",
+              "default"
+            ],
+            "description": "Which scope supplied the effective epoch: the tenant row, the platform '0' fallback row, or the legacy default."
+          }
+        }
+      },
+      "CashierTokenSettingItemResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/CashierTokenSetting"
                   }
                 }
               }

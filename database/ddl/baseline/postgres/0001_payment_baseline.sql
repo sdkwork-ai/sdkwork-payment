@@ -914,3 +914,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_domain_setting_scope
 CREATE INDEX IF NOT EXISTS idx_commerce_payment_domain_setting_lookup
     ON commerce_payment_domain_setting (tenant_id, organization_id, h5_status, id)
     WHERE deleted_at IS NULL;
+
+
+-- =============================================================================
+-- 18. commerce_payment_cashier_token_setting
+-- =============================================================================
+-- Admin-configured anonymous-cashier key epoch (支付中心 → 支付设置 → 收银台密钥).
+-- One row per tenant; a missing row means epoch 1 (the legacy derivation) and a
+-- missing tenant row falls back to the platform '0' row. Only the public epoch
+-- counter and rotation metadata live here — the root signing secret stays a
+-- deployment secret, so a database dump cannot mint cashier tokens. Rotating
+-- increments `key_epoch`; new tokens carry the epoch and new mints derive the
+-- tenant key from it, while tokens issued under the previous epoch keep verifying
+-- until their 15-minute expiry.
+CREATE TABLE IF NOT EXISTS commerce_payment_cashier_token_setting (
+    tenant_id   TEXT PRIMARY KEY,
+    key_epoch   BIGINT NOT NULL DEFAULT 1 CHECK (key_epoch >= 1),
+    rotated_at  TIMESTAMPTZ NULL,
+    rotated_by  TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+

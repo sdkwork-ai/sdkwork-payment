@@ -19,8 +19,8 @@
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
     build_commerce_cashier_token_url, build_commerce_cashier_token_url_with_base,
-    cashier_token_secret_from_env, derive_cashier_token_key, encode_cashier_token, now,
-    CashierTokenClaims, CashierTokenIssue,
+    cashier_token_secret_from_env, derive_cashier_token_key_with_epoch, encode_cashier_token,
+    now, CashierTokenClaims, CashierTokenIssue,
 };
 
 /// Cashier capability lifetime, matching the H5 cashier state machine TTL.
@@ -38,6 +38,8 @@ pub struct CashierTokenSubject<'a> {
     pub amount: &'a str,
     pub currency_code: &'a str,
     pub scene: &'a str,
+    /// Tenant key epoch resolved from the payment settings store.
+    pub key_epoch: i64,
 }
 
 /// Mints a cashier token with explicit key material (testable, no process state).
@@ -47,11 +49,14 @@ pub fn mint_cashier_token_with_secret(
     issued_at: i64,
     token_id: &str,
 ) -> Result<String, CommerceServiceError> {
-    let signing_key = derive_cashier_token_key(secret, subject.tenant_id).map_err(|error| {
-        CommerceServiceError::storage(format!(
-            "cashier token signing key is unavailable: {error}"
-        ))
-    })?;
+    let signing_key =
+        derive_cashier_token_key_with_epoch(secret, subject.tenant_id, subject.key_epoch).map_err(
+            |error| {
+                CommerceServiceError::storage(format!(
+                    "cashier token signing key is unavailable: {error}"
+                ))
+            },
+        )?;
     let claims = CashierTokenClaims::issue(
         &CashierTokenIssue {
             tenant_id: subject.tenant_id,
@@ -61,6 +66,7 @@ pub fn mint_cashier_token_with_secret(
             currency_code: subject.currency_code,
             scene: subject.scene,
             ttl_seconds: CASHIER_TOKEN_TTL_SECONDS,
+            key_epoch: subject.key_epoch,
             token_id,
         },
         issued_at,
@@ -123,6 +129,9 @@ pub async fn apply_cashier_capability_to_outcome(
         .filter(|value| !value.is_empty())
         .unwrap_or("checkout")
         .to_owned();
+    let key_epoch = crate::cashier_token_setting::load_cashier_token_epoch_postgres(pool, tenant_id)
+        .await
+        .unwrap_or(crate::cashier_token_setting::DEFAULT_CASHIER_TOKEN_EPOCH);
     let subject = CashierTokenSubject {
         tenant_id,
         order_id: &outcome.order_id,
@@ -130,6 +139,7 @@ pub async fn apply_cashier_capability_to_outcome(
         amount: outcome.amount.as_str(),
         currency_code: &currency_code,
         scene: &scene,
+        key_epoch,
     };
     let Ok(Some(token)) = mint_cashier_token(&subject) else {
         return outcome;
@@ -172,6 +182,7 @@ async fn load_attempt_currency_code(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_utils_rust::derive_cashier_token_key;
 
     const SECRET: &[u8] = b"sdkwork-cashier-token-test-secret-0001";
 
@@ -183,6 +194,7 @@ mod tests {
             amount: "6990",
             currency_code: "CNY",
             scene: "checkout",
+            key_epoch: 1,
         }
     }
 
