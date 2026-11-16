@@ -9,7 +9,7 @@ use crate::subject::backend_runtime_subject_from_extension;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_iam_context_service::IamAppContext;
@@ -124,6 +124,20 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
     fn rotate_cashier_token_setting<'a>(
         &'a self,
         scope: BackendTenantScope,
+        rotated_by: String,
+        expected_epoch: Option<i64>,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    /// Returns the stored signing secret for operator inspection.
+    fn reveal_cashier_token_secret<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        revealed_by: String,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    /// Stores an operator-supplied signing secret.
+    fn set_cashier_token_secret<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        secret: String,
         rotated_by: String,
         expected_epoch: Option<i64>,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
@@ -1720,6 +1734,75 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             })
         })
     }
+    fn reveal_cashier_token_secret<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        revealed_by: String,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let revealed =
+                sdkwork_payment_repository_sqlx::reveal_cashier_token_secret_postgres(
+                    &self.pool,
+                    &scope.tenant_id,
+                )
+                .await
+                .map_err(|error| {
+                    CommerceServiceError::storage(format!(
+                        "failed to reveal cashier token signing secret: {error:?}"
+                    ))
+                })?;
+            // Audit the reveal itself: reading a signing key is a privileged act,
+            // and the operator id is the only durable trace of who did it.
+            tracing::info!(
+                tenant_id = %scope.tenant_id,
+                revealed_by = %revealed_by.trim(),
+                stored = revealed.is_some(),
+                "revealed a cashier token signing secret"
+            );
+            Ok(match revealed {
+                Some(value) => serde_json::json!({
+                    "tenantId": value.tenant_id,
+                    // The epoch is an int64 wire field: serialize it as a decimal
+                    // string so the generated TypeScript SDK keeps it exact
+                    // (API_SPEC §13.6).
+                    "keyEpoch": value.key_epoch.to_string(),
+                    "key": value.secret,
+                    "source": value.source.as_str(),
+                }),
+                None => serde_json::json!({
+                    "tenantId": scope.tenant_id,
+                    "keyEpoch": null,
+                    "key": null,
+                    // No signing key is stored. The deployment secret is only the
+                    // key-encryption key, never a signing-key fallback.
+                    "source": "default",
+                }),
+            })
+        })
+    }
+    fn set_cashier_token_secret<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        secret: String,
+        rotated_by: String,
+        expected_epoch: Option<i64>,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let view = sdkwork_payment_repository_sqlx::set_cashier_token_secret_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                &secret,
+                &rotated_by,
+                expected_epoch,
+            )
+            .await?;
+            serde_json::to_value(view).map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "cashier token setting secret json: {error:?}"
+                ))
+            })
+        })
+    }
     fn list_attempts<'a>(
         &'a self,
         query: BackendFilteredListQuery,
@@ -2060,6 +2143,10 @@ pub fn build_backend_payment_admin_router(
         .route(
             "/backend/v3/api/payments/cashier_token_settings/rotate",
             post(rotate_cashier_token_setting),
+        )
+        .route(
+            "/backend/v3/api/payments/cashier_token_settings/key",
+            get(reveal_cashier_token_secret).put(set_cashier_token_secret),
         )
         .route("/backend/v3/api/payments/attempts", get(list_attempts))
         .route(
@@ -3045,6 +3132,92 @@ async fn rotate_cashier_token_setting(
         Ok(item) => success_item(ctx, item),
         Err(error) => {
             backend_payment_error_response(ctx, "cashier token setting rotation failed", error)
+        }
+    }
+}
+
+/// Reveals the stored anonymous-cashier signing key to an operator.
+///
+/// This is the only surface that returns signing key material. It is gated by the
+/// same elevated permission as rotation, and the reveal itself is audited.
+async fn reveal_cashier_token_secret(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state
+        .store
+        .reveal_cashier_token_secret(scope, subject.user_id)
+        .await
+    {
+        Ok(item) => {
+            let mut response = success_item(ctx, item);
+            // Signing key material must never be stored by an intermediary: the
+            // admin SPA re-reads it on every open instead of caching it.
+            response.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-store"),
+            );
+            response
+        }
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token signing key reveal failed", error)
+        }
+    }
+}
+
+/// Operator-supplied signing key for the anonymous cashier.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetCashierTokenSecretRequest {
+    /// New signing key material (>= 32 characters).
+    key: String,
+    /// Epoch the operator saw; a stale value is rejected like a rotation.
+    expected_epoch: Option<String>,
+}
+
+async fn set_cashier_token_secret(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    body: Option<Json<SetCashierTokenSecretRequest>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    let Some(Json(payload)) = body else {
+        return validation(ctx, "a JSON body with the new signing key is required");
+    };
+    let expected_epoch = match payload.expected_epoch.as_deref() {
+        Some(value) => match value.trim().parse::<i64>() {
+            Ok(epoch) if epoch >= 1 => Some(epoch),
+            _ => return validation(ctx, "expectedEpoch must be a positive int64 string"),
+        },
+        None => None,
+    };
+    match state
+        .store
+        .set_cashier_token_secret(scope, payload.key, subject.user_id, expected_epoch)
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => {
+            backend_payment_error_response(ctx, "cashier token signing key save failed", error)
         }
     }
 }

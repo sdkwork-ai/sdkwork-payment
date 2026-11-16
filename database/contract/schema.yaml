@@ -63,3 +63,6 @@ tables:
   - name: commerce_payment_cashier_token_setting
     lifecycle_status: active
     owner: sdkwork-payment
+  - name: commerce_payment_cashier_link
+    lifecycle_status: active
+    owner: sdkwork-payment

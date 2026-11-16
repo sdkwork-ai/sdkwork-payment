@@ -37,9 +37,7 @@ pub fn provider_account_binding(record: &PaymentProviderAccountRecord) -> Provid
         metadata: record.metadata.clone(),
     }
 }
-use crate::cashier_token::{
-    cashier_url_for_token, mint_cashier_token_with_secret, CashierTokenSubject,
-};
+use crate::cashier_token::{cashier_url_for_token, CashierTokenSubject};
 use crate::owner_payment_params::owner_order_payment_params;
 use crate::payment_attempt_context::{
     load_payment_attempt_provider_context_postgres, persist_attempt_enrichment_postgres,
@@ -393,11 +391,8 @@ async fn mint_cashier_token_for_outcome(
     let Some(currency_code) = currency_code.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let Some((secret, key_epoch)) =
-        crate::cashier_token::resolve_cashier_token_mint_material(pool, context.tenant_id).await?
-    else {
-        return Ok(None);
-    };
+    // The short-link mint resolves the tenant signing secret and epoch itself
+    // and returns `s1.<22>`; the real signed token never enters the QR.
     let subject = CashierTokenSubject {
         tenant_id: context.tenant_id,
         order_id: &outcome.order_id,
@@ -405,16 +400,9 @@ async fn mint_cashier_token_for_outcome(
         amount: outcome.amount.as_str(),
         currency_code,
         scene,
-        key_epoch,
+        key_epoch: 1,
     };
-    let token_id = uuid::Uuid::new_v4().to_string();
-    mint_cashier_token_with_secret(
-        &secret,
-        &subject,
-        sdkwork_utils_rust::now().timestamp(),
-        &token_id,
-    )
-    .map(Some)
+    crate::cashier_link::mint_cashier_short_link_postgres(pool, &subject).await
 }
 
 /// Supplies a default H5 `return_url` for redirect-style PSP products (Alipay

@@ -10,6 +10,9 @@ export type { PaymentDomainSettingItemResponse } from './payment-domain-setting-
 export type { CashierTokenSetting } from './cashier-token-setting';
 export type { CashierTokenSettingUpdateCommand } from './cashier-token-setting-update-command';
 export type { CashierTokenSettingRotateCommand } from './cashier-token-setting-rotate-command';
+export type { CashierTokenSecretReveal } from './cashier-token-secret-reveal';
+export type { CashierTokenKeySetCommand } from './cashier-token-key-set-command';
+export type { CashierTokenSecretRevealItemResponse } from './cashier-token-secret-reveal-item-response';
 export type { CashierTokenSettingItemResponse } from './cashier-token-setting-item-response';
 export type { SdkWorkApiResponse } from './sdk-work-api-response';
 export type { SdkWorkResourceData } from './sdk-work-resource-data';

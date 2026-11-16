@@ -103,6 +103,12 @@
       "owner": "sdkwork-payment",
       "compliance_level": "L2",
       "lifecycle_status": "active"
+    },
+    {
+      "table_name": "commerce_payment_cashier_link",
+      "owner": "sdkwork-payment",
+      "compliance_level": "L2",
+      "lifecycle_status": "active"
     }
   ]
 }

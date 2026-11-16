@@ -19,7 +19,7 @@
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
     build_commerce_cashier_token_url, build_commerce_cashier_token_url_with_base,
-    derive_cashier_token_key_with_epoch, encode_cashier_token, now, CashierTokenClaims,
+    derive_cashier_token_key_with_epoch, encode_cashier_token, CashierTokenClaims,
     CashierTokenIssue,
 };
 
@@ -178,10 +178,6 @@ pub async fn apply_cashier_capability_to_outcome(
         .filter(|value| !value.is_empty())
         .unwrap_or("checkout")
         .to_owned();
-    let Ok(Some((secret, key_epoch))) = resolve_cashier_token_mint_material(pool, tenant_id).await
-    else {
-        return outcome;
-    };
     let subject = CashierTokenSubject {
         tenant_id,
         order_id: &outcome.order_id,
@@ -189,11 +185,12 @@ pub async fn apply_cashier_capability_to_outcome(
         amount: outcome.amount.as_str(),
         currency_code: &currency_code,
         scene: &scene,
-        key_epoch,
+        key_epoch: 1,
     };
-    let token_id = uuid::Uuid::new_v4().to_string();
-    let Ok(token) =
-        mint_cashier_token_with_secret(&secret, &subject, now().timestamp(), &token_id)
+    // The QR/link carries only `s1.<22>`; the real signed token is minted and
+    // stored encrypted in the short-link mapping.
+    let Ok(Some(short_segment)) =
+        crate::cashier_link::mint_cashier_short_link_postgres(pool, &subject).await
     else {
         return outcome;
     };
@@ -208,7 +205,7 @@ pub async fn apply_cashier_capability_to_outcome(
     .await
     .ok()
     .flatten();
-    let Some(cashier_url) = cashier_url_for_token(&token, h5_base_url.as_deref()) else {
+    let Some(cashier_url) = cashier_url_for_token(&short_segment, h5_base_url.as_deref()) else {
         return outcome;
     };
     outcome
@@ -345,5 +342,19 @@ mod tests {
         assert!(!url.contains("ORD-1"));
         assert!(!url.contains("outTradeNo="));
         assert!(!url.contains("scene="));
+    }
+
+    #[test]
+    fn short_link_url_is_compact() {
+        let segment = sdkwork_utils_rust::cashier_short_link_segment(&"a".repeat(22));
+        let url = cashier_url_for_token(&segment, Some("https://platform.birdcoder.com"))
+            .expect("short url");
+        assert_eq!(
+            "https://platform.birdcoder.com/cashier/s1.aaaaaaaaaaaaaaaaaaaaaa",
+            url
+        );
+        // 30 (origin) + 9 (/cashier/) + 25 (s1. + 22) = 64.
+        assert!(url.len() <= 64);
+        assert!(!url.contains('?'));
     }
 }

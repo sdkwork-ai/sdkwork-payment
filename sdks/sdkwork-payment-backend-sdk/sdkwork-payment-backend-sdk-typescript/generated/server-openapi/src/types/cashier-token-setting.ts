@@ -14,6 +14,8 @@ export interface CashierTokenSetting {
   enabled: boolean;
   /** Whether an encrypted signing secret is stored for this scope. */
   signingKeyConfigured: boolean;
+  /** SHA-256 fingerprint (hex) of the stored signing key; empty when no key is stored. Safe to expose for key comparison. */
+  keyFingerprint: string;
   /** Installed key-encryption provider id (local-file, or a future vault/kms provider). */
   keyProvider: string;
 }
