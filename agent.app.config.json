@@ -15,7 +15,10 @@
     "appId": "sdkwork-payment",
     "serviceId": "sdkwork-payment",
     "owner": "sdkwork-payment",
-    "domain": "payment"
+    "domain": "payment",
+    "accessTokenPermissionScope": [
+      "iam:self"
+    ]
   },
   "runtime": {
     "family": "server",
