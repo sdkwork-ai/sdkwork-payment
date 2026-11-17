@@ -65,7 +65,8 @@
     "_sdkwork:check": "pnpm run check:app-composition && pnpm db:validate && pnpm api:assembly:validate && pnpm format:check",
     "_sdkwork:verify": "pnpm typecheck && pnpm test:vitest && cargo test --workspace && pnpm run check:app-composition && pnpm run check:api-patterns && pnpm run check:api-envelope && pnpm run check:pagination && pnpm run check:sdk-consumer && pnpm check:cors-standard",
     "_sdkwork:clean": "cargo clean",
-    "_sdkwork:dev:standalone": "pnpm --dir apps/sdkwork-payment-pc dev"
+    "_sdkwork:dev:standalone": "pnpm --dir apps/sdkwork-payment-pc dev",
+    "check:release-access-token:require-anchor": "node ../sdkwork-specs/tools/check-release-access-token-env.mjs --root . --require-anchor"
   },
   "devDependencies": {
     "@sdkwork/appbase-pc-react": "workspace:*",
