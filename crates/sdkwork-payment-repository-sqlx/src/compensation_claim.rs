@@ -59,6 +59,9 @@ pub struct ClaimedRefund {
     pub currency_code: String,
     pub request_no: String,
     pub idempotency_key: String,
+    /// Original refund reason code, forwarded to the provider on a retried
+    /// submission so the PSP sees the same reason as the first attempt.
+    pub reason_code: Option<String>,
 }
 
 /// Tenants that currently hold rows due for compensation, so the worker can
@@ -286,7 +289,7 @@ pub async fn claim_due_refunds_postgres(
         SELECT r.id, r.tenant_id, r.organization_id, r.order_id, pa.provider_code, r.refund_no,
                r.payment_attempt_id, r.status,
                CAST(COALESCE(r.amount, 0) AS BIGINT)::TEXT AS amount,
-               r.currency_code, r.request_no, r.idempotency_key
+               r.currency_code, r.request_no, r.idempotency_key, r.refund_reason_code
         FROM commerce_refund r
         JOIN commerce_payment_attempt pa ON pa.id = r.payment_attempt_id
         WHERE r.tenant_id = CAST($1 AS TEXT)
@@ -321,6 +324,7 @@ pub async fn claim_due_refunds_postgres(
             currency_code: string_cell(row, "currency_code"),
             request_no: string_cell(row, "request_no"),
             idempotency_key: string_cell(row, "idempotency_key"),
+            reason_code: optional_string_cell(row, "refund_reason_code"),
         })
         .collect::<Vec<_>>();
     let submitted_ids: Vec<String> = claimed
@@ -374,9 +378,7 @@ pub async fn load_claim_attempt_provider_context_postgres(
     let Some(row) = row else {
         return Ok(None);
     };
-    let payload: Value = row
-        .try_get("callback_payload")
-        .unwrap_or(Value::Null);
+    let payload: Value = row.try_get("callback_payload").unwrap_or(Value::Null);
     let provider_transaction_id =
         optional_string_cell(&row, "provider_transaction_id").or_else(|| {
             payload

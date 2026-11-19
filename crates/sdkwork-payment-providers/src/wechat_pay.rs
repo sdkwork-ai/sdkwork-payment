@@ -453,7 +453,17 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .unwrap_or("wechat_native");
-            let path = wechat_pay_path_for_key(method_key);
+            // An explicit but unknown method key must fail closed: silently
+            // creating a Native QR trade for a typo'd or unsupported scene
+            // (for example a mini-program key) would hand the payer the wrong
+            // instrument. The generic legacy `wechat_pay` key stays mapped to
+            // Native for backward compatibility.
+            let path = wechat_pay_path_for_key(method_key).ok_or_else(|| {
+                ProviderError::invalid_request(
+                    PaymentAdapterOperation::CreatePaymentIntent,
+                    format!("unsupported wechat method_key: {method_key}"),
+                )
+            })?;
             let mut payload = json!({
                 "appid": self.config.app_id,
                 "mchid": self.config.mch_id,
@@ -1055,13 +1065,16 @@ fn wechat_webhook_timestamp_is_fresh(timestamp: &str, now: u64, tolerance_second
 /// - `wechat_jsapi`  → `/v3/pay/transactions/jsapi`  (JSAPI/小程序, returns `prepay_id`)
 /// - `wechat_h5`     → `/v3/pay/transactions/h5`     (H5, returns `h5_url`)
 /// - `wechat_app`    → `/v3/pay/transactions/app`    (App, returns `prepay_id`)
-fn wechat_pay_path_for_key(method_key: &str) -> &'static str {
+fn wechat_pay_path_for_key(method_key: &str) -> Option<&'static str> {
     match method_key {
-        "wechat_native" => "/v3/pay/transactions/native",
-        "wechat_jsapi" => "/v3/pay/transactions/jsapi",
-        "wechat_h5" => "/v3/pay/transactions/h5",
-        "wechat_app" => "/v3/pay/transactions/app",
-        _ => "/v3/pay/transactions/native",
+        // The generic `wechat_pay` key is the pre-scene checkout contract
+        // (ADR-20260721: seeds are compatibility data); it keeps resolving to
+        // the scan-first Native trade.
+        "wechat_native" | "wechat_pay" | "wechat" => Some("/v3/pay/transactions/native"),
+        "wechat_jsapi" => Some("/v3/pay/transactions/jsapi"),
+        "wechat_h5" => Some("/v3/pay/transactions/h5"),
+        "wechat_app" => Some("/v3/pay/transactions/app"),
+        _ => None,
     }
 }
 
@@ -1070,7 +1083,7 @@ mod tests {
     use super::{
         build_wechat_app_invoke_params, build_wechat_jsapi_invoke_params, resolved_notify_url,
         unix_timestamp, verify_wechat_pay_response_signature, wechat_app_sign_payload,
-        wechat_jsapi_sign_payload, wechat_pay_operation_outcome,
+        wechat_jsapi_sign_payload, wechat_pay_operation_outcome, wechat_pay_path_for_key,
         wechat_webhook_timestamp_is_fresh, WeChatPayProviderAdapter, WeChatPayProviderConfig,
         WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
     };
@@ -1426,5 +1439,33 @@ mod tests {
             1_700_000_000,
             300
         ));
+    }
+
+    #[test]
+    fn unknown_wechat_method_key_fails_closed_while_legacy_key_stays_native() {
+        assert_eq!(
+            Some("/v3/pay/transactions/native"),
+            wechat_pay_path_for_key("wechat_pay")
+        );
+        assert_eq!(
+            Some("/v3/pay/transactions/native"),
+            wechat_pay_path_for_key("wechat_native")
+        );
+        assert_eq!(
+            Some("/v3/pay/transactions/jsapi"),
+            wechat_pay_path_for_key("wechat_jsapi")
+        );
+        assert_eq!(
+            Some("/v3/pay/transactions/h5"),
+            wechat_pay_path_for_key("wechat_h5")
+        );
+        assert_eq!(
+            Some("/v3/pay/transactions/app"),
+            wechat_pay_path_for_key("wechat_app")
+        );
+        // A typo'd or unsupported scene must not silently become a Native QR
+        // trade; creation must fail closed instead.
+        assert_eq!(None, wechat_pay_path_for_key("wechat_mini_program"));
+        assert_eq!(None, wechat_pay_path_for_key(""));
     }
 }

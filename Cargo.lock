@@ -2497,7 +2497,6 @@ name = "sdkwork-payment-providers"
 version = "0.1.0"
 dependencies = [
  "aes-gcm 0.11.1",
- "async-trait",
  "base64 0.22.1",
  "chrono",
  "hmac 0.12.1",

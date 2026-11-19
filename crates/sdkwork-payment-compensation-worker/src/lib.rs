@@ -22,19 +22,20 @@
 //! (`spawn_payment_compensation_worker`); the pass cadence is bounded and
 //! jittered, and the loop exits when the shutdown token fires.
 
-use sdkwork_contract_service::CommerceServiceError;
+use sdkwork_contract_service::{CommerceMoney, CommerceServiceError};
 use sdkwork_payment_providers::{
-    normalize_provider_code, provider_registry_for_account, PaymentCreateRefundRequest,
-    PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
-    ProviderCredentialBundle,
+    create_provider_refund, normalize_provider_code, provider_registry_for_account,
+    query_provider_refund, PaymentProviderRegistry, PaymentQueryPaymentIntentRequest,
+    ProviderCredentialBundle, ProviderRefundSubmissionState,
 };
 use sdkwork_payment_repository_sqlx::{
     claim_due_payment_attempts_postgres, claim_due_refunds_postgres,
     ingest_provider_refund_webhook_postgres, ingest_provider_webhook_postgres,
     list_due_compensation_tenants_postgres, load_claim_attempt_provider_context_postgres,
     load_payment_attempt_provider_context_by_id_postgres,
-    provider_account_binding, ClaimAttemptProviderContext, ClaimedPaymentAttempt, ClaimedRefund,
-    IngestProviderWebhookCommand, PostgresCommerceRefundStore,
+    load_provider_account_for_existing_payment_postgres, provider_account_binding,
+    ClaimAttemptProviderContext, ClaimedPaymentAttempt, ClaimedRefund,
+    IngestProviderWebhookCommand, PaymentProviderAccountRecord,
 };
 use sqlx::PgPool;
 use std::time::Duration;
@@ -216,10 +217,24 @@ pub async fn run_payment_compensation_pass(
     };
     for tenant_id in tenants {
         report.tenants_scanned += 1;
-        reconcile_tenant_attempts(pool, credentials, config, &tenant_id, now_seconds, &mut report)
-            .await;
-        reconcile_tenant_refunds(pool, credentials, config, &tenant_id, now_seconds, &mut report)
-            .await;
+        reconcile_tenant_attempts(
+            pool,
+            credentials,
+            config,
+            &tenant_id,
+            now_seconds,
+            &mut report,
+        )
+        .await;
+        reconcile_tenant_refunds(
+            pool,
+            credentials,
+            config,
+            &tenant_id,
+            now_seconds,
+            &mut report,
+        )
+        .await;
     }
     report
 }
@@ -302,20 +317,9 @@ async fn reconcile_tenant_refunds(
     };
     report.refunds_claimed += claimed.len() as u64;
     for refund in claimed {
-        let outcome = if refund.status.eq_ignore_ascii_case("submitted") {
-            submit_refund(pool, credentials, &refund).await
-        } else {
-            query_refund(pool, credentials, &refund).await
-        };
-        match outcome {
-            Ok(true) => {
-                if refund.status.eq_ignore_ascii_case("submitted") {
-                    report.refunds_submitted += 1;
-                } else {
-                    report.refunds_settled += 1;
-                }
-            }
-            Ok(false) => {}
+        match reconcile_refund(pool, credentials, &refund).await {
+            Ok(RefundReconcileProgress::Settled) => report.refunds_settled += 1,
+            Ok(RefundReconcileProgress::InFlight) => report.refunds_submitted += 1,
             Err(ReconcileError::ProviderUnavailable(message)) => {
                 report.provider_unavailable += 1;
                 tracing::debug!(
@@ -357,11 +361,17 @@ async fn reconcile_attempt(
     credentials: &ProviderCredentialBundle,
     attempt: &ClaimedPaymentAttempt,
 ) -> Result<bool, ReconcileError> {
-    let Some(context) =
-        load_claim_attempt_provider_context_postgres(pool, &attempt.id).await?
+    let Some(context) = load_claim_attempt_provider_context_postgres(pool, &attempt.id).await?
     else {
         return Ok(false);
     };
+    // The sandbox provider is webhook-only (no query/cancel/refund surface).
+    // Its pending attempts settle through the injected sandbox webhook, so a
+    // status query here would only log an unsupported-operation failure on
+    // every pass.
+    if context.provider_code.eq_ignore_ascii_case("sandbox") {
+        return Ok(false);
+    }
     let adapter = resolve_adapter(
         pool,
         credentials,
@@ -400,12 +410,10 @@ async fn reconcile_attempt(
     else {
         return Ok(false);
     };
-    let Some(target) =
-        sdkwork_payment_repository_sqlx::webhook_status::map_provider_payment_status(
-            &context.provider_code,
-            &raw_status,
-        )
-    else {
+    let Some(target) = sdkwork_payment_repository_sqlx::webhook_status::map_provider_payment_status(
+        &context.provider_code,
+        &raw_status,
+    ) else {
         return Ok(false);
     };
     // Only terminal knowledge advances a pending/processing attempt; repeats
@@ -417,37 +425,130 @@ async fn reconcile_attempt(
         "compensation-attempt:{}:{}:{}",
         attempt.tenant_id, context.out_trade_no, target
     );
+    // Settle through the audited webhook path, but keep the provider query
+    // payload so the ingestion amount/currency check also covers compensation
+    // settlements: a status query that describes a different charge must not
+    // confirm this attempt.
+    let mut payload = match outcome.payload {
+        serde_json::Value::Object(map) => serde_json::Value::Object(map),
+        _ => serde_json::json!({}),
+    };
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("compensation".to_owned(), serde_json::json!(true));
+        map.insert(
+            "providerCode".to_owned(),
+            serde_json::json!(context.provider_code.clone()),
+        );
+        map.insert(
+            "outTradeNo".to_owned(),
+            serde_json::json!(context.out_trade_no.clone()),
+        );
+        map.insert("paymentStatus".to_owned(), serde_json::json!(target));
+        map.insert("rawStatus".to_owned(), serde_json::json!(raw_status));
+        map.insert(
+            "providerTransactionId".to_owned(),
+            serde_json::json!(context.provider_transaction_id.clone()),
+        );
+    }
     let command = IngestProviderWebhookCommand {
         provider_code: context.provider_code.clone(),
         provider_event_id: event_id,
         event_type: Some("compensation.status_query".to_owned()),
         out_trade_no: Some(context.out_trade_no.clone()),
         payment_status: Some(target.to_owned()),
-        payload: serde_json::json!({
-            "compensation": true,
-            "providerCode": context.provider_code,
-            "outTradeNo": context.out_trade_no,
-            "paymentStatus": target,
-            "rawStatus": raw_status,
-            "providerTransactionId": context.provider_transaction_id,
-        }),
+        payload,
         tenant_id: Some(attempt.tenant_id.clone()),
         organization_id: attempt.organization_id.clone(),
     };
-    ingest_provider_webhook_postgres(pool, command).await?;
-    Ok(true)
+    let ingested = ingest_provider_webhook_postgres(pool, command).await?;
+    Ok(ingested.applied)
 }
 
-/// Re-submits a refund stuck in `submitted` to its PSP.
-async fn submit_refund(
+/// Progress of one refund reconciliation.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum RefundReconcileProgress {
+    /// A terminal provider state (`succeeded`/`failed`) was recorded locally.
+    Settled,
+    /// The PSP accepted or is still processing the refund; the amount stays
+    /// reserved and the next pass polls it again.
+    InFlight,
+}
+
+/// Provider context needed to reconcile one refund.
+struct RefundProviderContext {
+    registry: PaymentProviderRegistry,
+    provider_code: String,
+    out_trade_no: String,
+    provider_transaction_id: Option<String>,
+    refund_amount: CommerceMoney,
+    total_amount: CommerceMoney,
+    reason_code: Option<String>,
+    refund_notify_url: Option<String>,
+}
+
+/// Reconciles one claimed refund against its PSP.
+///
+/// The claim transaction already advanced `submitted` to `processing` before
+/// any PSP call, so there is no local submission state left to flip here — the
+/// only work is provider reconciliation. Every reconcile (first submission,
+/// retry after a lost response, or a processing poll) asks the PSP first and
+/// only submits when the PSP conclusively reports that no refund with this
+/// merchant refund number exists. This mirrors the operator retry path
+/// (`submit_with_account` in the backend refund router) and is what makes a
+/// re-claim after a crash safe: a second submission can never create a
+/// duplicate provider refund, and a refund the PSP never received is retried
+/// instead of staying reserved forever.
+async fn reconcile_refund(
     pool: &PgPool,
     credentials: &ProviderCredentialBundle,
     refund: &ClaimedRefund,
-) -> Result<bool, ReconcileError> {
-    let store = PostgresCommerceRefundStore::new(pool.clone());
-    let attempt = load_payment_attempt_provider_context_by_id_postgres(pool, &refund.payment_attempt_id)
-        .await?
-        .ok_or_else(|| ReconcileError::ProviderUnavailable("original payment attempt is gone".to_owned()))?;
+) -> Result<RefundReconcileProgress, ReconcileError> {
+    let context = load_refund_provider_context(pool, credentials, refund).await?;
+    let queried = query_provider_refund(
+        &context.registry,
+        &context.provider_code,
+        &context.out_trade_no,
+        context.provider_transaction_id.as_deref(),
+        &refund.refund_no,
+    )
+    .await?;
+    let state = match queried {
+        Some(state) => state,
+        None => {
+            // Conclusive "not found": the original submission never reached the
+            // PSP (or the PSP no longer knows it). Re-submit with the same
+            // merchant refund number and provider idempotency key.
+            create_provider_refund(
+                &context.registry,
+                &context.provider_code,
+                &context.out_trade_no,
+                context.provider_transaction_id.as_deref(),
+                &refund.refund_no,
+                &context.refund_amount,
+                &context.total_amount,
+                context.reason_code.clone(),
+                context.refund_notify_url.as_deref(),
+            )
+            .await?
+        }
+    };
+    apply_refund_state(pool, refund, state).await
+}
+
+/// Loads the historical provider context for a refund. Inactive or deprecated
+/// accounts stay eligible to discharge refund obligations (PAYMENT_EXECUTOR_SPEC
+/// §5); only a suspended, deleted, missing, or cross-tenant account fails closed.
+async fn load_refund_provider_context(
+    pool: &PgPool,
+    credentials: &ProviderCredentialBundle,
+    refund: &ClaimedRefund,
+) -> Result<RefundProviderContext, ReconcileError> {
+    let attempt =
+        load_payment_attempt_provider_context_by_id_postgres(pool, &refund.payment_attempt_id)
+            .await?
+            .ok_or_else(|| {
+                ReconcileError::ProviderUnavailable("original payment attempt is gone".to_owned())
+            })?;
     let account = resolve_account(
         pool,
         &refund.tenant_id,
@@ -456,26 +557,21 @@ async fn submit_refund(
         attempt.provider_account_id.as_deref(),
     )
     .await?;
-    let registry = provider_registry_for_account(credentials, account.map(|record| provider_account_binding(&record)));
-    let adapter = registry
+    let registry = provider_registry_for_account(
+        credentials,
+        account.map(|record| provider_account_binding(&record)),
+    );
+    registry
         .resolve(&refund.provider_code)
         .ok_or_else(|| ReconcileError::ProviderUnavailable(refund.provider_code.clone()))?;
-    // The amount travels as a digit-only smallest-unit string.
-    let amount_minor: i64 = refund
-        .amount
-        .trim()
-        .parse()
-        .map_err(|_| ReconcileError::Failed(CommerceServiceError::validation("claimed refund amount is not a minor-unit integer")))?;
-    // Re-submission must reuse the exact idempotency key the original
-    // submission used (operations.rs derives it from out_trade_no +
-    // refund_no): when the PSP accepted a refund but the local flip to
-    // `processing` was lost, a keyless retry would create a second refund.
-    let idempotency_key =
-        sdkwork_payment_providers::provider_operation_idempotency_key(
-            "refund",
-            &refund.provider_code,
-            &[attempt.out_trade_no.as_str(), refund.refund_no.as_str()],
-        );
+    // Claimed amounts are digit-only smallest-unit strings; a malformed row is
+    // a deterministic local failure, never an ambiguous transport outcome.
+    let refund_amount = CommerceMoney::new(&refund.amount)
+        .map_err(CommerceServiceError::storage)
+        .map_err(ReconcileError::Failed)?;
+    let total_amount = CommerceMoney::new(&attempt.amount)
+        .map_err(CommerceServiceError::storage)
+        .map_err(ReconcileError::Failed)?;
     let refund_notify_url = sdkwork_payment_repository_sqlx::resolve_refund_notify_url_postgres(
         pool,
         &refund.tenant_id,
@@ -484,135 +580,49 @@ async fn submit_refund(
         credentials.webhook_base_url.as_deref(),
     )
     .await?;
-    let outcome = adapter
-        .create_refund(PaymentCreateRefundRequest {
-            payment_intent_id: Some(attempt.provider_transaction_id.clone().unwrap_or_else(|| attempt.out_trade_no.clone())),
-            refund_no: Some(refund.refund_no.clone()),
-            amount_minor: Some(amount_minor),
-            reason: None,
-            // Re-submission obeys the same refund callback contract as the
-            // original submission: the tenant notify domain owns the URL and
-            // channels without a dedicated refund-notify contract receive none.
-            notify_url: sdkwork_payment_providers::refund_notify_url_for_channel(
-                &refund.provider_code,
-                refund_notify_url.as_deref(),
-            ),
-            metadata: serde_json::json!({
-                "idempotency_key": idempotency_key,
-                "refund_no": refund.refund_no,
-                "total_amount_minor": attempt.amount,
-            }),
-        })
-        .await
-        .map_err(|error| ReconcileError::Failed(CommerceServiceError::from(error)))?;
-    apply_refund_operation_outcome(pool, &store, refund, &outcome).await
+    Ok(RefundProviderContext {
+        registry,
+        provider_code: refund.provider_code.clone(),
+        out_trade_no: attempt.out_trade_no,
+        provider_transaction_id: attempt.provider_transaction_id,
+        refund_amount,
+        total_amount,
+        reason_code: refund.reason_code.clone(),
+        refund_notify_url,
+    })
 }
 
-/// Queries the PSP for a refund stuck in `processing` and re-enters terminal
-/// outcomes through the refund webhook ingestion path.
-async fn query_refund(
+/// Maps a normalized PSP refund state onto the local refund record: terminal
+/// states re-enter the audited refund ingestion path, and an accepted/processing
+/// outcome keeps the reserved amount claimed for the next pass.
+async fn apply_refund_state(
     pool: &PgPool,
-    credentials: &ProviderCredentialBundle,
     refund: &ClaimedRefund,
-) -> Result<bool, ReconcileError> {
-    let attempt = load_payment_attempt_provider_context_by_id_postgres(pool, &refund.payment_attempt_id)
-        .await?
-        .ok_or_else(|| ReconcileError::ProviderUnavailable("original payment attempt is gone".to_owned()))?;
-    let account = resolve_account(
-        pool,
-        &refund.tenant_id,
-        refund.organization_id.as_deref(),
-        &refund.provider_code,
-        attempt.provider_account_id.as_deref(),
-    )
-    .await?;
-    let registry = provider_registry_for_account(credentials, account.map(|record| provider_account_binding(&record)));
-    let adapter = registry
-        .resolve(&refund.provider_code)
-        .ok_or_else(|| ReconcileError::ProviderUnavailable(refund.provider_code.clone()))?;
-    let outcome = adapter
-        .query_refund(PaymentQueryRefundRequest {
-            refund_id: None,
-            refund_no: Some(refund.refund_no.clone()),
-            metadata: serde_json::json!({
-                "payment_intent_id": attempt.provider_transaction_id.clone().unwrap_or_else(|| attempt.out_trade_no.clone()),
-            }),
-        })
-        .await
-        .map_err(|error| ReconcileError::Failed(CommerceServiceError::from(error)))?;
-    let Some(raw_status) = outcome
-        .raw_status
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-    else {
-        return Ok(false);
-    };
-    let Some(target) = sdkwork_payment_repository_sqlx::webhook_status::map_provider_refund_status(
-        &refund.provider_code,
-        &raw_status,
-    ) else {
-        return Ok(false);
-    };
-    if target.eq_ignore_ascii_case(&refund.status) {
-        return Ok(false);
-    }
-    ingest_refund_status(pool, refund, target, &raw_status).await?;
-    Ok(true)
-}
-
-/// Records the outcome of a PSP refund submission: explicit terminal states
-/// are re-entered through the refund ingestion path, an accepted/processing
-/// outcome flips the row to `processing` via the store mark, and ambiguous
-/// outcomes leave the row claimable (the amount stays reserved).
-async fn apply_refund_operation_outcome(
-    pool: &PgPool,
-    store: &PostgresCommerceRefundStore,
-    refund: &ClaimedRefund,
-    outcome: &PaymentProviderOperationOutcome,
-) -> Result<bool, ReconcileError> {
-    if let Some(raw_status) = outcome
-        .raw_status
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if let Some(target) = sdkwork_payment_repository_sqlx::webhook_status::map_provider_refund_status(
-            &refund.provider_code,
-            raw_status,
-        ) {
-            if !target.eq_ignore_ascii_case(&refund.status) {
-                ingest_refund_status(pool, refund, target, raw_status).await?;
-                return Ok(true);
-            }
+    state: ProviderRefundSubmissionState,
+) -> Result<RefundReconcileProgress, ReconcileError> {
+    match state {
+        ProviderRefundSubmissionState::Succeeded => {
+            ingest_refund_status(pool, refund, "succeeded", "succeeded").await?;
+            Ok(refund_progress_for_state(state))
         }
+        ProviderRefundSubmissionState::Failed => {
+            ingest_refund_status(pool, refund, "failed", "failed").await?;
+            Ok(refund_progress_for_state(state))
+        }
+        ProviderRefundSubmissionState::Processing => Ok(refund_progress_for_state(state)),
     }
-    // Accepted-but-pending submissions flip the row to `processing` so the
-    // query branch of the next pass polls it to a terminal state.
-    if let Some(raw_status) = outcome
-        .native_id
-        .as_deref()
-        .map(|_| "processing")
-    {
-        let _ = raw_status;
-        store
-            .mark_owner_refund_provider_submission_processing(
-                &refund.tenant_id,
-                refund.organization_id.as_deref(),
-                &refund.id,
-                "system",
-                Some(COMPENSATION_ACTOR),
-                &refund.request_no,
-                &refund.idempotency_key,
-            )
-            .await?;
-        return Ok(true);
+}
+
+/// Reporting projection for a normalized PSP refund state. A processing
+/// outcome is not a failure: the PSP accepted the request and the refundable
+/// amount stays reserved until a terminal state arrives.
+fn refund_progress_for_state(state: ProviderRefundSubmissionState) -> RefundReconcileProgress {
+    match state {
+        ProviderRefundSubmissionState::Succeeded | ProviderRefundSubmissionState::Failed => {
+            RefundReconcileProgress::Settled
+        }
+        ProviderRefundSubmissionState::Processing => RefundReconcileProgress::InFlight,
     }
-    // No native id: the PSP response carried no accepted marker; leave the
-    // row claimable and let the next pass decide from a fresh submission or
-    // provider query. The reserved amount is unchanged.
-    Ok(false)
 }
 
 async fn ingest_refund_status(
@@ -642,7 +652,9 @@ async fn ingest_refund_status(
         tenant_id: Some(refund.tenant_id.clone()),
         organization_id: refund.organization_id.clone(),
     };
-    ingest_provider_refund_webhook_postgres(pool, command).await.map(drop)
+    ingest_provider_refund_webhook_postgres(pool, command)
+        .await
+        .map(drop)
 }
 
 async fn resolve_adapter(
@@ -660,8 +672,10 @@ async fn resolve_adapter(
         context.provider_account_id.as_deref(),
     )
     .await?;
-    let registry =
-        provider_registry_for_account(credentials, account.map(|record| provider_account_binding(&record)));
+    let registry = provider_registry_for_account(
+        credentials,
+        account.map(|record| provider_account_binding(&record)),
+    );
     registry
         .resolve(&context.provider_code)
         .ok_or_else(|| ReconcileError::ProviderUnavailable(context.provider_code.clone()))
@@ -673,17 +687,19 @@ async fn resolve_account(
     organization_id: Option<&str>,
     provider_code: &str,
     provider_account_id: Option<&str>,
-) -> Result<Option<sdkwork_payment_repository_sqlx::PaymentProviderAccountRecord>, ReconcileError> {
+) -> Result<Option<PaymentProviderAccountRecord>, ReconcileError> {
     let Some(provider_account_id) = provider_account_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
         return Ok(None);
     };
-    // The claimed row is tenant-scoped, so the account lookup inherits that
-    // scope; a missing active account means the historical account was
-    // deactivated and refund/ settlement must not silently switch accounts.
-    let account = sdkwork_payment_repository_sqlx::load_active_provider_account_by_id_postgres(
+    // Historical operations (settlement query, refund submission, refund poll)
+    // resolve the account the attempt was actually routed through. An inactive
+    // or deprecated account remains eligible to discharge its obligations
+    // (PAYMENT_EXECUTOR_SPEC §5); only a suspended, deleted, missing, or
+    // cross-tenant account fails closed instead of silently switching accounts.
+    let account = load_provider_account_for_existing_payment_postgres(
         pool,
         tenant_id,
         organization_id,
@@ -694,11 +710,9 @@ async fn resolve_account(
         return Ok(Some(account));
     }
     Err(ReconcileError::ProviderUnavailable(format!(
-        "provider account {provider_account_id} for {provider_code} is not active"
+        "provider account {provider_account_id} for {provider_code} is suspended, deleted, or missing"
     )))
 }
-
-const COMPENSATION_ACTOR: &str = "compensation-worker";
 
 #[cfg(test)]
 mod tests {
@@ -719,5 +733,24 @@ mod tests {
         let report = CompensationPassReport::default();
         assert_eq!(report, CompensationPassReport::default());
         assert_eq!(report.errors, 0);
+    }
+
+    #[test]
+    fn accepted_processing_refund_stays_reserved_instead_of_counted_as_settled() {
+        // A PSP that accepted the refund but has not reported a terminal state
+        // must keep the reserved amount, never look like a settled refund and
+        // never look like a failure.
+        assert_eq!(
+            refund_progress_for_state(ProviderRefundSubmissionState::Processing),
+            RefundReconcileProgress::InFlight
+        );
+        assert_eq!(
+            refund_progress_for_state(ProviderRefundSubmissionState::Succeeded),
+            RefundReconcileProgress::Settled
+        );
+        assert_eq!(
+            refund_progress_for_state(ProviderRefundSubmissionState::Failed),
+            RefundReconcileProgress::Settled
+        );
     }
 }

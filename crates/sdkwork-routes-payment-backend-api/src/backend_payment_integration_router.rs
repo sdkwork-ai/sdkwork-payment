@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
-use tracing;
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -34,6 +33,7 @@ use sdkwork_web_core::WebRequestContext;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Row};
+use tracing;
 
 use crate::api_response::{
     conflict, forbidden, map_service_error, not_found, provider_rejected,
@@ -2565,11 +2565,57 @@ mod tests {
             eprintln!("SKIP: SDKWORK_DATABASE_TEST_POSTGRES_URL is not configured");
             return;
         };
+        // Isolate the fixture in its own schema and apply the production
+        // payment baseline plus the order-owned tables this checkout path
+        // reads. These unit tests share one test database; a shared `public`
+        // schema makes the shape of `commerce_payment_intent` (and friends)
+        // depend on whichever test ran first, which is exactly how this test
+        // used to fail with a missing `payment_method` column.
+        let schema = format!("payment_dev_checkout_{}", std::process::id());
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .expect("postgres admin pool");
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&admin)
+        .await
+        .expect("drop stale dev-checkout schema");
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .expect("create dev-checkout schema");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
+            .after_connect({
+                let schema = schema.clone();
+                move |connection, _| {
+                    let schema = schema.clone();
+                    Box::pin(async move {
+                        // Every pooled connection resolves the isolated schema
+                        // first, then public (extensions/uuid helpers).
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                            "SET search_path TO {schema}, public"
+                        )))
+                        .execute(connection)
+                        .await?;
+                        Ok(())
+                    })
+                }
+            })
             .connect(&url)
             .await
             .expect("postgres pool");
+        sqlx::raw_sql(sqlx::AssertSqlSafe(PAYMENT_BASELINE_SCHEMA))
+            .execute(&pool)
+            .await
+            .expect("payment baseline schema must apply");
+        sqlx::raw_sql(sqlx::AssertSqlSafe(ORDER_FIXTURE_SCHEMA))
+            .execute(&pool)
+            .await
+            .expect("order fixture schema must apply");
         let cleanup_pool = pool.clone();
         let pool = IntegrationPool::Postgres(pool);
         let subject = AppRuntimeSubject {
@@ -2624,7 +2670,51 @@ mod tests {
             .bind(&order_id)
             .execute(&cleanup_pool)
             .await;
+        drop(cleanup_pool);
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE"
+        )))
+        .execute(&admin)
+        .await;
     }
+
+    /// Consolidated payment DDL, applied into the isolated schema so the
+    /// fixture always matches production column shapes instead of a hand-kept
+    /// subset.
+    const PAYMENT_BASELINE_SCHEMA: &str =
+        include_str!("../../../database/ddl/baseline/postgres/0001_payment_baseline.sql");
+
+    /// Minimal order-owned tables this checkout path reads. Payment must not
+    /// depend on the order crate, so the shape is mirrored here.
+    const ORDER_FIXTURE_SCHEMA: &str = r#"
+CREATE TABLE commerce_order (
+    id TEXT NOT NULL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    organization_id TEXT NOT NULL DEFAULT '0',
+    owner_user_id TEXT NOT NULL,
+    order_no TEXT NOT NULL,
+    subject TEXT,
+    status TEXT NOT NULL,
+    currency_code TEXT,
+    paid_at TIMESTAMPTZ,
+    expired_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE commerce_order_amount_breakdown (
+    id TEXT NOT NULL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    organization_id TEXT NOT NULL DEFAULT '0',
+    order_id TEXT NOT NULL,
+    allocation_type TEXT NOT NULL,
+    original_amount NUMERIC(20,0) NOT NULL DEFAULT 0,
+    discount_amount NUMERIC(20,0) NOT NULL DEFAULT 0,
+    payable_amount NUMERIC(20,0) NOT NULL,
+    currency_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"#;
 
     #[test]
     fn test_order_expiry_is_future_rfc3339_parseable() {

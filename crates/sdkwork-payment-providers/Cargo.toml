@@ -15,7 +15,6 @@ path = "src/lib.rs"
 name = "sdkwork_payment_providers"
 [dependencies]
 aes-gcm.workspace = true
-async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
 hmac.workspace = true
