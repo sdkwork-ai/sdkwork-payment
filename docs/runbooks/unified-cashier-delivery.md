@@ -246,3 +246,58 @@ delivery boundary is auditable rather than implied.
    declarations has to move before a new image can be promoted. The development stack
    was rolled back to `0.1.108-smoke`, which was verified healthy
    (`healthz=200`, `readyz=200`).
+
+## 12. Route-ownership duplication between composed modules
+
+The gateway composes every module's backend route manifest and **fails closed** on a
+duplicate path, because one handler would otherwise be silently shadowed:
+
+```
+cloud router backend-api manifest composition failed: composed route collision for
+GET /backend/v3/api/ai/agent_categories: sdkwork-agents (agentCategories.list)
+conflicts with sdkwork-cloudrouter (agentCategories.list)
+```
+
+Two collisions were found and one is fixed: `sdkwork-cloudrouter` still declared the
+MCP admin surface after it moved to `sdkwork-mcp` (removed in
+`sdkwork-cloudrouter` `d5eb0761`; the URLs are unchanged, the MCP module now serves
+them). The second, `GET /backend/v3/api/ai/agent_categories`, is the same pattern
+against `sdkwork-agents` and is **not fixed**.
+
+The guard reports one collision per start, so a rebuild cycle is needed per fix
+(~13 minutes). Enumerate all of them before rebuilding:
+
+```bash
+cd /opt/source/sdkwork-space
+python3 - <<'PY'
+import re, glob
+def routes(path):
+    src = open(path, encoding='utf-8', errors='replace').read()
+    return {(m.group(1).upper(), m.group(2))
+            for m in re.finditer(r'HttpMethod::(Get|Post|Put|Patch|Delete)\s*,\s*"([^"]+)"', src)}
+cr = routes('sdkwork-cloudrouter/crates/sdkwork-routes-cloudrouter-backend-api/src/http_route_manifest.rs')
+for p in glob.glob('sdkwork-*/**/*http_route_manifest.rs', recursive=True):
+    other = routes(p)
+    if cr & other and not p.startswith('sdkwork-cloudrouter'):
+        print(p, sorted(cr & other))
+PY
+```
+
+Ownership rule: when a dedicated module owns a surface, the older module drops its
+declaration **without changing the URL** — clients keep the same path and reach the
+new implementation.
+
+## 13. Migration files are immutable
+
+The dev database rejected an upgrade with
+
+```
+checksum_mismatch for migration 0054: applied=fdbb6246…, current=84bf2a16…
+```
+
+because an image built from a working tree with a modified `0054_*.up.sql` applied
+its drifted bytes and recorded that checksum; a later checkout restored the committed
+bytes. On a development database the repair is to drop the objects that migration
+created (empty here) and delete its history row so the next start re-applies it. In
+production the recorded migration must be the one actually applied — never edited in
+place; ship a new migration instead.
