@@ -129,6 +129,46 @@ async fn creating_an_account_with_credentials_records_who_changed_what() {
         "create failed: {}",
         String::from_utf8_lossy(&payload)
     );
+    let created: serde_json::Value =
+        serde_json::from_slice(&payload).expect("create response parses");
+    let account_id = created
+        .pointer("/data/id")
+        .and_then(|value| value.as_str())
+        .expect("created account id")
+        .to_owned();
+
+    // Revealing credentials and deleting the account are privileged operations and
+    // must be attributed too.
+    for (method, uri) in [
+        (
+            "GET",
+            format!("/backend/v3/api/payments/provider_accounts/{account_id}/credentials"),
+        ),
+        (
+            "DELETE",
+            format!("/backend/v3/api/payments/provider_accounts/{account_id}"),
+        ),
+    ] {
+        let router = backend_payment_admin_router_with_postgres_pool(pool.clone());
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri.clone())
+            .header("Idempotency-Key", "idem-audit-privileged")
+            .header("X-Request-Id", "req-audit-privileged")
+            .body(Body::empty())
+            .expect("request");
+        request.extensions_mut().insert(backend_member_context());
+        let response = router.oneshot(request).await.expect("route");
+        assert!(
+            response.status().is_success(),
+            "{method} {uri} failed: {}",
+            String::from_utf8_lossy(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("body")
+            )
+        );
+    }
 
     let rows = sqlx::query(
         "SELECT action, actor_user_id, resource_type, resource_id, detail::text AS detail \
@@ -151,17 +191,18 @@ async fn creating_an_account_with_credentials_records_who_changed_what() {
         })
         .collect();
 
-    assert_eq!(
-        vec![
-            "payment_provider_credential.rotate".to_owned(),
-            "provider_account.create".to_owned()
-        ],
-        recorded
-            .iter()
-            .map(|(action, ..)| action.clone())
-            .collect::<Vec<_>>(),
-        "account creation and credential rotation must both be audited"
-    );
+    let actions: Vec<String> = recorded.iter().map(|(action, ..)| action.clone()).collect();
+    for expected in [
+        "provider_account.create",
+        "payment_provider_credential.rotate",
+        "payment_provider_credential.reveal",
+        "provider_account.delete",
+    ] {
+        assert!(
+            actions.iter().any(|action| action == expected),
+            "missing audit action {expected}; recorded {actions:?}"
+        );
+    }
     for (_, actor, resource_type, resource_id, detail) in &recorded {
         assert_eq!("1", actor, "the acting user must be recorded");
         assert_eq!("provider_account", resource_type);

@@ -55,6 +55,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
         provider_account_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     /// Soft-deletes a provider account (marks deleted_at). Returns
     /// `Conflict` while non-deleted channels or sub-merchants still reference
@@ -64,6 +65,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
         provider_account_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()>;
     fn list_channels<'a>(
         &'a self,
@@ -178,6 +180,13 @@ pub struct BackendTenantScope {
     pub organization_id: Option<String>,
 }
 
+/// Identity of the operator performing an admin mutation, so privileged changes
+/// can be attributed in the audit trail (never the secret material).
+#[derive(Debug, Clone, Default)]
+pub struct BackendAdminActor {
+    pub user_id: String,
+    pub request_no: Option<String>,
+}
 /// Declared list filters for the backend admin lists, exactly mirroring the
 /// OpenAPI query parameters (snake_case wire). Each store applies the subset
 /// its list declares; every equality filter binds as
@@ -1074,6 +1083,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         &'a self,
         scope: BackendTenantScope,
         provider_account_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
         Box::pin(async move {
             let credentials = sdkwork_payment_repository_sqlx::load_provider_credentials_postgres(
@@ -1081,6 +1091,22 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 &scope.tenant_id,
                 scope.organization_id.as_deref(),
                 &provider_account_id,
+            )
+            .await?;
+            // Revealing credentials is a privileged read: record who looked, even
+            // though the response only carries masked previews.
+            sdkwork_payment_repository_sqlx::record_admin_audit_event_postgres(
+                &self.pool,
+                &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                    tenant_id: &scope.tenant_id,
+                    organization_id: scope.organization_id.as_deref(),
+                    actor_user_id: &actor.user_id,
+                    action: "payment_provider_credential.reveal",
+                    resource_type: "provider_account",
+                    resource_id: &provider_account_id,
+                    request_no: actor.request_no.as_deref(),
+                    detail: serde_json::json!({ "masked": true }),
+                },
             )
             .await?;
             Ok(serde_json::json!({
@@ -1095,6 +1121,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         &'a self,
         scope: BackendTenantScope,
         provider_account_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()> {
         Box::pin(async move {
             let channel_reference = sqlx::query(
@@ -1149,6 +1176,13 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                     "provider account is referenced by sub-merchants; unbind them before deleting the account",
                 ));
             }
+            // Soft delete and its audit record commit together, so a removal can
+            // never be missing from the trail.
+            let mut transaction = self.pool.begin().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to begin provider account deletion: {error}"
+                ))
+            })?;
             let result = sqlx::query(
                 r#"
                 UPDATE commerce_payment_provider_account
@@ -1163,7 +1197,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             .bind(&provider_account_id)
             .bind(&scope.tenant_id)
             .bind(scope.organization_id.as_deref())
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| {
                 CommerceServiceError::storage(format!("failed to delete provider account: {error}"))
@@ -1173,6 +1207,26 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                     "provider account not found",
                 ));
             }
+            // The deletion and its audit record commit together.
+            sdkwork_payment_repository_sqlx::record_admin_audit_event_in_transaction(
+                &mut transaction,
+                &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                    tenant_id: &scope.tenant_id,
+                    organization_id: scope.organization_id.as_deref(),
+                    actor_user_id: &actor.user_id,
+                    action: "provider_account.delete",
+                    resource_type: "provider_account",
+                    resource_id: &provider_account_id,
+                    request_no: actor.request_no.as_deref(),
+                    detail: serde_json::json!({}),
+                },
+            )
+            .await?;
+            transaction.commit().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to commit provider account deletion: {error}"
+                ))
+            })?;
             Ok(())
         })
     }
@@ -2511,7 +2565,14 @@ async fn delete_provider_account(
     };
     match state
         .store
-        .delete_provider_account(scope, provider_account_id)
+        .delete_provider_account(
+            scope,
+            provider_account_id,
+            BackendAdminActor {
+                user_id: subject.user_id.clone(),
+                request_no: None,
+            },
+        )
         .await
     {
         Ok(()) => success_no_content(ctx),
@@ -2538,7 +2599,14 @@ async fn read_provider_credentials(
     };
     match state
         .store
-        .read_provider_credentials(scope, provider_account_id)
+        .read_provider_credentials(
+            scope,
+            provider_account_id,
+            BackendAdminActor {
+                user_id: subject.user_id.clone(),
+                request_no: None,
+            },
+        )
         .await
     {
         Ok(item) => success_item(ctx, item),
