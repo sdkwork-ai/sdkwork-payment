@@ -332,6 +332,14 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
                 PaymentAdapterOperation::CreateRefund,
                 "refund_no",
             )?;
+            validate_alipay_refund_request(
+                amount_minor,
+                request
+                    .metadata
+                    .get("total_amount_minor")
+                    .and_then(Value::as_i64),
+                metadata_string(&request.metadata, "currency"),
+            )?;
             let mut biz_content = json!({
                 "out_trade_no": out_trade_no,
                 "refund_amount": minor_to_decimal_string(amount_minor),
@@ -752,6 +760,31 @@ fn alipay_timeout_express(expires_at: Option<&str>) -> ProviderResult<Option<Str
 
 /// Maps a method_key to the Alipay OpenAPI method name and the response field
 /// holding the redirect URL (if any).
+/// Validates an Alipay refund before the signed request exists.
+///
+/// The deposit database bounds refunds against the paid attempt, but any other
+/// caller of the adapter would otherwise be able to ask Alipay for more than the
+/// captured total. The platform settles Chinese merchants in CNY and the amount
+/// is formatted with two decimals, so a currency that is present must be CNY.
+fn validate_alipay_refund_request(
+    refund_amount: i64,
+    total_amount: Option<i64>,
+    currency: Option<&str>,
+) -> ProviderResult<()> {
+    if let Some(total) = total_amount.filter(|amount| *amount > 0) {
+        if refund_amount > total {
+            return Err(ProviderError::invalid_request(
+                PaymentAdapterOperation::CreateRefund,
+                "Alipay refund amount must not exceed the captured total",
+            ));
+        }
+    }
+    if let Some(currency) = currency {
+        require_cny(Some(currency), PaymentAdapterOperation::CreateRefund)?;
+    }
+    Ok(())
+}
+
 /// Normalizes the gateway body of a redirect-style Alipay product.
 ///
 /// `page.pay`/`wap.pay` answer with an auto-submit form HTML document or a bare
@@ -811,6 +844,27 @@ mod tests {
     use crate::adapter::PaymentAdapterOperation;
     use crate::error::ProviderError;
 
+    #[test]
+    fn refund_amount_is_bounded_by_the_captured_total_before_signing() {
+        assert!(super::validate_alipay_refund_request(100, Some(100), Some("CNY")).is_ok());
+        // No total metadata keeps the historical behaviour (the database owns
+        // the bound); an explicit total must bound it here.
+        assert!(super::validate_alipay_refund_request(100, None, None).is_ok());
+        let error = super::validate_alipay_refund_request(101, Some(100), Some("CNY"))
+            .expect_err("over-refund must be rejected");
+        assert!(
+            format!("{error:?}").contains("must not exceed the captured total"),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_non_cny_refund_is_rejected_because_the_amount_is_cny_format() {
+        let error = super::validate_alipay_refund_request(10, None, Some("USD"))
+            .expect_err("non-CNY refund must be rejected");
+        assert!(format!("{error:?}").to_lowercase().contains("cny"), "unexpected: {error:?}");
+        assert!(super::validate_alipay_refund_request(10, None, Some("cny")).is_ok());
+    }
     #[test]
     fn app_pay_order_string_is_a_launch_payload_not_a_redirect() {
         // alipay.trade.app.pay answers with the signed order string the App SDK

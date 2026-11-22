@@ -633,6 +633,11 @@ impl PaymentProviderAdapter for WeChatPayProviderAdapter {
                         "WeChat Pay metadata.total_amount_minor is required",
                     )
                 })?;
+            validate_refund_request(
+                refund_amount,
+                total_amount,
+                metadata_string(&request.metadata, "currency"),
+            )?;
             let mut payload = json!({
                 "out_trade_no": out_trade_no,
                 "out_refund_no": out_refund_no,
@@ -1028,6 +1033,30 @@ fn verify_wechat_pay_response_signature(
             PaymentAdapterOperation::QueryPaymentIntent,
             "WeChat Pay response signature verification failed",
         ));
+    }
+    Ok(())
+}
+
+/// Validates a refund before the signed request exists.
+///
+/// The database bounds refunds against the paid attempt, but any other caller of
+/// the adapter would otherwise be able to ask WeChat for more than the captured
+/// total. The currency check matters because the payload is hard-coded to CNY:
+/// a non-CNY attempt would send CNY-denominated minor units for another
+/// currency, so a currency that is present must be CNY.
+fn validate_refund_request(
+    refund_amount: i64,
+    total_amount: i64,
+    currency: Option<&str>,
+) -> ProviderResult<()> {
+    if refund_amount > total_amount {
+        return Err(ProviderError::invalid_request(
+            PaymentAdapterOperation::CreateRefund,
+            "WeChat Pay refund amount must not exceed the captured total",
+        ));
+    }
+    if let Some(currency) = currency {
+        require_cny(Some(currency), PaymentAdapterOperation::CreateRefund)?;
     }
     Ok(())
 }
@@ -1446,6 +1475,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn refund_above_the_captured_total_is_rejected_before_signing() {
+        // The adapter used to forward any positive refund; only the database
+        // bounded it, so a second caller could over-refund.
+        let error = super::validate_refund_request(101, 100, Some("CNY"))
+            .expect_err("over-refund must be rejected");
+        assert!(
+            format!("{error:?}").contains("must not exceed the captured total"),
+            "unexpected error: {error:?}"
+        );
+        assert!(super::validate_refund_request(100, 100, Some("CNY")).is_ok());
+    }
+
+    #[test]
+    fn a_non_cny_refund_is_rejected_because_the_payload_is_cny_only() {
+        let error = super::validate_refund_request(10, 100, Some("USD"))
+            .expect_err("non-CNY refund must be rejected");
+        assert!(format!("{error:?}").to_lowercase().contains("cny"), "unexpected: {error:?}");
+        // Callers that carry no currency keep the historical CNY behaviour.
+        assert!(super::validate_refund_request(10, 100, None).is_ok());
+        // Lower-case input is still CNY once normalised.
+        assert!(super::validate_refund_request(10, 100, Some("cny")).is_ok());
+    }
     #[test]
     fn webhook_timestamp_requires_five_minute_freshness() {
         assert!(wechat_webhook_timestamp_is_fresh(
