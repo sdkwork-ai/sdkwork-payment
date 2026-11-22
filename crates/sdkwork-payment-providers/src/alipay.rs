@@ -839,6 +839,7 @@ fn percent_decode(value: &str, operation: PaymentAdapterOperation) -> ProviderRe
 
 #[cfg(test)]
 mod tests {
+    use crate::adapter::PaymentProviderAdapter;
     use chrono::{Duration, SecondsFormat, Utc};
 
     use super::{
@@ -921,6 +922,156 @@ mod tests {
         let normalized = super::normalize_alipay_redirect_response("alipay_wap", "OT-WAP-1", bare);
         assert_eq!(normalized["redirect_url"], serde_json::json!(bare));
         assert!(normalized.get("orderStr").is_none());
+    }
+    fn notify_keypair() -> (String, String) {
+        use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
+        let key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).expect("rsa key");
+        let private = key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("private pem")
+            .to_string();
+        let public = rsa::RsaPublicKey::from(&key)
+            .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("public pem");
+        (private, public)
+    }
+
+    fn notify_body(signer: &super::RsaAlipaySigner, fields: &[(&str, &str)]) -> Vec<u8> {
+        // Canonical form sorts keys and drops sign/sign_type; the values below are
+        // already in sorted order.
+        let canonical = fields
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let signature = signer.sign(&canonical).expect("sign canonical");
+        let mut pairs = fields
+            .iter()
+            .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+            .collect::<Vec<_>>();
+        pairs.push(format!("sign={}", urlencoding::encode(&signature)));
+        pairs.push("sign_type=RSA2".to_owned());
+        pairs.join("&").into_bytes()
+    }
+
+
+    fn notify_fields() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("app_id", "2021000000000000"),
+            ("notify_id", "NOTIFY-1"),
+            ("out_trade_no", "OT-1"),
+            ("total_amount", "12.34"),
+            ("trade_status", "TRADE_SUCCESS"),
+        ]
+    }
+
+    #[tokio::test]
+    async fn a_correctly_signed_notify_verifies_and_yields_its_event_id() {
+        let (private, public) = notify_keypair();
+        let signer = std::sync::Arc::new(
+            super::RsaAlipaySigner::from_pem(&private, &public).expect("signer"),
+        );
+        // Sign a canonical form with the key the adapter verifies with, so this
+        // exercises the canonicalization + RSA2 verification path end to end.
+        let body = notify_body(&signer, &notify_fields());
+        let adapter = super::AlipayPaymentProviderAdapter::new(
+            super::AlipayPaymentProviderConfig {
+                app_id: "2021000000000000".to_owned(),
+                notify_url: None,
+                return_url: None,
+                sandbox: false,
+            },
+            signer,
+        )
+        .expect("adapter");
+        let outcome = adapter
+            .verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: Vec::new(),
+                body,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("verify");
+        assert!(outcome.verified, "a correctly signed notify must verify");
+        assert_eq!(outcome.provider_event_id.as_deref(), Some("NOTIFY-1"));
+    }
+    #[tokio::test]
+    async fn a_tampered_amount_or_foreign_app_id_fails_closed() {
+        let (private, public) = notify_keypair();
+        let signer = std::sync::Arc::new(
+            super::RsaAlipaySigner::from_pem(&private, &public).expect("signer"),
+        );
+        let adapter = super::AlipayPaymentProviderAdapter::new(
+            super::AlipayPaymentProviderConfig {
+                app_id: "2021000000000000".to_owned(),
+                notify_url: None,
+                return_url: None,
+                sandbox: false,
+            },
+            signer.clone(),
+        )
+        .expect("adapter");
+        let signed = notify_body(&signer, &notify_fields());
+
+        // Tamper the amount after signing: the RSA2 check must reject it.
+        let tampered = String::from_utf8_lossy(&signed)
+            .replace("total_amount=12.34", "total_amount=99.99")
+            .into_bytes();
+        let outcome = adapter
+            .verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: Vec::new(),
+                body: tampered,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("verify");
+        assert!(!outcome.verified, "a tampered amount must not verify");
+
+        // A genuine notify for another merchant app must not settle here.
+        let mut foreign = notify_fields();
+        foreign[0] = ("app_id", "2021999999999999");
+        let foreign_body = notify_body(&signer, &foreign);
+        let outcome = adapter
+            .verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: Vec::new(),
+                body: foreign_body,
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("verify");
+        assert!(!outcome.verified, "a foreign app_id must not settle");
+    }
+
+    #[tokio::test]
+    async fn a_notify_without_a_signature_is_rejected() {
+        let adapter = super::AlipayPaymentProviderAdapter::new(
+            super::AlipayPaymentProviderConfig {
+                app_id: "2021000000000000".to_owned(),
+                notify_url: None,
+                return_url: None,
+                sandbox: false,
+            },
+            std::sync::Arc::new(
+                super::RsaAlipaySigner::from_pem(
+                    &notify_keypair().0,
+                    &notify_keypair().1,
+                )
+                .expect("signer"),
+            ),
+        )
+        .expect("adapter");
+        let body = b"app_id=2021000000000000&out_trade_no=OT-1&trade_status=TRADE_SUCCESS".to_vec();
+        assert!(
+            adapter
+                .verify_webhook(super::PaymentVerifyWebhookRequest {
+                    headers: Vec::new(),
+                    body,
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .is_err(),
+            "a unsigned notify must be an error, not a silent pass"
+        );
     }
     #[test]
     fn web_products_carry_the_required_alipay_product_code() {
