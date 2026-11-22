@@ -3661,7 +3661,7 @@
         ],
         "summary": "Create or replace a checkout scene rule.",
         "description": "Codes are normalized to lower case; the unique index is case-insensitive, so `WeChat` and `wechat` cannot both claim the same context. The write and its audit record commit together.",
-        "operationId": "checkoutScenePolicies.upsert",
+        "operationId": "checkoutScenePolicies.update",
         "parameters": [
           {
             "name": "policyId",
@@ -3725,7 +3725,7 @@
         ],
         "summary": "Resolve the checkout product for a buyer context.",
         "description": "Dry-runs the configured scene policy: returns the product code that would serve the given scene, app architecture, os family and payment method, plus which scope matched. An unconfigured context reports `configured: false` instead of guessing a product.",
-        "operationId": "checkoutScenePolicy.resolve",
+        "operationId": "checkoutScenePolicy.retrieve",
         "parameters": [
           {
             "name": "scene",

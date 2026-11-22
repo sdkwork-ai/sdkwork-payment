@@ -403,13 +403,13 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         HttpMethod::Put,
         "/backend/v3/api/payments/checkout_scene_policies/{policyId}",
         "payments",
-        "checkoutScenePolicies.upsert",
+        "checkoutScenePolicies.update",
     )
     .with_required_permission("commerce.payments.checkout_scene_policy.write"),    HttpRoute::dual_token(
         HttpMethod::Get,
         "/backend/v3/api/payments/checkout_scene_policy/resolve",
         "payments",
-        "checkoutScenePolicy.resolve",
+        "checkoutScenePolicy.retrieve",
     )
     .with_required_permission("commerce.payments.checkout_scene_policy.read"),    HttpRoute::dual_token(
         HttpMethod::Get,
