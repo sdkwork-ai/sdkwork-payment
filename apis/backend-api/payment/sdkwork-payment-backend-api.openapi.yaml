@@ -3602,7 +3602,85 @@
         "x-sdkwork-permission": "commerce.payments.attempts.read"
       }
     },
-    "/backend/v3/api/payments/audit_events": {
+    "/backend/v3/api/payments/checkout_scene_policy/resolve": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Resolve the checkout product for a buyer context.",
+        "description": "Dry-runs the configured scene policy: returns the product code that would serve the given scene, app architecture, os family and payment method, plus which scope matched. An unconfigured context reports `configured: false` instead of guessing a product.",
+        "operationId": "checkoutScenePolicy.resolve",
+        "parameters": [
+          {
+            "name": "scene",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "app_architecture",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "os_family",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "payment_method",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.read"
+      }
+    },    "/backend/v3/api/payments/audit_events": {
       "get": {
         "tags": [
           "payments"
@@ -7679,7 +7757,45 @@
           }
         }
       },
-      "AuditEvent": {
+      "CheckoutScenePolicyResolution": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "configured"
+                ],
+                "properties": {
+                  "configured": {
+                    "type": "boolean"
+                  },
+                  "productCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "matchedScope": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "os, architecture or scene — how specific the winning rule was."
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },      "AuditEvent": {
         "type": "object",
         "required": [
           "id",

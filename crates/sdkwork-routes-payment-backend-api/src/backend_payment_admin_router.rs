@@ -98,6 +98,12 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         query: BackendTenantListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
+    /// Dry-runs checkout product resolution for a buyer context.
+    fn resolve_checkout_scene_policy<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        query: CheckoutSceneQuery,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     /// Recent privileged admin changes for this tenant (newest first).
     fn list_audit_events<'a>(
         &'a self,
@@ -181,6 +187,27 @@ pub struct BackendTenantScope {
     pub organization_id: Option<String>,
 }
 
+/// Buyer context used to dry-run checkout product resolution.
+#[derive(Debug, Clone, Default)]
+pub struct CheckoutSceneQuery {
+    pub scene: String,
+    pub app_architecture: String,
+    pub os_family: String,
+    pub payment_method: String,
+}
+
+/// Query bindings for the checkout scene resolution endpoint (snake_case wire).
+#[derive(Debug, Clone, Default, Deserialize)]
+struct CheckoutSceneResolveParams {
+    #[serde(default)]
+    scene: Option<String>,
+    #[serde(default)]
+    app_architecture: Option<String>,
+    #[serde(default)]
+    os_family: Option<String>,
+    #[serde(default)]
+    payment_method: Option<String>,
+}
 /// Identity of the operator performing an admin mutation, so privileged changes
 /// can be attributed in the audit trail (never the secret material).
 #[derive(Debug, Clone, Default)]
@@ -1707,7 +1734,38 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             Ok(())
         })
     }
-    fn list_audit_events<'a>(
+    fn resolve_checkout_scene_policy<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        query: CheckoutSceneQuery,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let resolved = sdkwork_payment_repository_sqlx::resolve_checkout_scene_product_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                scope.organization_id.as_deref(),
+                &query.scene,
+                &query.app_architecture,
+                &query.os_family,
+                &query.payment_method,
+            )
+            .await?;
+            Ok(match resolved {
+                Some(product) => serde_json::json!({
+                    "configured": true,
+                    "productCode": product.product_code,
+                    "matchedScope": product.matched_scope,
+                }),
+                // An unconfigured context is reported as such instead of guessing a
+                // product: the caller decides whether the fallback is acceptable.
+                None => serde_json::json!({
+                    "configured": false,
+                    "productCode": serde_json::Value::Null,
+                    "matchedScope": serde_json::Value::Null,
+                }),
+            })
+        })
+    }    fn list_audit_events<'a>(
         &'a self,
         query: BackendTenantListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
@@ -2343,6 +2401,10 @@ pub fn build_backend_payment_admin_router(
         .route(
             "/backend/v3/api/payments/cashier_token_settings/key",
             get(reveal_cashier_token_secret).put(set_cashier_token_secret),
+        )
+        .route(
+            "/backend/v3/api/payments/checkout_scene_policy/resolve",
+            get(resolve_checkout_scene_policy),
         )
         .route("/backend/v3/api/payments/audit_events", get(list_audit_events))
         .route("/backend/v3/api/payments/attempts", get(list_attempts))
@@ -3162,6 +3224,52 @@ async fn delete_route_rule(
         }
     }
 }
+async fn resolve_checkout_scene_policy(
+    State(state): State<BackendPaymentAdminState>,
+    Query(params): Query<CheckoutSceneResolveParams>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    // The resolver takes its inputs from the same list-style query binding so the
+    // admin SPA can reuse one query serializer.
+    let scene = params.scene.unwrap_or_default();
+    let app_architecture = params.app_architecture.unwrap_or_default();
+    let os_family = params.os_family.unwrap_or_default();
+    let payment_method = params.payment_method.unwrap_or_default();
+    if payment_method.trim().is_empty() {
+        return validation(ctx, "payment_method is required");
+    }
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state
+        .store
+        .resolve_checkout_scene_policy(
+            scope,
+            CheckoutSceneQuery {
+                scene,
+                app_architecture,
+                os_family,
+                payment_method,
+            },
+        )
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => backend_payment_error_response(
+            ctx,
+            "checkout scene policy resolution failed",
+            error,
+        ),
+    }
+}
+
 async fn list_audit_events(
     State(state): State<BackendPaymentAdminState>,
     Query(params): Query<BackendListQueryParams>,
