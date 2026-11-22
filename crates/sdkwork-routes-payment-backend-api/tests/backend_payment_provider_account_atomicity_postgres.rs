@@ -135,12 +135,15 @@ async fn a_credential_failure_rolls_back_the_provider_account() {
     request.extensions_mut().insert(backend_member_context());
 
     let response = router.oneshot(request).await.expect("route");
+    let status = response.status();
+    let payload = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let detail = String::from_utf8_lossy(&payload);
     assert!(
-        response.status().is_server_error(),
-        "a rejected credential write must fail the request, got {}",
-        response.status()
+        status.is_server_error(),
+        "a rejected credential write must fail the request, got {status}: {detail}"
     );
-    let _ = axum::body::to_bytes(response.into_body(), usize::MAX).await;
 
     let survivors: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM commerce_payment_provider_account WHERE account_no = 'acct-atomicity-1'",
