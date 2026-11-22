@@ -117,14 +117,19 @@ async fn a_credential_failure_rolls_back_the_provider_account() {
     let body = serde_json::json!({
         "accountNo": "acct-atomicity-1",
         "providerCode": "wechat_pay",
+        "merchantId": "1900000001",
+        "accountName": "Atomicity account",
         "environment": "development",
         "accountMode": "direct",
-        "credentialWrite": { "primarySecret": "sk-atomicity-secret-value" }
+        "primarySecret": "sk-atomicity-secret-value"
     });
     let mut request = Request::builder()
         .method("POST")
         .uri("/backend/v3/api/payments/provider_accounts")
         .header("content-type", "application/json")
+        // The write guard requires the same headers every admin write carries.
+        .header("Idempotency-Key", "idem-atomicity-1")
+        .header("X-Request-Id", "req-atomicity-1")
         .body(Body::from(body.to_string()))
         .expect("request");
     request.extensions_mut().insert(backend_member_context());
