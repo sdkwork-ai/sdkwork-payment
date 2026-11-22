@@ -30,6 +30,7 @@
 //! the mismatch as an operator-visible error.
 
 use chrono::{DateTime, Duration, Utc};
+use std::sync::{Mutex, OnceLock};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
     cashier_signing_key_cipher, cashier_signing_key_provider_id, CashierSigningKeyCipher,
@@ -193,6 +194,122 @@ pub async fn retrieve_cashier_token_setting_postgres(
 /// row at all); callers then fall back to the deployment secret. A row that has
 /// a ciphertext but cannot be opened (missing/foreign KEK) fails closed rather
 /// than silently dropping back to the deployment secret.
+/// How long an opened signing secret stays cached.
+///
+/// Short enough that an operator fix (restored KEK, rotated secret) takes effect
+/// without a restart, long enough to remove the database read and AES open from
+/// the checkout hot path.
+const CACHED_SIGNING_SECRET_TTL_MILLIS: i64 = 60_000;
+
+/// Upper bound on cached tenants; clearing wholesale is safe because every entry
+/// can be reloaded from the database.
+const CACHED_SIGNING_SECRET_MAX_ENTRIES: usize = 4096;
+
+#[derive(Clone)]
+struct CachedSigningSecrets {
+    secrets: CashierTokenSigningSecrets,
+    expires_at_millis: i64,
+}
+
+static SIGNING_SECRET_CACHE: OnceLock<Mutex<std::collections::HashMap<String, CachedSigningSecrets>>> =
+    OnceLock::new();
+
+fn signing_secret_cache(
+) -> &'static Mutex<std::collections::HashMap<String, CachedSigningSecrets>> {
+    SIGNING_SECRET_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+/// Drops the cached secret for one tenant.
+///
+/// Called by every write that can change the effective secret or its epoch, so a
+/// rotation never serves the previous key from memory.
+pub fn invalidate_cashier_token_secret_cache(tenant_id: &str) {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    let mut cache = signing_secret_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.remove(&tenant_id);
+}
+
+fn read_cached_signing_secret(tenant_id: &str) -> Option<CashierTokenSigningSecrets> {
+    let mut cache = signing_secret_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let now = now_millis();
+    match cache.get(tenant_id) {
+        Some(entry) if entry.expires_at_millis > now => Some(entry.secrets.clone()),
+        Some(_) => {
+            cache.remove(tenant_id);
+            None
+        }
+        None => None,
+    }
+}
+
+fn write_cached_signing_secret(tenant_id: &str, secrets: &CashierTokenSigningSecrets) {
+    // A disabled or empty secret is never cached: the next call must re-read so an
+    // operator enabling the cashier takes effect immediately.
+    if !secrets.enabled || secrets.current_secret.is_empty() {
+        return;
+    }
+    let mut cache = signing_secret_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.len() >= CACHED_SIGNING_SECRET_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(
+        tenant_id.to_owned(),
+        CachedSigningSecrets {
+            secrets: secrets.clone(),
+            expires_at_millis: now_millis() + CACHED_SIGNING_SECRET_TTL_MILLIS,
+        },
+    );
+}
+
+/// Loads the secrets used to *mint* a cashier token, cached per tenant.
+///
+/// This is the checkout hot path: without the cache every order paid one database
+/// read plus one AES-GCM open, so a database hiccup surfaced as "cannot generate
+/// the payment QR". Failures are never cached, so a restored KEK recovers at once.
+pub async fn cached_mintable_cashier_token_secrets_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    if let Some(secrets) = read_cached_signing_secret(&tenant_id) {
+        return Ok(Some(secrets));
+    }
+    let loaded = ensure_cashier_token_signing_secrets_postgres(pool, &tenant_id).await?;
+    if let Some(secrets) = &loaded {
+        write_cached_signing_secret(&tenant_id, secrets);
+    }
+    Ok(loaded)
+}
+
+/// Loads the secrets used to *verify* an already-issued cashier token, cached.
+pub async fn cached_cashier_token_signing_secrets_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    if let Some(secrets) = read_cached_signing_secret(&tenant_id) {
+        return Ok(Some(secrets));
+    }
+    let loaded = load_cashier_token_signing_secrets_postgres(pool, &tenant_id).await?;
+    if let Some(secrets) = &loaded {
+        write_cached_signing_secret(&tenant_id, secrets);
+    }
+    Ok(loaded)
+}
+
 pub async fn load_cashier_token_signing_secrets_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
@@ -566,6 +683,8 @@ async fn store_cashier_token_secret_postgres(
         .commit()
         .await
         .map_err(|error| store_error("failed to commit cashier token rotation", error))?;
+    // The cache must never keep serving a secret a rotation just replaced.
+    invalidate_cashier_token_secret_cache(&tenant_id);
     retrieve_cashier_token_setting_postgres(pool, &tenant_id).await
 }
 
@@ -649,6 +768,8 @@ pub async fn update_cashier_token_enabled_postgres(
         .commit()
         .await
         .map_err(|error| store_error("failed to commit cashier token setting update", error))?;
+    // The cache must never keep serving a secret a rotation just replaced.
+    invalidate_cashier_token_secret_cache(&tenant_id);
     retrieve_cashier_token_setting_postgres(pool, &tenant_id).await
 }
 
@@ -1229,6 +1350,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_signing_secret_cache_is_per_tenant_and_invalidatable() {
+        invalidate_cashier_token_secret_cache("100001");
+        invalidate_cashier_token_secret_cache("100002");
+        write_cached_signing_secret("100001", &signing_secret("100001"));
+        assert!(read_cached_signing_secret("100001").is_some());
+        // A different tenant must never read this secret.
+        assert!(read_cached_signing_secret("100002").is_none());
+        invalidate_cashier_token_secret_cache("100001");
+        assert!(read_cached_signing_secret("100001").is_none());
+    }
+
+    #[test]
+    fn a_disabled_or_empty_secret_is_never_cached() {
+        // Enabling or fixing the setting must take effect on the next call.
+        let mut disabled = signing_secret("100003");
+        disabled.enabled = false;
+        write_cached_signing_secret("100003", &disabled);
+        assert!(read_cached_signing_secret("100003").is_none());
+
+        let mut empty = signing_secret("100004");
+        empty.current_secret = Vec::new();
+        write_cached_signing_secret("100004", &empty);
+        assert!(read_cached_signing_secret("100004").is_none());
+    }
     #[test]
     fn an_unopenable_stored_secret_fails_closed_for_verification() {
         // Verification, reveal and rotation must never report "no key

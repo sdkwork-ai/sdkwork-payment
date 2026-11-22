@@ -90,7 +90,7 @@ pub async fn resolve_cashier_token_mint_material(
     tenant_id: &str,
 ) -> Result<Option<(Vec<u8>, i64)>, CommerceServiceError> {
     let Some(resolved) =
-        crate::cashier_token_setting::ensure_cashier_token_signing_secrets_postgres(pool, tenant_id)
+        crate::cashier_token_setting::cached_mintable_cashier_token_secrets_postgres(pool, tenant_id)
             .await?
     else {
         return Ok(None);
@@ -114,7 +114,7 @@ pub async fn verify_cashier_token_from_store(
     let tenant_id = sdkwork_utils_rust::peek_cashier_token_tenant(token)?;
     let epoch = sdkwork_utils_rust::peek_cashier_token_epoch(token);
     let candidates: Vec<Vec<u8>> =
-        match crate::cashier_token_setting::load_cashier_token_signing_secrets_postgres(
+        match crate::cashier_token_setting::cached_cashier_token_signing_secrets_postgres(
             pool, &tenant_id,
         )
         .await
