@@ -2221,7 +2221,15 @@ async fn create_method(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let status = body.status.unwrap_or_else(|| "active".to_owned());
+    let status = match require_admin_status(
+        ctx,
+        body.status,
+        "status",
+        &["active", "inactive", "disabled"],
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let sort_order = body.sort_order.unwrap_or(0);
     let command = UpsertBackendPaymentMethodCommand {
         tenant_id: subject.tenant_id,
@@ -3591,6 +3599,29 @@ fn require_trimmed_string(
         _ => Err(validation(ctx, format!("{field} is required"))),
     }
 }
+/// Accepts an operator-supplied lifecycle status from a bounded vocabulary.
+///
+/// The table enforces the same values with a CHECK constraint, but letting a typo
+/// reach it surfaces as a 500 `storage` error. Validate here so the operator gets
+/// a 400 naming the accepted values, and default to `active` for a create.
+fn require_admin_status(
+    ctx: Option<&WebRequestContext>,
+    value: Option<String>,
+    field: &str,
+    allowed: &[&str],
+) -> Result<String, Response> {
+    let value = match value {
+        Some(value) if !value.trim().is_empty() => value.trim().to_ascii_lowercase(),
+        _ => "active".to_owned(),
+    };
+    if allowed.contains(&value.as_str()) {
+        return Ok(value);
+    }
+    Err(validation(
+        ctx,
+        format!("{field} must be one of {}", allowed.join(", ")),
+    ))
+}
 fn credential_storage(secret_ref: &str) -> &'static str {
     if secret_ref.starts_with("database:") {
         "database_encrypted"
@@ -3814,5 +3845,19 @@ mod generated_account_no_tests {
         assert_eq!(account_no_segment("  PRODUCTION  "), "production");
         assert_eq!(account_no_segment("///"), "psp");
         assert_eq!(account_no_segment(""), "psp");
+    }
+
+    #[test]
+    fn admin_status_is_bounded_by_its_vocabulary() {
+        // A typo must answer 400 with the accepted values, not become a 500 from
+        // the table's CHECK constraint.
+        assert!(super::require_admin_status(None, Some("ACTIVE".to_owned()), "status", &["active", "inactive"]).is_ok());
+        assert!(super::require_admin_status(None, Some(" inactive ".to_owned()), "status", &["active", "inactive"]).is_ok());
+        // Create defaults to active.
+        assert_eq!(
+            super::require_admin_status(None, None, "status", &["active", "inactive"]).expect("default"),
+            "active"
+        );
+        assert!(super::require_admin_status(None, Some("enabled".to_owned()), "status", &["active", "inactive"]).is_err());
     }
 }
