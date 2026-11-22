@@ -143,3 +143,55 @@ async fn the_most_specific_rule_wins_and_platforms_do_not_bleed() {
         "a deactivated rule must fall through to the architecture rule"
     );
 }
+
+#[tokio::test]
+async fn the_shipped_defaults_cover_every_supported_platform() {
+    let Some(pool) = scene_pool("defaults").await else {
+        return;
+    };
+    sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!(
+        "../../../database/seeds/common/010_checkout_scene_policy.sql"
+    )))
+    .execute(&pool)
+    .await
+    .expect("apply shipped checkout scene defaults");
+
+    // The documented architecture matrix must resolve out of the box; a missing
+    // default means every fresh deployment starts by failing the first payment on
+    // that platform.
+    for (arch, os, method, expected) in [
+        ("web", "any", "wechat", "wechat_h5"),
+        ("mini_program", "any", "wechat", "wechat_jsapi"),
+        ("app", "ios", "wechat", "wechat_app"),
+        ("app", "android", "wechat", "wechat_app"),
+        ("web", "any", "alipay", "alipay_pc"),
+        ("h5", "any", "alipay", "alipay_wap"),
+        ("app", "ios", "alipay", "alipay_app"),
+        ("app", "ios", "stripe", "stripe_apple_pay"),
+        ("app", "android", "stripe", "stripe_google_pay"),
+        ("web", "any", "stripe", "stripe_card"),
+    ] {
+        let resolved = resolve_checkout_scene_product_postgres(
+            &pool, "100001", None, "checkout", arch, os, method,
+        )
+        .await
+        .expect("resolve default")
+        .unwrap_or_else(|| panic!("no default policy for {arch}/{os}/{method}"));
+        assert_eq!(
+            expected, resolved.product_code,
+            "{arch}/{os}/{method} resolved to the wrong product"
+        );
+    }
+
+    // A platform without a default must report "unconfigured" instead of silently
+    // reusing another platform's product.
+    let pad = resolve_checkout_scene_product_postgres(
+        &pool, "100001", None, "checkout", "pad", "ipados", "wechat",
+    )
+    .await
+    .expect("resolve pad");
+    assert!(
+        pad.is_none(),
+        "an unconfigured architecture must not inherit a rule by accident"
+    );
+}
