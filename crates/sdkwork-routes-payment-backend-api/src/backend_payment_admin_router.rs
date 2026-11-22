@@ -2488,6 +2488,9 @@ async fn upsert_provider_account_inner(
         Ok(value) => value,
         Err(response) => return response,
     };
+    if let Err(response) = validate_admin_environment(ctx, environment.as_deref()) {
+        return response;
+    }
     // The account number is a server-owned identity, not operator input: a
     // create request always receives a generated unique code so operators never
     // have to invent (and potentially collide on) one. Updates keep the stored
@@ -3636,11 +3639,37 @@ fn require_trimmed_string(
 /// The table enforces the same values with a CHECK constraint, but letting a typo
 /// reach it surfaces as a 500 `storage` error. Validate here so the operator gets
 /// a 400 naming the accepted values, and default to `active` for a create.
+/// Account environments mirror `commerce_payment_provider_account.environment`
+/// (`CHECK (environment IN ('development','sandbox','production'))`).
+const ADMIN_ACCOUNT_ENVIRONMENTS: &[&str] = &["development", "sandbox", "production"];
 /// Lifecycle vocabulary shared by methods, channels and route rules
 /// (`CHECK (status IN ('active','inactive','deprecated'))`).
 const ADMIN_ACTIVE_STATUSES: &[&str] = &["active", "inactive", "deprecated"];
 /// Notify domains are binary: `CHECK (status IN ('active','inactive'))`.
 const ADMIN_NOTIFY_DOMAIN_STATUSES: &[&str] = &["active", "inactive"];
+/// Validates a provider account environment when the request supplies one.
+///
+/// The column enforces `development|sandbox|production`; a typo would otherwise be
+/// accepted by every earlier layer and fail as a 500 from the CHECK constraint.
+/// An omitted value stays valid so updates can leave the stored environment alone.
+fn validate_admin_environment(
+    ctx: Option<&WebRequestContext>,
+    value: Option<&str>,
+) -> Result<(), Response> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    if ADMIN_ACCOUNT_ENVIRONMENTS.contains(&value.to_ascii_lowercase().as_str()) {
+        return Ok(());
+    }
+    Err(validation(
+        ctx,
+        format!(
+            "environment must be one of {}",
+            ADMIN_ACCOUNT_ENVIRONMENTS.join(", ")
+        ),
+    ))
+}
 fn require_admin_status(
     ctx: Option<&WebRequestContext>,
     value: Option<String>,
@@ -3885,6 +3914,14 @@ mod generated_account_no_tests {
     }
 
     #[test]
+    fn admin_environment_is_bounded_by_the_deployable_set() {
+        assert!(super::validate_admin_environment(None, Some("Production")).is_ok());
+        assert!(super::validate_admin_environment(None, Some(" sandbox ")).is_ok());
+        assert!(super::validate_admin_environment(None, Some("staging")).is_err());
+        // An omitted environment stays valid: updates keep the stored value.
+        assert!(super::validate_admin_environment(None, None).is_ok());
+        assert!(super::validate_admin_environment(None, Some("   ")).is_ok());
+    }
     fn admin_status_is_bounded_by_its_vocabulary() {
         // A typo must answer 400 with the accepted values, not become a 500 from
         // the table's CHECK constraint.
