@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS ux_commerce_payment_attempt_provider_trade;

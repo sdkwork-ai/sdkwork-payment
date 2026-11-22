@@ -192,6 +192,14 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_owner_order
     ON commerce_payment_attempt (tenant_id, owner_user_id, order_id, status, created_at DESC, id DESC)
     WHERE deleted_at IS NULL;
 
+-- The merchant trade number a provider echoes back must identify exactly one
+-- attempt within a tenant: a duplicate lets one channel callback settle or refund
+-- the wrong attempt. The non-unique, provider-less index this replaces could not
+-- enforce that.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_attempt_provider_trade
+    ON commerce_payment_attempt (tenant_id, provider_code, out_trade_no)
+    WHERE out_trade_no IS NOT NULL AND deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_out_trade_no
     ON commerce_payment_attempt (tenant_id, out_trade_no)
     WHERE out_trade_no IS NOT NULL AND deleted_at IS NULL;
