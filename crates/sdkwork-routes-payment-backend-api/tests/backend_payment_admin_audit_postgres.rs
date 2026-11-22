@@ -129,13 +129,13 @@ async fn creating_an_account_with_credentials_records_who_changed_what() {
         "create failed: {}",
         String::from_utf8_lossy(&payload)
     );
-    let created: serde_json::Value =
-        serde_json::from_slice(&payload).expect("create response parses");
-    let account_id = created
-        .pointer("/data/id")
-        .and_then(|value| value.as_str())
-        .expect("created account id")
-        .to_owned();
+    // Read the id from the row instead of guessing the response envelope shape.
+    let account_id: String = sqlx::query_scalar(
+        "SELECT id FROM commerce_payment_provider_account WHERE account_no = 'acct-audit-1'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("created account id");
 
     // Revealing credentials and deleting the account are privileged operations and
     // must be attributed too.
