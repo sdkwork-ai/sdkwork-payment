@@ -2490,7 +2490,10 @@ async fn upsert_provider_account_inner(
     };
     if let Err(response) = validate_admin_environment(ctx, environment.as_deref()) {
         return response;
+    }    if let Err(response) = validate_admin_account_mode(ctx, body.account_mode.as_deref()) {
+        return response;
     }
+
     // The account number is a server-owned identity, not operator input: a
     // create request always receives a generated unique code so operators never
     // have to invent (and potentially collide on) one. Updates keep the stored
@@ -3652,6 +3655,24 @@ const ADMIN_NOTIFY_DOMAIN_STATUSES: &[&str] = &["active", "inactive"];
 /// The column enforces `development|sandbox|production`; a typo would otherwise be
 /// accepted by every earlier layer and fail as a 500 from the CHECK constraint.
 /// An omitted value stays valid so updates can leave the stored environment alone.
+/// Validates a provider account mode when the request supplies one.
+///
+/// `commerce_payment_provider_account.account_mode` allows `direct | partner`
+/// (self-connection vs ISV/sub-merchant mode). An invalid value would otherwise be
+/// accepted by every layer and fail as a 500 from the CHECK constraint; omitting it
+/// keeps the stored mode on update.
+fn validate_admin_account_mode(
+    ctx: Option<&WebRequestContext>,
+    value: Option<&str>,
+) -> Result<(), Response> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    if matches!(value.to_ascii_lowercase().as_str(), "direct" | "partner") {
+        return Ok(());
+    }
+    Err(validation(ctx, "accountMode must be one of direct, partner"))
+}
 fn validate_admin_environment(
     ctx: Option<&WebRequestContext>,
     value: Option<&str>,
@@ -3914,6 +3935,14 @@ mod generated_account_no_tests {
     }
 
     #[test]
+    fn admin_account_mode_is_direct_or_partner() {
+        assert!(super::validate_admin_account_mode(None, Some("direct")).is_ok());
+        assert!(super::validate_admin_account_mode(None, Some("Partner")).is_ok());
+        assert!(super::validate_admin_account_mode(None, Some("isv")).is_err());
+        // Omitted keeps the stored mode.
+        assert!(super::validate_admin_account_mode(None, None).is_ok());
+        assert!(super::validate_admin_account_mode(None, Some("  ")).is_ok());
+    }
     fn admin_environment_is_bounded_by_the_deployable_set() {
         assert!(super::validate_admin_environment(None, Some("Production")).is_ok());
         assert!(super::validate_admin_environment(None, Some(" sandbox ")).is_ok());
