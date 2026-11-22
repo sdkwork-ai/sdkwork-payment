@@ -2300,7 +2300,20 @@ async fn insert_sub_merchant(
         .clone()
         .unwrap_or_else(|| json!({}))
         .to_string();
-    let status = body.status.as_deref().unwrap_or("active");
+    // `commerce_payment_sub_merchant.status` accepts exactly these values; a typo
+    // must not travel into the INSERT and surface as a 500 from the CHECK
+    // constraint.
+    let status = body.status.as_deref().map(str::trim).unwrap_or("active");
+    const SUB_MERCHANT_STATUSES: &[&str] =
+        &["active", "inactive", "suspended", "deprecated", "pending_review"];
+    if !SUB_MERCHANT_STATUSES.contains(&status) {
+        return Err(
+            sdkwork_contract_service::CommerceServiceError::validation(format!(
+                "status must be one of {}",
+                SUB_MERCHANT_STATUSES.join(", ")
+            )),
+        );
+    }
     // Platform rows persist the sentinel organization scope (`"0"`) so
     // tenant (personal) sessions never write NULL into the NOT NULL
     // `organization_id` column.
