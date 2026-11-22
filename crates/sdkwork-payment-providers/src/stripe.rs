@@ -669,6 +669,36 @@ mod tests {
             .is_err());
     }
     #[test]
+    fn stripe_signature_rejections_fail_closed() {
+        let secret = "whsec_test_secret";
+        let body = br#"{"id":"evt_1","type":"payment_intent.succeeded"}"#;
+        let timestamp = 1_700_000_000_i64;
+        let signature = stripe_test_signature(secret, timestamp, body);
+
+        // Wrong signing secret.
+        assert!(!verify_stripe_signature_at("whsec_other", &signature, body, timestamp, 300));
+        // Tampered body under a valid header.
+        assert!(!verify_stripe_signature_at(
+            secret,
+            &signature,
+            br#"{"id":"evt_2","type":"payment_intent.succeeded"}"#,
+            timestamp,
+            300
+        ));
+        // Header shapes Stripe can receive: no t, no v1, empty, non-numeric t.
+        assert!(!verify_stripe_signature_at(secret, "v1=deadbeef", body, timestamp, 300));
+        assert!(!verify_stripe_signature_at(secret, &format!("t={timestamp}"), body, timestamp, 300));
+        assert!(!verify_stripe_signature_at(secret, "", body, timestamp, 300));
+        assert!(!verify_stripe_signature_at(secret, "t=not-a-number&v1=deadbeef", body, timestamp, 300));
+        // A negative tolerance must never verify anything.
+        assert!(!verify_stripe_signature_at(secret, &signature, body, timestamp, -1));
+
+        // Stripe may send several v1 values during a secret roll; one match wins.
+        let v1 = signature.split("v1=").nth(1).expect("v1 value");
+        let multi = format!("t={timestamp},v1=deadbeef,v1={v1}");
+        assert!(verify_stripe_signature_at(secret, &multi, body, timestamp, 300));
+    }
+    #[test]
     fn stripe_refund_query_matches_the_merchant_refund_number() {
         let response = serde_json::json!({
             "data": [
