@@ -67,8 +67,8 @@ async fn channel_pool(label: &str) -> Option<PgPool> {
         VALUES ('pa-1', '100001', '0', 'A1', 'wechat_pay', 'M1', '', 'active');
 
         INSERT INTO commerce_payment_channel
-            (id, tenant_id, organization_id, channel_no, provider_account_id, status)
-        VALUES ('ch-1', '100001', '0', 'CH1', 'pa-1', 'active');
+            (id, tenant_id, organization_id, channel_no, provider_account_id, provider_code, status)
+        VALUES ('ch-1', '100001', '0', 'CH1', 'pa-1', 'wechat_pay', 'active');
 
         INSERT INTO commerce_payment_attempt
             (id, tenant_id, owner_user_id, payment_intent_id, order_id, payment_method,
