@@ -1086,6 +1086,12 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 .await
             }
             .map_err(|error| CommerceServiceError::storage(format!("failed to upsert provider account: {error}")))?;
+            if let Some(error) = credential_cipher_required_error(
+                sdkwork_payment_providers::payment_credential_cipher_is_installed(),
+                &credential_write.credential_kinds(),
+            ) {
+                return Err(error);
+            }
             sdkwork_payment_repository_sqlx::rotate_provider_credentials_in_transaction(
                 &mut transaction,
                 &payload.tenant_id,
@@ -4243,6 +4249,23 @@ fn pg_total_count(rows: &[PgRow]) -> i64 {
         .unwrap_or(0)
 }
 #[allow(clippy::result_large_err)]
+/// Reports why a credential write cannot proceed on this host.
+///
+/// Without the credential cipher every write would fail deep inside the
+/// repository as a generic 500, which reads as "the payment service is broken".
+/// Answering `provider_unavailable` instead tells the operator what to fix: the
+/// host never installed the encryption key.
+fn credential_cipher_required_error(
+    cipher_installed: bool,
+    credential_kinds: &[&str],
+) -> Option<CommerceServiceError> {
+    if credential_kinds.is_empty() || cipher_installed {
+        return None;
+    }
+    Some(CommerceServiceError::provider_unavailable(
+        "payment credential encryption is not configured on this host; install the credential cipher before saving secrets",
+    ))
+}
 fn require_trimmed_string(
     ctx: Option<&WebRequestContext>,
     value: Option<String>,
@@ -4551,6 +4574,20 @@ mod generated_account_no_tests {
     }
 
     #[test]
+    fn a_credential_write_without_a_cipher_is_reported_as_unavailable() {
+        // No secrets in the request: nothing to encrypt, nothing to report.
+        assert!(super::credential_cipher_required_error(true, &[]).is_none());
+        assert!(super::credential_cipher_required_error(false, &[]).is_none());
+        // Cipher installed: the write proceeds.
+        assert!(super::credential_cipher_required_error(true, &["primary_secret"]).is_none());
+        // Cipher missing: a 503 with an actionable message, not a generic 500.
+        let error = super::credential_cipher_required_error(false, &["primary_secret", "certificate"])
+            .expect("a credential write must be refused without a cipher");
+        assert_eq!(
+            "payment credential encryption is not configured on this host; install the credential cipher before saving secrets",
+            error.message()
+        );
+    }
     fn admin_account_mode_is_direct_or_partner() {
         assert!(super::validate_admin_account_mode(None, Some("direct")).is_ok());
         assert!(super::validate_admin_account_mode(None, Some("Partner")).is_ok());
