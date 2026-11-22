@@ -1343,3 +1343,40 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_admin_audit_tenant_time
 
 CREATE INDEX IF NOT EXISTS idx_commerce_payment_admin_audit_resource
     ON commerce_payment_admin_audit_log (tenant_id, resource_type, resource_id, created_at DESC);
+
+-- =============================================================================
+-- Checkout scene policy (configurable product resolution)
+-- =============================================================================
+-- Which provider product serves a buyer context is deployment/tenant
+-- configuration: an iOS app paying with WeChat needs `wechat_app`, a browser needs
+-- `wechat_h5`, a mini-program `wechat_jsapi`. Keeping that mapping in the database
+-- lets an operator support a new platform without a release. Resolution order:
+-- scene+architecture+os > scene+architecture > scene (see
+-- `checkout_scene_policy.rs`); `any` (or NULL) is the wildcard value.
+CREATE TABLE IF NOT EXISTS commerce_payment_checkout_scene_policy (
+    id                 TEXT PRIMARY KEY,
+    tenant_id          TEXT NOT NULL,
+    organization_id    TEXT NOT NULL DEFAULT '0',
+    scene              TEXT NOT NULL,
+    app_architecture   TEXT NOT NULL DEFAULT 'any',
+    os_family          TEXT NOT NULL DEFAULT 'any',
+    payment_method     TEXT NOT NULL,
+    product_code       TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active', 'inactive')),
+    priority           INTEGER NOT NULL DEFAULT 100,
+    metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at         TIMESTAMPTZ NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_commerce_payment_checkout_scene_policy
+    ON commerce_payment_checkout_scene_policy
+       (tenant_id, organization_id, LOWER(scene), LOWER(app_architecture), LOWER(os_family), LOWER(payment_method))
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_checkout_scene_policy_lookup
+    ON commerce_payment_checkout_scene_policy
+       (tenant_id, organization_id, payment_method, status)
+    WHERE deleted_at IS NULL;

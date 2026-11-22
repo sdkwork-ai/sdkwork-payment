@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_commerce_payment_checkout_scene_policy_lookup;
+DROP INDEX IF EXISTS ux_commerce_payment_checkout_scene_policy;
+DROP TABLE IF EXISTS commerce_payment_checkout_scene_policy;

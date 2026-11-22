@@ -20,6 +20,7 @@ pub mod postgres_refund_webhook_ingestion;
 pub mod postgres_webhook_ingestion;
 mod provider_account;
 mod admin_audit;
+mod checkout_scene_policy;
 mod provider_credential;
 mod shared;
 mod webhook_event_payload;
@@ -95,6 +96,9 @@ pub use provider_account::{
     load_active_provider_account_by_merchant_id_postgres,
     load_active_provider_account_for_channel_postgres, load_active_provider_account_postgres,
     load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
+};
+pub use checkout_scene_policy::{
+    resolve_checkout_scene_product_postgres, CheckoutSceneProduct,
 };
 pub use admin_audit::{
     count_admin_audit_events_postgres, list_admin_audit_events_postgres,
