@@ -63,8 +63,8 @@ async fn channel_pool(label: &str) -> Option<PgPool> {
     sqlx::raw_sql(sqlx::AssertSqlSafe(
         r#"
         INSERT INTO commerce_payment_provider_account
-            (id, tenant_id, organization_id, account_no, provider_code, merchant_id, status)
-        VALUES ('pa-1', '100001', '0', 'A1', 'wechat_pay', 'M1', 'active');
+            (id, tenant_id, organization_id, account_no, provider_code, merchant_id, secret_ref, status)
+        VALUES ('pa-1', '100001', '0', 'A1', 'wechat_pay', 'M1', '', 'active');
 
         INSERT INTO commerce_payment_channel
             (id, tenant_id, organization_id, channel_no, provider_account_id, status)
