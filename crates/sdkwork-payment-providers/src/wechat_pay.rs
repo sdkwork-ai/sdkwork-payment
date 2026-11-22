@@ -1503,6 +1503,58 @@ mod tests {
         assert!(super::validate_refund_request(10, 100, Some("cny")).is_ok());
     }
     #[test]
+    fn the_encrypted_notification_resource_decrypts_and_rejects_tampering() {
+        use aes_gcm::aead::{Aead, Payload};
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce as TestNonce};
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine as _;
+        use rsa::pkcs8::EncodePrivateKey;
+
+        let merchant_key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).expect("rsa");
+        let merchant_pem = merchant_key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("pem")
+            .to_string();
+        let api_v3_key = "0123456789abcdef0123456789abcdef";
+        let crypto = super::WeChatPayRsaCrypto::new(&merchant_pem, api_v3_key).expect("crypto");
+
+        // WeChat encrypts `resource` with AES-256-GCM: 12-byte ASCII nonce, the
+        // `associated_data` as AAD, base64(nonce-less ciphertext + tag).
+        let nonce = "abcdefghijkl";
+        let aad = "transaction";
+        let plaintext = br#"{"out_trade_no":"OT-1","trade_state":"SUCCESS"}"#;
+        let cipher = Aes256Gcm::new_from_slice(api_v3_key.as_bytes()).expect("aes");
+        // from_slice is the documented hot path for a fixed 12-byte stack slice.
+        #[allow(deprecated)]
+        let sealed = cipher
+            .encrypt(
+                TestNonce::from_slice(nonce.as_bytes()),
+                Payload {
+                    msg: plaintext,
+                    aad: aad.as_bytes(),
+                },
+            )
+            .expect("seal");
+        let encoded = B64.encode(&sealed);
+
+        assert_eq!(
+            crypto.decrypt_resource(aad, nonce, &encoded).expect("decrypt"),
+            plaintext.to_vec()
+        );
+
+        // A flipped ciphertext byte must not decrypt.
+        let mut tampered = sealed.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0xff;
+        assert!(crypto
+            .decrypt_resource(aad, nonce, &B64.encode(&tampered))
+            .is_err());
+        // The AAD binds the resource to its event: another one must not open it.
+        assert!(crypto.decrypt_resource("refund", nonce, &encoded).is_err());
+        // WeChat always sends a 12-byte nonce.
+        assert!(crypto.decrypt_resource(aad, "short", &encoded).is_err());
+    }
+    #[test]
     fn webhook_timestamp_requires_five_minute_freshness() {
         assert!(wechat_webhook_timestamp_is_fresh(
             "1700000000",
