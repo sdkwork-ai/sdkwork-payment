@@ -390,7 +390,12 @@ fn provider_refund_submission_state(
         },
         "wechat_pay" => match status.as_str() {
             "success" => ProviderRefundSubmissionState::Succeeded,
-            "closed" | "abnormal" => ProviderRefundSubmissionState::Failed,
+            // `closed` is terminal. `abnormal` (退款异常) means the money did not land
+            // and WeChat needs manual handling: marking it failed invites a retry
+            // that WeChat rejects on the same out_refund_no, and hides the limbo state
+            // from operators. Keep it non-terminal so the refund stays watched.
+            "closed" => ProviderRefundSubmissionState::Failed,
+            "abnormal" => ProviderRefundSubmissionState::Processing,
             _ => ProviderRefundSubmissionState::Processing,
         },
         "alipay" => match status.as_str() {
@@ -530,8 +535,13 @@ mod tests {
             provider_refund_submission_state("wechat_pay", Some("PROCESSING")),
             ProviderRefundSubmissionState::Processing
         );
+        // 退款异常: not terminal, and not a failure that may be resubmitted.
         assert_eq!(
             provider_refund_submission_state("wechat_pay", Some("ABNORMAL")),
+            ProviderRefundSubmissionState::Processing
+        );
+        assert_eq!(
+            provider_refund_submission_state("wechat_pay", Some("CLOSED")),
             ProviderRefundSubmissionState::Failed
         );
         assert_eq!(
