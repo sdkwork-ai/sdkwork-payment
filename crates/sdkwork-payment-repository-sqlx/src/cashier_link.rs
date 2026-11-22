@@ -29,8 +29,11 @@ const MAX_MINT_ATTEMPTS: usize = 3;
 
 /// Mints (or reuses) the short-link segment for an order.
 ///
-/// Returns `Ok(None)` when the deployment has not configured
-/// `SDKWORK_COMMERCE_CASHIER_TOKEN_SECRET`; the caller keeps the legacy link.
+/// Returns `Ok(None)` when no signing material is available — no configured
+/// KEK, no stored secret, a stored secret the deployed KEK cannot open, or a
+/// tenant that disabled the anonymous cashier. The caller keeps the legacy
+/// order-scoped link, which the anonymous H5 exchange cannot convert into a
+/// capability.
 pub async fn mint_cashier_short_link_postgres(
     pool: &PgPool,
     subject: &CashierTokenSubject<'_>,

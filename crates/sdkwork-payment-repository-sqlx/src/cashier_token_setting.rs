@@ -17,8 +17,17 @@
 //! issued just before a rotation keep working.
 //!
 //! Resolution order for reads: exact tenant row -> platform `'0'` row. A row
-//! without a stored secret is a legacy epoch-only row; callers then fall back
-//! to the deployment secret. Rotation always writes the exact tenant row.
+//! without a stored secret is a legacy epoch-only row, and callers then report
+//! that no signing material exists — there is no deployment-secret signing
+//! fallback. Rotation always writes the exact tenant row.
+//!
+//! The KEK is deployment state that outlives the sealed rows, so the two can
+//! disagree: replacing `SDKWORK_COMMERCE_CASHIER_TOKEN_SECRET` after a secret was
+//! sealed makes every stored secret unopenable. That case is never treated as
+//! "unconfigured" (which would silently mint a competing key over the tenant's
+//! slot), and it never fails an order: verification, reveal and rotation fail
+//! closed, while minting degrades to the login-required cashier link and reports
+//! the mismatch as an operator-visible error.
 
 use chrono::{DateTime, Duration, Utc};
 use sdkwork_contract_service::CommerceServiceError;
@@ -188,6 +197,20 @@ pub async fn load_cashier_token_signing_secrets_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
 ) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+    load_cashier_token_secret_state_postgres(pool, tenant_id)
+        .await?
+        .into_required()
+}
+
+/// Loads the effective row state for a tenant (exact tenant -> platform `'0'`).
+///
+/// An exact tenant row stays authoritative even when it is unopenable: falling
+/// back to the platform row would sign and verify with a key the tenant never
+/// had.
+async fn load_cashier_token_secret_state_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+) -> Result<CashierTokenSecretState, CommerceServiceError> {
     let tenant_id = normalize_tenant_id(tenant_id);
     if let Some(row) = load_cashier_token_secret_row_postgres(pool, &tenant_id)
         .await
@@ -215,7 +238,7 @@ pub async fn load_cashier_token_signing_secrets_postgres(
             );
         }
     }
-    Ok(None)
+    Ok(CashierTokenSecretState::NotStored)
 }
 
 /// Loads a tenant's signing secret, provisioning a fresh one on first use.
@@ -223,21 +246,34 @@ pub async fn load_cashier_token_signing_secrets_postgres(
 /// A disabled setting never provisions a secret. The generated secret is sealed
 /// by the host-installed `CashierSigningKeyCipher`; the deployment KEK is never
 /// used as the signing key itself. Callers get `None` when the setting is
-/// disabled or no key provider is available.
+/// disabled, when no key provider is available, or when a stored secret cannot
+/// be opened with the deployed KEK — minting then falls back to the
+/// login-required cashier link while the mismatch is reported as an error.
+///
+/// An unopenable stored secret is never replaced here: the row is left intact so
+/// an operator can restore the original KEK and recover the tenant's key.
 pub async fn ensure_cashier_token_signing_secrets_postgres(
     pool: &Pool<Postgres>,
     tenant_id: &str,
 ) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
-    if let Some(secrets) = load_cashier_token_signing_secrets_postgres(pool, tenant_id).await? {
-        return Ok(Some(secrets));
-    }
     let tenant_id = normalize_tenant_id(tenant_id);
+    let state = load_cashier_token_secret_state_postgres(pool, &tenant_id).await?;
+    match state {
+        CashierTokenSecretState::NotStored => {}
+        // An opened row yields the tenant key; an unopenable row logs the
+        // mismatch and degrades to "no signing material" instead of minting a
+        // competing secret over the tenant's occupied key slot.
+        state => return Ok(state.into_mintable(&tenant_id)),
+    }
     let view = retrieve_cashier_token_setting_postgres(pool, &tenant_id).await?;
     if !view.enabled {
         // A disabled tenant must not auto-provision a secret.
         return Ok(None);
     }
-    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
+    // No host-installed provider means no anonymous cashier, not a failed order.
+    let Ok(cipher) = cashier_signing_key_cipher() else {
+        return Ok(None);
+    };
     // 64 hex characters from two v4 UUIDs: 32 bytes of CSPRNG material. The
     // deployment KEK is never used as the signing key itself.
     let fresh_secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
@@ -893,53 +929,126 @@ struct CashierTokenSecretRow {
     previous_secret_expires_at_unix: Option<i64>,
 }
 
-/// Opens the sealed secrets of a row, or reports `None` for an epoch-only row.
+/// What one settings row yields when its sealed secret is opened.
+///
+/// The distinction between [`Self::NotStored`] and [`Self::Unopenable`] is
+/// load-bearing: an unopenable row still occupies the tenant's key slot, so
+/// provisioning must never treat it as "unconfigured" and mint a competing
+/// secret over it.
+#[derive(Debug)]
+enum CashierTokenSecretState {
+    /// An epoch-only row: no signing secret has ever been stored.
+    NotStored,
+    /// The sealed secret opened under the installed key-encryption key.
+    Opened(CashierTokenSigningSecrets),
+    /// A secret is stored but the installed key-encryption key cannot open it.
+    Unopenable(CashierTokenError),
+}
+
+impl CashierTokenSecretState {
+    /// Requires an openable secret; an unopenable row fails closed.
+    ///
+    /// Used by the verification and reveal surfaces: those must refuse to
+    /// pretend the deployment holds no key when one is stored and merely
+    /// unreadable.
+    fn into_required(self) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+        match self {
+            Self::NotStored => Ok(None),
+            Self::Opened(secrets) => Ok(Some(secrets)),
+            Self::Unopenable(error) => Err(CommerceServiceError::storage(format!(
+                "failed to open the stored cashier token signing secret: {error}"
+            ))),
+        }
+    }
+
+    /// Degrades an unopenable secret to "no signing material".
+    ///
+    /// Minting is the only caller that can proceed without one: the cashier link
+    /// falls back to its login-required form, so a key-encryption key that no
+    /// longer matches the sealed rows must not fail the order it only decorates.
+    /// The mismatch is still reported as an operator-visible error on every mint,
+    /// and verification keeps failing closed through [`Self::into_required`].
+    fn into_mintable(self, scope_tenant_id: &str) -> Option<CashierTokenSigningSecrets> {
+        match self {
+            Self::NotStored => None,
+            // A disabled tenant never mints, whatever a row still stores. The
+            // check belongs here as well as in the caller so a future caller of
+            // `ensure_...` cannot bypass the switch.
+            Self::Opened(secrets) if !secrets.enabled => None,
+            Self::Opened(secrets) => Some(secrets),
+            Self::Unopenable(error) => {
+                tracing::error!(
+                    tenant_id = scope_tenant_id,
+                    error = %error,
+                    "stored cashier token signing secret cannot be opened with the deployed \
+                     key-encryption key; the anonymous cashier stays unavailable until the \
+                     original key is restored"
+                );
+                None
+            }
+        }
+    }
+}
+
+/// Opens the sealed secrets of a row, or reports the row as epoch-only.
 fn open_cashier_token_secret_row(
     row: CashierTokenSecretRow,
     scope_tenant_id: &str,
     source: CashierTokenSettingSource,
-) -> Result<Option<CashierTokenSigningSecrets>, CommerceServiceError> {
+) -> Result<CashierTokenSecretState, CommerceServiceError> {
     if row.secret_ciphertext.trim().is_empty() {
-        return Ok(None);
+        return Ok(CashierTokenSecretState::NotStored);
     }
-    let cipher = cashier_signing_key_cipher().map_err(CommerceServiceError::storage)?;
-    let current_secret = cipher
-        .open(
-            scope_tenant_id,
-            &row.secret_ciphertext,
-            &row.secret_encryption_key_id,
-            &row.secret_encryption_algorithm,
-        )
-        .map_err(|error| {
-            CommerceServiceError::storage(format!(
-                "failed to open the stored cashier token signing secret: {error}"
-            ))
-        })?;
+    // A host that installed no provider can open nothing. Reporting it as an
+    // unavailable secret keeps every caller's fail-closed path identical instead
+    // of surfacing a host-wiring error only some of them handle.
+    let Ok(cipher) = cashier_signing_key_cipher() else {
+        return Ok(CashierTokenSecretState::Unopenable(
+            CashierTokenError::SecretUnavailable,
+        ));
+    };
+    let current_secret = match cipher.open(
+        scope_tenant_id,
+        &row.secret_ciphertext,
+        &row.secret_encryption_key_id,
+        &row.secret_encryption_algorithm,
+    ) {
+        Ok(secret) => secret,
+        // Keep the underlying reason (foreign key id vs corrupted ciphertext):
+        // it is what tells an operator whether to restore the KEK or rotate.
+        Err(error) => return Ok(CashierTokenSecretState::Unopenable(error)),
+    };
     let now_unix = Utc::now().timestamp();
     let previous_secret = match row.previous_secret_expires_at_unix {
         Some(expires_at)
             if expires_at > now_unix && !row.previous_secret_ciphertext.trim().is_empty() =>
         {
-            Some(
-                cipher
-                    .open(
-                        scope_tenant_id,
-                        &row.previous_secret_ciphertext,
-                        &row.previous_secret_encryption_key_id,
-                        &row.previous_secret_encryption_algorithm,
-                    )
-                    .map_err(|error| {
-                        CommerceServiceError::storage(format!(
-                            "failed to open the previous cashier token signing secret: {error}"
-                    ))
-                })?,
-            )
+            // An unopenable rotation leftover authorizes nothing: drop it and end
+            // the grace window early instead of failing every checkout that
+            // outlives a botched rotation.
+            match cipher.open(
+                scope_tenant_id,
+                &row.previous_secret_ciphertext,
+                &row.previous_secret_encryption_key_id,
+                &row.previous_secret_encryption_algorithm,
+            ) {
+                Ok(previous) => Some(previous),
+                Err(error) => {
+                    tracing::warn!(
+                        tenant_id = scope_tenant_id,
+                        error = %error,
+                        "previous cashier token signing secret is unopenable; the rotation grace \
+                         window ends early"
+                    );
+                    None
+                }
+            }
         }
         // A previous ciphertext without a future expiry is never accepted; a
         // rotation must not leave an unbounded second key behind.
         _ => None,
     };
-    Ok(Some(CashierTokenSigningSecrets {
+    Ok(CashierTokenSecretState::Opened(CashierTokenSigningSecrets {
         scope_tenant_id: row.scope_tenant_id,
         key_epoch: row.key_epoch.max(DEFAULT_CASHIER_TOKEN_EPOCH),
         enabled: row.enabled,
@@ -1102,10 +1211,61 @@ mod tests {
             previous_secret_encryption_algorithm: String::new(),
             previous_secret_expires_at_unix: None,
         };
-        assert_eq!(
+        assert!(matches!(
             open_cashier_token_secret_row(row, "100001", CashierTokenSettingSource::Tenant),
-            Ok(None)
+            Ok(CashierTokenSecretState::NotStored)
+        ));
+    }
+
+    fn signing_secret(tenant_id: &str) -> CashierTokenSigningSecrets {
+        CashierTokenSigningSecrets {
+            scope_tenant_id: tenant_id.to_owned(),
+            key_epoch: 2,
+            enabled: true,
+            current_secret: b"tenant-signing-secret".to_vec(),
+            previous_secret: None,
+            previous_expires_at_unix: None,
+            source: CashierTokenSettingSource::Tenant,
+        }
+    }
+
+    #[test]
+    fn an_unopenable_stored_secret_fails_closed_for_verification() {
+        // Verification, reveal and rotation must never report "no key
+        // configured" for a tenant whose key merely cannot be opened.
+        let required = CashierTokenSecretState::Unopenable(CashierTokenError::SecretUnavailable)
+            .into_required()
+            .expect_err("an unopenable secret must fail closed");
+        assert!(
+            required
+                .message()
+                .contains("failed to open the stored cashier token signing secret"),
+            "unexpected message: {}",
+            required.message()
         );
+    }
+
+    #[test]
+    fn an_unopenable_stored_secret_degrades_minting_instead_of_failing_the_order() {
+        // The production failure mode: the deployment KEK was replaced after the
+        // tenant signing secret had been sealed. Order checkout must keep working
+        // with the login-required cashier link instead of returning a 500.
+        let mintable = CashierTokenSecretState::Unopenable(CashierTokenError::SecretUnavailable)
+            .into_mintable("100001");
+        assert!(mintable.is_none());
+    }
+
+    #[test]
+    fn an_opened_secret_serves_both_verification_and_minting() {
+        let required = CashierTokenSecretState::Opened(signing_secret("100001"))
+            .into_required()
+            .expect("verification material")
+            .expect("stored secret");
+        assert_eq!(required.current_secret, b"tenant-signing-secret");
+        let mintable = CashierTokenSecretState::Opened(signing_secret("100001"))
+            .into_mintable("100001")
+            .expect("minting material");
+        assert_eq!(mintable.key_epoch, 2);
     }
 
     #[test]

@@ -13,8 +13,11 @@
 //! Rollout model: the token's **presence in the URL is the feature flag**. When
 //! the setting is disabled, no stored secret exists, or the key provider is
 //! unavailable, minting returns `Ok(None)` and the caller keeps the legacy
-//! login-required cashier link. A secret that is present but invalid fails
-//! loudly instead of silently degrading.
+//! order-scoped link, which the anonymous H5 exchange cannot turn into a
+//! capability (it answers 404 until the key works again). A stored secret the
+//! deployed KEK cannot open takes that same path and is reported as an operator
+//! error on every mint. Verification has no such fallback: it fails closed for
+//! every unreadable or mismatched secret.
 
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_utils_rust::{
@@ -79,8 +82,9 @@ pub fn mint_cashier_token_with_secret(
 /// Resolves the signing material new tokens must use for `tenant_id`.
 ///
 /// The payment center generates and stores the signing secret; a disabled
-/// setting or an unavailable key provider yields `None`, which the caller maps
-/// to the anonymous-cashier-disabled path.
+/// setting, an unavailable key provider, or a stored secret the deployed KEK
+/// cannot open all yield `None`, which the caller maps to the
+/// anonymous-cashier-disabled path.
 pub async fn resolve_cashier_token_mint_material(
     pool: &sqlx::PgPool,
     tenant_id: &str,
