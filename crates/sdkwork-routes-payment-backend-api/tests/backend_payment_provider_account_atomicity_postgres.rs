@@ -67,18 +67,24 @@ async fn atomicity_pool(label: &str) -> Option<PgPool> {
     Some(pool)
 }
 
-fn admin_context() -> IamAppContext {
-    IamAppContext::new(
-        "100001".to_owned(),
-        "user-admin".to_owned(),
-        IamUserSurface::Backend,
-        AuthLevel::Password,
-        Environment::Development,
+fn backend_member_context() -> IamAppContext {
+    let mut context = IamAppContext::new(
+        "100001",
+        None,
+        "1",
+        "session-1",
+        "sdkwork-payment",
+        Environment::Dev,
         DeploymentMode::Saas,
+        AuthLevel::Password,
+        vec!["tenant:100001".to_owned()],
         vec!["commerce.payments.provider_accounts.write".to_owned()],
-        Vec::new(),
-    )
-    .expect("admin context")
+    );
+    context.user_surface = IamUserSurface {
+        app: true,
+        organization_member: true,
+    };
+    context
 }
 
 #[tokio::test]
@@ -121,7 +127,7 @@ async fn a_credential_failure_rolls_back_the_provider_account() {
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
         .expect("request");
-    request.extensions_mut().insert(admin_context());
+    request.extensions_mut().insert(backend_member_context());
 
     let response = router.oneshot(request).await.expect("route");
     assert!(
