@@ -15,3 +15,4 @@ See `DOCUMENTATION_SPEC.md` section 2.
 | [troubleshooting.md](troubleshooting.md) / [troubleshooting.en.md](troubleshooting.en.md) | 症状 → doctor 检查 → 处置 |
 | [backup-restore.md](backup-restore.md) / [backup-restore.en.md](backup-restore.en.md) | 备份 / 校验 / 恢复 / 演练（bin/backup.sh） |
 | [log-reference.md](log-reference.md) / [log-reference.en.md](log-reference.en.md) | 健康日志特征与失败签名（bin/docker-deploy.sh logs） |
+| [unified-cashier-delivery.md](unified-cashier-delivery.md) | 统一收银台商业化交付清单：镜像构建（容器内 + libopus0）、compose 项目名、必需 env、部署后校验、密钥轮换、迁移预检、场景策略运营、回归门禁、回滚 |
