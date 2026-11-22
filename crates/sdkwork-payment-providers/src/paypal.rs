@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 
 use crate::adapter::{
     metadata_string, require_non_empty, require_positive_amount, PaymentAdapterFuture,
-    PaymentAdapterOperation, PaymentCancelPaymentIntentRequest, PaymentCreateIntentRequest,
+    PaymentAdapterOperation, PaymentCancelPaymentIntentRequest,
+    PaymentCapturePaymentIntentRequest, PaymentCreateIntentRequest,
     PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest, PaymentNormalizedWebhookEvent,
     PaymentProviderAdapter, PaymentProviderCapabilities, PaymentProviderOperationOutcome,
     PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest, PaymentVerifyWebhookRequest,
@@ -33,6 +34,7 @@ static PAYPAL_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabil
         PaymentAdapterOperation::CreatePaymentIntent,
         PaymentAdapterOperation::QueryPaymentIntent,
         PaymentAdapterOperation::CancelPaymentIntent,
+        PaymentAdapterOperation::CapturePaymentIntent,
         PaymentAdapterOperation::CreateRefund,
         PaymentAdapterOperation::QueryRefund,
         PaymentAdapterOperation::VerifyWebhook,
@@ -309,6 +311,34 @@ impl PaymentProviderAdapter for PayPalPaymentProviderAdapter {
                 .send_json("GET", &format!("/v2/checkout/orders/{order_id}"), None, None)
                 .await?;
             paypal_order_outcome(PaymentAdapterOperation::QueryPaymentIntent, response)
+        })
+    }
+
+    /// Captures the order after the payer approved it.
+    ///
+    /// A CAPTURE-intent order stops at APPROVED when the buyer approves: the
+    /// merchant must POST this capture or no money moves, and PayPal never emits
+    /// PAYMENT.CAPTURE.COMPLETED on its own. `PayPal-Request-Id` makes the call
+    /// idempotent, so a retry after a lost response cannot double-charge.
+    fn capture_payment_intent<'a>(
+        &'a self,
+        request: PaymentCapturePaymentIntentRequest,
+    ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome> {
+        Box::pin(async move {
+            let order_id = require_paypal_resource_id(
+                request.payment_intent_id.as_deref(),
+                PaymentAdapterOperation::CapturePaymentIntent,
+                "payment_intent_id",
+            )?;
+            let response = self
+                .send_json(
+                    "POST",
+                    &format!("/v2/checkout/orders/{order_id}/capture"),
+                    Some(json!({})),
+                    request.idempotency_key.as_deref(),
+                )
+                .await?;
+            paypal_order_outcome(PaymentAdapterOperation::CapturePaymentIntent, response)
         })
     }
 
@@ -824,6 +854,26 @@ mod tests {
             "id"
         )
         .is_ok());
+    }
+
+    #[test]
+    fn paypal_declares_the_capture_operation_its_flow_requires() {
+        // PayPal's buyer flow ends at APPROVED; without this operation an
+        // approved order would never move money and no success webhook would
+        // ever be emitted.
+        assert!(super::PAYPAL_CAPABILITIES
+            .operations
+            .contains(&PaymentAdapterOperation::CapturePaymentIntent));
+        // The channels that capture on create must not declare it.
+        assert!(!crate::adapter::PaymentProviderCapabilities {
+            provider_code: "x",
+            operations: &[PaymentAdapterOperation::CreatePaymentIntent],
+            products: &[],
+            currencies: CurrencyPolicy::AnyTwoDecimal,
+            refund_mode: RefundMode::FullOrPartial,
+        }
+        .operations
+        .contains(&PaymentAdapterOperation::CapturePaymentIntent));
     }
 
     #[test]

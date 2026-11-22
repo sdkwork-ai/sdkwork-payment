@@ -12,6 +12,9 @@ pub enum PaymentAdapterOperation {
     CreatePaymentIntent,
     QueryPaymentIntent,
     CancelPaymentIntent,
+    /// Completes a two-phase provider payment whose buyer flow ends in an
+    /// approval that still needs a merchant capture (PayPal Orders v2).
+    CapturePaymentIntent,
     CreateRefund,
     QueryRefund,
     VerifyWebhook,
@@ -95,6 +98,24 @@ pub trait PaymentProviderAdapter: Send + Sync {
         request: PaymentQueryPaymentIntentRequest,
     ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome>;
 
+    /// Captures a payment whose buyer approval is already recorded.
+    ///
+    /// Providers that take the money on create inherit this default and report
+    /// the operation as unsupported; only a channel whose buyer flow stops at
+    /// approval (PayPal Orders v2) overrides it.
+    fn capture_payment_intent<'a>(
+        &'a self,
+        request: PaymentCapturePaymentIntentRequest,
+    ) -> PaymentAdapterFuture<'a, PaymentProviderOperationOutcome> {
+        let _ = request;
+        Box::pin(async move {
+            Err(crate::error::ProviderError::invalid_request(
+                PaymentAdapterOperation::CapturePaymentIntent,
+                "this provider does not require a separate capture",
+            ))
+        })
+    }
+
     fn cancel_payment_intent<'a>(
         &'a self,
         request: PaymentCancelPaymentIntentRequest,
@@ -134,6 +155,15 @@ pub struct PaymentCreateIntentRequest {
     pub notify_url: Option<String>,
     pub expires_at: Option<String>,
     pub payment_scene: Option<String>,
+    pub metadata: Value,
+}
+
+/// Requests the capture of a provider order that stopped at buyer approval.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaymentCapturePaymentIntentRequest {
+    pub payment_intent_id: Option<String>,
+    /// Idempotency key for the capture call (`PayPal-Request-Id`).
+    pub idempotency_key: Option<String>,
     pub metadata: Value,
 }
 
