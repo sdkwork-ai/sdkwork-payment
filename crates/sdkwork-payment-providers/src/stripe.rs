@@ -15,6 +15,7 @@ use crate::adapter::{
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
+use crate::money::ensure_currency_supported;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -418,6 +419,16 @@ fn require_currency(
             "Stripe currency must be an ISO 4217 three-letter code",
         ));
     }
+    // Stripe receives the amount as an integer in the currency's smallest unit.
+    // Our minor-unit convention and the NUMERIC(18,2) storage are two-decimal
+    // only, so a zero- or three-decimal currency would be charged at the wrong
+    // magnitude here even if a caller bypassed the intent-path guard.
+    if ensure_currency_supported(&currency).is_err() {
+        return Err(ProviderError::invalid_request(
+            operation,
+            format!("Stripe currency {currency} is not supported: it does not use two decimal places"),
+        ));
+    }
     Ok(currency)
 }
 
@@ -633,6 +644,26 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_non_two_decimal_currency_never_reaches_stripe() {
+        // Stripe would charge the smallest unit verbatim; JPY 1234 minor units
+        // would be ¥1234 instead of ¥12.34. Reject before the request exists.
+        assert!(super::require_currency(
+            Some("usd"),
+            PaymentAdapterOperation::CreatePaymentIntent
+        )
+        .is_ok());
+        for code in ["jpy", "KRW", "kwd", "BHD"] {
+            assert!(
+                super::require_currency(Some(code), PaymentAdapterOperation::CreatePaymentIntent)
+                    .is_err(),
+                "{code} must be rejected"
+            );
+        }
+        // Shape validation still applies.
+        assert!(super::require_currency(Some("US"), PaymentAdapterOperation::CreatePaymentIntent)
+            .is_err());
+    }
     #[test]
     fn stripe_refund_query_matches_the_merchant_refund_number() {
         let response = serde_json::json!({
