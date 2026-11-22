@@ -164,3 +164,70 @@ gated suites 12, PC cashier 8, H5 4, mini-program 17.
 3. Secrets: restoring the previous KEK requires the previous value; a KEK rotation
    that already re-sealed secrets cannot be undone, which is why the previous value
    belongs in `..._SECRET_RETIRED` for the overlap window instead of being deleted.
+
+## 9. Synchronising the workspace before verification
+
+The gateway and the router service depend on sibling repositories by **path**, so a
+checkout that pulls only the service under test can fail to compile for reasons that
+are not in that service:
+
+| Consumer | Path dependency that must be synced |
+| --- | --- |
+| sdkwork-cloudrouter | `../sdkwork-models` (`sdkwork_models_catalog_service`) |
+
+Observed failure mode: `error[E0407]: method candidate_hashes is not a member of
+trait ApiKeySecretHasher` in the router service. The trait was present in
+`sdkwork-models` `origin/main`; the sibling checkout was two commits behind. Sync
+every submodule the build touches before treating a compile error as a regression:
+
+```bash
+cd /opt/source/sdkwork-space
+for r in sdkwork-payment sdkwork-order sdkwork-utils sdkwork-cloudrouter \
+         sdkwork-api-cloud-gateway sdkwork-models; do
+  git -C "$r" fetch --quiet origin && git -C "$r" pull --ff-only --quiet origin main
+done
+```
+
+## 10. Golden and locked-count tests
+
+`openapi_billing_matrix` fails when an endpoint is added or its billing class
+changes, which is intended: every difference is a billing change. When the change is
+intended, refresh and move the locked counts in the same commit:
+
+```bash
+cd sdkwork-cloudrouter
+UPDATE_BILLING_MATRIX=1 cargo test -p sdkwork-cloudrouter-router-service \
+  --test openapi_billing_matrix
+# then update the literals in commercial_readiness_counts_are_exactly_*_of_*:
+#   total operations, Free count, sellable count
+```
+
+The refresh must show only the intended endpoint rows in the golden diff; anything
+else is a real regression.
+
+## 11. Known gaps at handover
+
+These are the items that were **not** completed in this pass. They are listed so the
+delivery boundary is auditable rather than implied.
+
+1. **Checkout scene policy is not yet consulted by the product resolver.** The
+   table, resolver, dry-run endpoint, CRUD, audit and default seeds are live, but the
+   checkout path still derives the product from the method catalog. Closing this
+   needs the client to report its OS (`ios`/`android`/`harmony`) next to the scene
+   and client type; wiring it before that would route app buyers to the H5 fallback
+   rule, which is worse than the current behaviour.
+2. **Flutter native payment launch** is implemented only up to the contract: the
+   client resolves a launch plan and tells the payer what to do, but the WeChat/Alipay
+   SDK invocation and the browser/QR surfaces need the platform plugins.
+3. **H5 membership and points-recharge purchase entry** do not exist yet; the
+   membership subscription page component exists but nothing configures its runtime
+   in the H5 host.
+4. **Payment admin "operation history" screen** is not built; the audit API it needs
+   is live.
+5. **Non-payment security gaps found in the development environment** and still
+   open: the memory web runtime logs that authorization policy, tenant isolation,
+   Redis rate limiting, idempotency, admission control and request deadlines are
+   disabled; the LR store warns that upstream API keys are stored in plaintext
+   without its encryption secret; the deploy service warns that certificate custody
+   is unconfigured. None of these regress the payment flows, but each must be
+   fail-closed before a production claim.
