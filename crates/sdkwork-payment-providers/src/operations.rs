@@ -154,6 +154,17 @@ pub enum ProviderPaymentQueryState {
     Canceled,
 }
 
+/// Normalized outcome of a provider payment-intent query.
+///
+/// `raw_status` keeps the provider's own vocabulary (PayPal `APPROVED`, WeChat
+/// `NOTPAY`, …) because some channels need it for channel-specific decisions —
+/// capturing an approved PayPal order is the only way its money ever moves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderPaymentQuery {
+    pub state: ProviderPaymentQueryState,
+    pub raw_status: Option<String>,
+}
+
 /// Queries the PSP for the current payment-intent state. Returns `None` when
 /// the trade does not exist at the provider (order never reached the PSP or
 /// was closed before submission).
@@ -162,10 +173,13 @@ pub async fn query_provider_payment_intent(
     provider_code: &str,
     out_trade_no: &str,
     provider_transaction_id: Option<&str>,
-) -> Result<Option<ProviderPaymentQueryState>, CommerceServiceError> {
+) -> Result<Option<ProviderPaymentQuery>, CommerceServiceError> {
     let provider_code = normalize_provider_code(provider_code);
     if provider_code == "sandbox" || provider_code.is_empty() {
-        return Ok(Some(ProviderPaymentQueryState::Succeeded));
+        return Ok(Some(ProviderPaymentQuery {
+            state: ProviderPaymentQueryState::Succeeded,
+            raw_status: None,
+        }));
     }
     let adapter = registry.resolve(&provider_code).ok_or_else(|| {
         CommerceServiceError::provider_unavailable(format!(
@@ -190,10 +204,13 @@ pub async fn query_provider_payment_intent(
         })
         .await;
     match result {
-        Ok(outcome) => Ok(Some(provider_payment_query_state(
-            &provider_code,
-            outcome.raw_status.as_deref(),
-        ))),
+        Ok(outcome) => {
+            let raw_status = outcome.raw_status.clone();
+            Ok(Some(ProviderPaymentQuery {
+                state: provider_payment_query_state(&provider_code, raw_status.as_deref()),
+                raw_status,
+            }))
+        }
         Err(error) if payment_query_error_means_not_found(&provider_code, &error) => Ok(None),
         Err(error) => Err(error.into()),
     }
