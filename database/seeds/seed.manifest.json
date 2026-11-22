@@ -17,7 +17,8 @@
         "002_production_templates.sql",
         "006_upgrade_bootstrap_templates.sql",
         "005_production_sandbox_template.sql",
-        "008_production_recharge_checkout_wechat_pay.sql"
+        "008_production_recharge_checkout_wechat_pay.sql",
+        "009_production_recharge_checkout_alipay.sql"
       ]
     },
     "production": {
@@ -34,7 +35,8 @@
         "002_production_templates.sql",
         "006_upgrade_bootstrap_templates.sql",
         "005_production_sandbox_template.sql",
-        "008_production_recharge_checkout_wechat_pay.sql"
+        "008_production_recharge_checkout_wechat_pay.sql",
+        "009_production_recharge_checkout_alipay.sql"
       ]
     },
     "development": {
@@ -51,7 +53,8 @@
         "002_production_templates.sql",
         "006_upgrade_bootstrap_templates.sql",
         "003_development_templates.sql",
-        "008_development_recharge_checkout_wechat_pay.sql"
+        "008_development_recharge_checkout_wechat_pay.sql",
+        "009_development_recharge_checkout_alipay.sql"
       ]
     },
     "test": {
@@ -68,7 +71,8 @@
         "002_production_templates.sql",
         "006_upgrade_bootstrap_templates.sql",
         "004_test_templates.sql",
-        "008_test_recharge_checkout_wechat_pay.sql"
+        "008_test_recharge_checkout_wechat_pay.sql",
+        "009_test_recharge_checkout_alipay.sql"
       ]
     }
   },
