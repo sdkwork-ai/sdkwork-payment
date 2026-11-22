@@ -133,72 +133,50 @@ fn payment_params_from_provider(
     if let Some(status) = &outcome.raw_status {
         params.insert("providerStatus".to_owned(), status.clone());
     }
-    match provider_code {
-        "stripe" => {
-            if let Some(secret) = outcome.payload.get("client_secret").and_then(Value::as_str) {
-                params.insert("clientSecret".to_owned(), secret.to_owned());
-            }
-            params.insert("nextAction".to_owned(), "stripe_confirm".to_owned());
+    // The launch protocol is a property of the payload, not of the provider: an
+    // adapter decides which upstream call to make and returns the resulting
+    // payload, and the cashier reads one normalized next action from it. This is
+    // what keeps a new channel additive instead of another arm in a match.
+    //
+    // Precedence, most specific launch first:
+    //   in-app SDK params > redirect page > scan QR > nothing to launch.
+    let first_str = |keys: &[&str]| -> Option<String> {
+        keys.iter()
+            .find_map(|key| outcome.payload.get(*key).and_then(Value::as_str))
+            .map(str::to_owned)
+    };
+    if let Some(sdk_params) = outcome.payload.get("sdk_invoke_params") {
+        if let Ok(serialized) = serde_json::to_string(sdk_params) {
+            params.insert("jsapiPayload".to_owned(), serialized);
+            params.insert("nextAction".to_owned(), "jsapi".to_owned());
         }
-        "alipay" => {
-            // WAP redirect is preferred in-app/browser: the cashier jumps to
-            // the Alipay H5 cashier page instead of showing a scan QR code.
-            // PC website pays surface the full cashier form for the browser
-            // to render and auto-submit (`payForm`).
-            if let Some(redirect) = outcome.payload.get("redirect_url").and_then(Value::as_str) {
-                params.insert("payUrl".to_owned(), redirect.to_owned());
-                params.insert("nextAction".to_owned(), "redirect".to_owned());
-            } else if let Some(qr) = outcome.payload.get("qr_code").and_then(Value::as_str) {
-                params.insert("qrCodeUrl".to_owned(), qr.to_owned());
-                params.insert("nextAction".to_owned(), "qr_code".to_owned());
-            }
-            if let Some(form) = outcome.payload.get("payForm").and_then(Value::as_str) {
-                params.insert("payForm".to_owned(), form.to_owned());
-            }
-            // App pay returns the signed `orderStr` for the Alipay App SDK; it is
-            // a launch payload, never a navigation target.
-            if let Some(order_str) = outcome.payload.get("orderStr").and_then(Value::as_str) {
-                params.insert("orderStr".to_owned(), order_str.to_owned());
-                params.insert("nextAction".to_owned(), "app".to_owned());
-            }
+    } else if let Some(app_params) = outcome.payload.get("app_invoke_params") {
+        if let Ok(serialized) = serde_json::to_string(app_params) {
+            params.insert("appPayload".to_owned(), serialized);
+            params.insert("nextAction".to_owned(), "app".to_owned());
         }
-        "wechat_pay" => {
-            // JSAPI invocation params take priority inside the WeChat app;
-            // the native code_url remains as the scan/press-and-hold
-            // fallback, the H5 h5_url as the mobile-browser cashier link,
-            // and the App PayReq params for the native App SDK.
-            if let Some(sdk_params) = outcome.payload.get("sdk_invoke_params") {
-                if let Ok(serialized) = serde_json::to_string(sdk_params) {
-                    params.insert("jsapiPayload".to_owned(), serialized);
-                    params.insert("nextAction".to_owned(), "jsapi".to_owned());
-                }
-            } else if let Some(app_params) = outcome.payload.get("app_invoke_params") {
-                if let Ok(serialized) = serde_json::to_string(app_params) {
-                    params.insert("appPayload".to_owned(), serialized);
-                    params.insert("nextAction".to_owned(), "app".to_owned());
-                }
-            } else if let Some(h5) = outcome.payload.get("h5_url").and_then(Value::as_str) {
-                params.insert("payUrl".to_owned(), h5.to_owned());
-                params.insert("nextAction".to_owned(), "redirect".to_owned());
-            } else if let Some(qr) = outcome.payload.get("code_url").and_then(Value::as_str) {
-                params.insert("qrCodeUrl".to_owned(), qr.to_owned());
-                params.insert("nextAction".to_owned(), "qr_code".to_owned());
-            }
-        }
-        "paypal" => {
-            // PayPal's buyer flow is the hosted approval page: the payer is
-            // redirected to the order's `approve` link, and settlement is
-            // confirmed by the PAYMENT.CAPTURE.COMPLETED webhook afterwards.
-            if let Some(approve_url) =
-                outcome.payload.get("approve_url").and_then(Value::as_str)
-            {
-                params.insert("payUrl".to_owned(), approve_url.to_owned());
-                params.insert("nextAction".to_owned(), "redirect".to_owned());
-            }
-        }
-        _ => {
-            params.insert("nextAction".to_owned(), "cashier".to_owned());
-        }
+    } else if let Some(order_str) = first_str(&["orderStr"]) {
+        // Signed App-SDK launch string (Alipay app.pay): never a URL to open.
+        params.insert("orderStr".to_owned(), order_str);
+        params.insert("nextAction".to_owned(), "app".to_owned());
+    } else if let Some(secret) = first_str(&["client_secret"]) {
+        // Stripe hands the browser a client secret and confirms via Stripe.js.
+        params.insert("clientSecret".to_owned(), secret);
+        params.insert("nextAction".to_owned(), "stripe_confirm".to_owned());
+    } else if let Some(url) = first_str(&["approve_url", "h5_url", "redirect_url"]) {
+        // Hosted approval page (PayPal), mobile-browser cashier (WeChat H5) or
+        // the Alipay WAP/PC cashier — all navigations.
+        params.insert("payUrl".to_owned(), url);
+        params.insert("nextAction".to_owned(), "redirect".to_owned());
+    } else if let Some(qr) = first_str(&["qr_code", "code_url"]) {
+        params.insert("qrCodeUrl".to_owned(), qr);
+        params.insert("nextAction".to_owned(), "qr_code".to_owned());
+    } else {
+        params.insert("nextAction".to_owned(), "cashier".to_owned());
+    }
+    // A rendered cashier form can accompany any of the above (Alipay PC auto-submit).
+    if let Some(form) = first_str(&["payForm"]) {
+        params.insert("payForm".to_owned(), form);
     }
     params
 }
@@ -448,6 +426,50 @@ mod tests {
         assert!(!params.contains_key("qrCodeUrl"));
     }
 
+    #[test]
+    fn a_channel_the_core_never_heard_of_still_gets_a_next_action() {
+        // The launch protocol is derived from the payload, so adding a PSP needs
+        // no arm in the core: any adapter that returns these keys works.
+        let redirect = PaymentProviderOperationOutcome {
+            provider_code: "brand_new_psp".to_owned(),
+            native_id: Some("tx-1".to_owned()),
+            raw_status: None,
+            payload: json!({ "redirect_url": "https://pay.example.com/abc" }),
+        };
+        let params = payment_params_from_provider("brand_new_psp", &redirect);
+        assert_eq!(params.get("nextAction").map(String::as_str), Some("redirect"));
+        assert_eq!(
+            params.get("payUrl").map(String::as_str),
+            Some("https://pay.example.com/abc")
+        );
+
+        let qr = PaymentProviderOperationOutcome {
+            provider_code: "brand_new_psp".to_owned(),
+            native_id: Some("tx-2".to_owned()),
+            raw_status: None,
+            payload: json!({ "code_url": "weixin://wxpay/bizpayurl?pr=abc" }),
+        };
+        assert_eq!(
+            payment_params_from_provider("brand_new_psp", &qr)
+                .get("nextAction")
+                .map(String::as_str),
+            Some("qr_code")
+        );
+
+        // Nothing launchable: the cashier falls back instead of inventing an action.
+        let empty = PaymentProviderOperationOutcome {
+            provider_code: "brand_new_psp".to_owned(),
+            native_id: None,
+            raw_status: None,
+            payload: json!({}),
+        };
+        assert_eq!(
+            payment_params_from_provider("brand_new_psp", &empty)
+                .get("nextAction")
+                .map(String::as_str),
+            Some("cashier")
+        );
+    }
     #[test]
     fn wechat_native_falls_back_to_qr_code() {
         let outcome = PaymentProviderOperationOutcome {
