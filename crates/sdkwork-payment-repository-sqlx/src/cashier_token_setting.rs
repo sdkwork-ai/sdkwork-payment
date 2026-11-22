@@ -274,6 +274,33 @@ fn write_cached_signing_secret(tenant_id: &str, secrets: &CashierTokenSigningSec
     );
 }
 
+/// True when the tenant has the anonymous cashier enabled but this deployment
+/// cannot mint a capability right now.
+///
+/// That is the case when the host installed no key provider, or when a stored
+/// secret exists that the deployed KEK cannot open. Callers use it to answer
+/// `503 provider-unavailable` instead of emitting a cashier URL whose token
+/// exchange can only answer 404 — a QR the payer can scan but never pay.
+pub async fn cashier_token_mint_is_blocked_postgres(
+    pool: &Pool<Postgres>,
+    tenant_id: &str,
+) -> Result<bool, CommerceServiceError> {
+    let tenant_id = normalize_tenant_id(tenant_id);
+    let view = retrieve_cashier_token_setting_postgres(pool, &tenant_id).await?;
+    if !view.enabled {
+        // An intentionally disabled cashier is not a failure: the login-required
+        // link is the documented behaviour.
+        return Ok(false);
+    }
+    Ok(
+        match load_cashier_token_secret_state_postgres(pool, &tenant_id).await? {
+            CashierTokenSecretState::Opened(secrets) => secrets.current_secret.is_empty(),
+            CashierTokenSecretState::Unopenable(_) => true,
+            CashierTokenSecretState::NotStored => cashier_signing_key_cipher().is_err(),
+        },
+    )
+}
+
 /// Loads the secrets used to *mint* a cashier token, cached per tenant.
 ///
 /// This is the checkout hot path: without the cache every order paid one database
