@@ -24,10 +24,62 @@ impl std::fmt::Display for PaymentAdapterOperation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Currencies an adapter can actually settle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CurrencyPolicy {
+    /// Every ISO currency whose minor unit is 1/100. Non-two-decimal
+    /// currencies stay rejected until the storage scale is migrated.
+    AnyTwoDecimal,
+    /// Exactly these ISO-4217 codes (e.g. WeChat Pay and Alipay settle in CNY).
+    Only(&'static [&'static str]),
+}
+
+/// Which refunds an adapter can express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefundMode {
+    /// No refund API at all.
+    Unsupported,
+    /// Refund API that accepts any amount up to the captured total.
+    FullOrPartial,
+}
+
+/// What an adapter declares it can do, as data rather than as code paths.
+///
+/// The cashier, the admin surface and the checkout guards read this instead of
+/// switching on `provider_code`, which is what keeps a new channel additive.
+/// `products` are the wire method keys the adapter serves; each adapter asserts
+/// in its own tests that every declared key reaches a real upstream product, so a
+/// declaration cannot drift away from the implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaymentProviderCapabilities {
     pub provider_code: &'static str,
     pub operations: &'static [PaymentAdapterOperation],
+    /// Wire method keys this adapter can serve (`wechat_jsapi`, `alipay_wap`, …).
+    pub products: &'static [&'static str],
+    pub currencies: CurrencyPolicy,
+    pub refund_mode: RefundMode,
+}
+
+impl PaymentProviderCapabilities {
+    /// True when the adapter declares support for `method_key`.
+    #[must_use]
+    pub fn supports_product(&self, method_key: &str) -> bool {
+        self.products
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(method_key.trim()))
+    }
+
+    /// True when the adapter can settle `currency_code`.
+    #[must_use]
+    pub fn supports_currency(&self, currency_code: &str) -> bool {
+        let code = currency_code.trim().to_ascii_uppercase();
+        match self.currencies {
+            CurrencyPolicy::AnyTwoDecimal => {
+                crate::money::ensure_currency_supported(&code).is_ok()
+            }
+            CurrencyPolicy::Only(codes) => codes.iter().any(|candidate| *candidate == code),
+        }
+    }
 }
 
 pub trait PaymentProviderAdapter: Send + Sync {
@@ -228,4 +280,51 @@ pub(crate) fn metadata_string<'a>(metadata: &'a Value, key: &str) -> Option<&'a 
 
 pub fn normalize_provider_code(provider_code: &str) -> String {
     provider_code.trim().to_ascii_lowercase().replace('-', "_")
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    const CNY_ONLY: PaymentProviderCapabilities = PaymentProviderCapabilities {
+        provider_code: "test",
+        operations: &[PaymentAdapterOperation::CreatePaymentIntent],
+        products: &["wechat_jsapi", "wechat_h5"],
+        currencies: CurrencyPolicy::Only(&["CNY"]),
+        refund_mode: RefundMode::FullOrPartial,
+    };
+
+    const ANY_TWO_DECIMAL: PaymentProviderCapabilities = PaymentProviderCapabilities {
+        provider_code: "test",
+        operations: &[PaymentAdapterOperation::CreatePaymentIntent],
+        products: &["stripe_card"],
+        currencies: CurrencyPolicy::AnyTwoDecimal,
+        refund_mode: RefundMode::FullOrPartial,
+    };
+
+    #[test]
+    fn product_lookup_ignores_case_and_surrounding_space() {
+        assert!(CNY_ONLY.supports_product("wechat_jsapi"));
+        assert!(CNY_ONLY.supports_product(" WeChat_JSAPI "));
+        assert!(!CNY_ONLY.supports_product("wechat_native"));
+        assert!(!CNY_ONLY.supports_product(""));
+    }
+
+    #[test]
+    fn a_cny_only_channel_never_advertises_another_currency() {
+        assert!(CNY_ONLY.supports_currency("CNY"));
+        assert!(CNY_ONLY.supports_currency(" cny "));
+        assert!(!CNY_ONLY.supports_currency("USD"));
+        assert!(!CNY_ONLY.supports_currency("JPY"));
+    }
+
+    #[test]
+    fn any_two_decimal_still_rejects_currencies_the_storage_cannot_hold() {
+        assert!(ANY_TWO_DECIMAL.supports_currency("USD"));
+        assert!(ANY_TWO_DECIMAL.supports_currency("eur"));
+        // The ISO exponent table decides, not a separate list.
+        assert!(!ANY_TWO_DECIMAL.supports_currency("JPY"));
+        assert!(!ANY_TWO_DECIMAL.supports_currency("KWD"));
+        assert!(!ANY_TWO_DECIMAL.supports_currency("EURO"));
+    }
 }

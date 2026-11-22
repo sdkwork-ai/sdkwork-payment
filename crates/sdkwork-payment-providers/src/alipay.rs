@@ -16,7 +16,8 @@ use crate::adapter::{
     PaymentCreateIntentRequest, PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest,
     PaymentNormalizedWebhookEvent, PaymentProviderAdapter, PaymentProviderCapabilities,
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
-    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome,
+    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome, CurrencyPolicy,
+    RefundMode,
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
@@ -41,6 +42,9 @@ static ALIPAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabil
         PaymentAdapterOperation::VerifyWebhook,
         PaymentAdapterOperation::NormalizeWebhook,
     ],
+    products: &["alipay_qr", "alipay_pc", "alipay_wap", "alipay_app", "alipay_jsapi"],
+    currencies: CurrencyPolicy::Only(&["CNY"]),
+    refund_mode: RefundMode::FullOrPartial,
 };
 
 #[derive(Clone, PartialEq, Eq)]
@@ -844,6 +848,29 @@ mod tests {
     use crate::adapter::PaymentAdapterOperation;
     use crate::error::ProviderError;
 
+    #[test]
+    fn every_declared_product_reaches_a_real_alipay_api_method() {
+        // The declaration is what the cashier and admin read; it must not drift
+        // away from the mapping the adapter actually executes.
+        let expected = [
+            ("alipay_qr", "alipay.trade.precreate"),
+            ("alipay_pc", "alipay.trade.page.pay"),
+            ("alipay_wap", "alipay.trade.wap.pay"),
+            ("alipay_app", "alipay.trade.app.pay"),
+            ("alipay_jsapi", "alipay.trade.create"),
+        ];
+        assert_eq!(super::ALIPAY_CAPABILITIES.products.len(), expected.len());
+        for (key, api_method) in expected {
+            assert!(
+                super::ALIPAY_CAPABILITIES.supports_product(key),
+                "{key} must be declared"
+            );
+            assert_eq!(super::alipay_method_for_key(key).0, api_method, "{key}");
+        }
+        // Settlement is CNY only, and refunds are supported.
+        assert!(super::ALIPAY_CAPABILITIES.supports_currency("CNY"));
+        assert!(!super::ALIPAY_CAPABILITIES.supports_currency("USD"));
+    }
     #[test]
     fn refund_amount_is_bounded_by_the_captured_total_before_signing() {
         assert!(super::validate_alipay_refund_request(100, Some(100), Some("CNY")).is_ok());

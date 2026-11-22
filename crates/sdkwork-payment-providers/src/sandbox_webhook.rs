@@ -16,7 +16,8 @@ use crate::adapter::{
     PaymentCreateIntentRequest, PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest,
     PaymentNormalizedWebhookEvent, PaymentProviderAdapter, PaymentProviderCapabilities,
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
-    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome,
+    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome, CurrencyPolicy,
+    RefundMode,
 };
 use crate::error::ProviderError;
 
@@ -28,6 +29,9 @@ const SANDBOX_WEBHOOK_OPERATIONS: &[PaymentAdapterOperation] = &[
 static SANDBOX_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: "sandbox",
     operations: SANDBOX_WEBHOOK_OPERATIONS,
+    products: &["sandbox_test"],
+    currencies: CurrencyPolicy::AnyTwoDecimal,
+    refund_mode: RefundMode::Unsupported,
 };
 
 /// Sandbox provider webhook adapter: accepts unsigned bodies and maps the

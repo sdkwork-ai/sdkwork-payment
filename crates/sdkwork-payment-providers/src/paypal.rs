@@ -12,6 +12,8 @@ use crate::adapter::{
     PaymentProviderAdapter, PaymentProviderCapabilities, PaymentProviderOperationOutcome,
     PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest, PaymentVerifyWebhookRequest,
     PaymentWebhookVerificationOutcome,
+    CurrencyPolicy,
+    RefundMode,
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
@@ -36,6 +38,9 @@ static PAYPAL_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabil
         PaymentAdapterOperation::VerifyWebhook,
         PaymentAdapterOperation::NormalizeWebhook,
     ],
+    products: &["paypal"],
+    currencies: CurrencyPolicy::AnyTwoDecimal,
+    refund_mode: RefundMode::FullOrPartial,
 };
 
 #[derive(Clone, PartialEq, Eq)]

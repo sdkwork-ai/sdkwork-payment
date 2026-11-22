@@ -20,7 +20,8 @@ use crate::adapter::{
     PaymentCreateIntentRequest, PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest,
     PaymentNormalizedWebhookEvent, PaymentProviderAdapter, PaymentProviderCapabilities,
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
-    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome,
+    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome, CurrencyPolicy,
+    RefundMode,
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
@@ -40,6 +41,9 @@ static WECHAT_PAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCap
         PaymentAdapterOperation::VerifyWebhook,
         PaymentAdapterOperation::NormalizeWebhook,
     ],
+    products: &["wechat_pay", "wechat_native", "wechat_jsapi", "wechat_h5", "wechat_app"],
+    currencies: CurrencyPolicy::Only(&["CNY"]),
+    refund_mode: RefundMode::FullOrPartial,
 };
 
 /// 微信支付 API v3 验签凭据模式（官方"证书密钥概览"二选一）：

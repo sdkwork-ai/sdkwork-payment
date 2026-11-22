@@ -11,7 +11,8 @@ use crate::adapter::{
     PaymentCreateIntentRequest, PaymentCreateRefundRequest, PaymentNormalizeWebhookRequest,
     PaymentNormalizedWebhookEvent, PaymentProviderAdapter, PaymentProviderCapabilities,
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
-    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome,
+    PaymentVerifyWebhookRequest, PaymentWebhookVerificationOutcome, CurrencyPolicy,
+    RefundMode,
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
@@ -33,6 +34,9 @@ static STRIPE_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabil
         PaymentAdapterOperation::VerifyWebhook,
         PaymentAdapterOperation::NormalizeWebhook,
     ],
+    products: &["stripe_card", "stripe_apple_pay", "stripe_google_pay", "stripe_alipay", "stripe_wechat_pay"],
+    currencies: CurrencyPolicy::AnyTwoDecimal,
+    refund_mode: RefundMode::FullOrPartial,
 };
 
 #[derive(Clone, PartialEq, Eq)]
