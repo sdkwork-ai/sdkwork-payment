@@ -4,6 +4,7 @@ use sdkwork_contract_service::CommerceServiceError;
 use serde_json::json;
 
 use crate::adapter::{
+    PaymentAdapterOperation,
     normalize_provider_code, PaymentCancelPaymentIntentRequest, PaymentCreateRefundRequest,
     PaymentQueryRefundRequest,
 };
@@ -196,6 +197,62 @@ pub async fn query_provider_payment_intent(
         Err(error) if payment_query_error_means_not_found(&provider_code, &error) => Ok(None),
         Err(error) => Err(error.into()),
     }
+}
+
+/// True when the provider's raw status means the buyer approved but the merchant
+/// has not captured yet (PayPal Orders v2 stops at `APPROVED`).
+///
+/// The compensation loop uses this to decide whether it must capture; every
+/// other channel captures as part of its own flow and returns `false`.
+#[must_use]
+pub fn provider_payment_awaits_capture(provider_code: &str, raw_status: Option<&str>) -> bool {
+    if !provider_code.trim().eq_ignore_ascii_case("paypal") {
+        return false;
+    }
+    matches!(
+        raw_status.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("approved")
+    )
+}
+
+/// Captures a provider order that stopped at buyer approval.
+///
+/// Only a channel that declares [`PaymentAdapterOperation::CapturePaymentIntent`]
+/// can capture; asking another channel is a caller bug, not a provider outage, so
+/// it fails as a validation error instead of a retried one. The caller supplies
+/// the idempotency key so a retry after a lost response cannot double-charge.
+pub async fn capture_provider_payment(
+    registry: &PaymentProviderRegistry,
+    provider_code: &str,
+    provider_order_id: &str,
+    idempotency_key: Option<&str>,
+) -> Result<ProviderPaymentQueryState, CommerceServiceError> {
+    let provider_code = normalize_provider_code(provider_code);
+    let adapter = registry.resolve(&provider_code).ok_or_else(|| {
+        CommerceServiceError::provider_unavailable(format!(
+            "payment provider {provider_code} is not configured"
+        ))
+    })?;
+    if !adapter
+        .capabilities()
+        .operations
+        .contains(&PaymentAdapterOperation::CapturePaymentIntent)
+    {
+        return Err(CommerceServiceError::validation(format!(
+            "payment provider {provider_code} does not require a separate capture"
+        )));
+    }
+    let outcome = adapter
+        .capture_payment_intent(crate::adapter::PaymentCapturePaymentIntentRequest {
+            payment_intent_id: Some(provider_order_id.to_owned()),
+            idempotency_key: idempotency_key.map(str::to_owned),
+            metadata: json!({ "source": "payment-compensation" }),
+        })
+        .await?;
+    Ok(provider_payment_query_state(
+        &provider_code,
+        outcome.raw_status.as_deref(),
+    ))
 }
 
 fn provider_payment_query_state(
@@ -548,5 +605,19 @@ mod tests {
                 message: "credentials unavailable".to_owned(),
             }
         ));
+    }
+
+    #[test]
+    fn only_a_paypal_approval_awaits_a_capture() {
+        assert!(super::provider_payment_awaits_capture("paypal", Some("approved")));
+        assert!(super::provider_payment_awaits_capture(" PayPal ", Some(" APPROVED ")));
+        // Money already moved, or not approved yet: nothing to capture.
+        assert!(!super::provider_payment_awaits_capture("paypal", Some("completed")));
+        assert!(!super::provider_payment_awaits_capture("paypal", Some("created")));
+        assert!(!super::provider_payment_awaits_capture("paypal", None));
+        // Every other channel captures in its own flow.
+        for provider in ["stripe", "alipay", "wechat_pay", "sandbox"] {
+            assert!(!super::provider_payment_awaits_capture(provider, Some("approved")));
+        }
     }
 }

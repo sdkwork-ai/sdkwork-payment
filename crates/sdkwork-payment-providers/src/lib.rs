@@ -48,7 +48,8 @@ pub use dev_credentials::{
     generate_development_credentials, has_environment_provider_credentials, DevelopmentCredentials,
 };
 pub use operations::{
-    cancel_provider_payment, create_provider_refund, provider_operation_idempotency_key,
+    cancel_provider_payment, capture_provider_payment, create_provider_refund,
+    provider_operation_idempotency_key, provider_payment_awaits_capture,
     query_provider_payment_intent, query_provider_refund, ProviderPaymentQueryState,
     ProviderRefundSubmissionState,
 };
