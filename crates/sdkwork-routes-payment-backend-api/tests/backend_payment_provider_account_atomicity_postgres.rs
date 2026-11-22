@@ -120,6 +120,8 @@ async fn a_credential_failure_rolls_back_the_provider_account() {
         "merchantId": "1900000001",
         "accountName": "Atomicity account",
         "environment": "development",
+        "countryCode": "CN",
+        "settlementCurrency": "CNY",
         "accountMode": "direct",
         "primarySecret": "sk-atomicity-secret-value"
     });
