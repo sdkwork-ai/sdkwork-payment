@@ -394,6 +394,12 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     .with_required_permission("commerce.payments.attempts.read"),
     HttpRoute::dual_token(
         HttpMethod::Get,
+        "/backend/v3/api/payments/audit_events",
+        "payments",
+        "auditEvents.list",
+    )
+    .with_required_permission("commerce.payments.audit_events.read"),    HttpRoute::dual_token(
+        HttpMethod::Get,
         "/backend/v3/api/payments/webhook_events",
         "payments",
         "webhookEvents.list",
