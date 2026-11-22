@@ -231,3 +231,18 @@ delivery boundary is auditable rather than implied.
    without its encryption secret; the deploy service warns that certificate custody
    is unconfigured. None of these regress the payment flows, but each must be
    fail-closed before a production claim.
+6. **An image built from the current workspace `main` refuses to start.**
+   `sdkwork-api-cloud-gateway:0.1.109` (built from the synced siblings) panics during
+   route composition:
+
+   ```
+   cloud router backend-api manifest composition failed: composed route collision for
+   GET /backend/v3/api/mcp/categories: sdkwork-mcp (mcpAdmin.listCategories)
+   conflicts with sdkwork-cloudrouter (categories.list)
+   ```
+
+   The guard is working as designed — a duplicate path between two composed modules
+   is rejected instead of leaving one handler silently shadowed — but one of the two
+   declarations has to move before a new image can be promoted. The development stack
+   was rolled back to `0.1.108-smoke`, which was verified healthy
+   (`healthz=200`, `readyz=200`).
