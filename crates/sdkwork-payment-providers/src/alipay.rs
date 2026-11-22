@@ -259,18 +259,8 @@ impl PaymentProviderAdapter for AlipayPaymentProviderAdapter {
                     response["redirect_url"] = json!(redirect);
                 }
             } else if let Some(text) = response.as_str() {
-                let mut normalized = serde_json::Map::new();
-                if let Some((form, action)) = extract_alipay_pay_form(text) {
-                    normalized.insert("payForm".to_owned(), json!(form));
-                    normalized.insert("redirect_url".to_owned(), json!(action));
-                } else if !text.trim().is_empty() {
-                    normalized.insert("redirect_url".to_owned(), json!(text));
-                }
-                // Synchronous page/wap responses carry no trade id; the
-                // merchant order number keeps the attempt reference stable
-                // for later provider queries.
-                normalized.insert("out_trade_no".to_owned(), json!(out_trade_no));
-                response = Value::Object(normalized);
+                response =
+                    normalize_alipay_redirect_response(method_key, &out_trade_no, text);
             }
             alipay_operation_outcome(PaymentAdapterOperation::CreatePaymentIntent, response)
         })
@@ -762,6 +752,32 @@ fn alipay_timeout_express(expires_at: Option<&str>) -> ProviderResult<Option<Str
 
 /// Maps a method_key to the Alipay OpenAPI method name and the response field
 /// holding the redirect URL (if any).
+/// Normalizes the gateway body of a redirect-style Alipay product.
+///
+/// `page.pay`/`wap.pay` answer with an auto-submit form HTML document or a bare
+/// URL, so the cashier renders the form or navigates. `app.pay` answers with the
+/// RSA2-signed `orderStr` that the Alipay App SDK consumes directly: labelling
+/// that string a redirect URL made the App cashier open a signed query string as
+/// a web page instead of raising the Alipay sheet.
+///
+/// Synchronous responses carry no trade id, so the merchant order number keeps
+/// the attempt reference stable for later provider queries.
+fn normalize_alipay_redirect_response(method_key: &str, out_trade_no: &str, text: &str) -> Value {
+    let mut normalized = serde_json::Map::new();
+    if method_key == "alipay_app" {
+        if !text.trim().is_empty() {
+            normalized.insert("orderStr".to_owned(), json!(text));
+        }
+    } else if let Some((form, action)) = extract_alipay_pay_form(text) {
+        normalized.insert("payForm".to_owned(), json!(form));
+        normalized.insert("redirect_url".to_owned(), json!(action));
+    } else if !text.trim().is_empty() {
+        normalized.insert("redirect_url".to_owned(), json!(text));
+    }
+    normalized.insert("out_trade_no".to_owned(), json!(out_trade_no));
+    Value::Object(normalized)
+}
+
 fn alipay_method_for_key(method_key: &str) -> (&'static str, Option<&'static str>) {
     match method_key {
         "alipay_qr" => ("alipay.trade.precreate", Some("qr_code")),
@@ -795,6 +811,36 @@ mod tests {
     use crate::adapter::PaymentAdapterOperation;
     use crate::error::ProviderError;
 
+    #[test]
+    fn app_pay_order_string_is_a_launch_payload_not_a_redirect() {
+        // alipay.trade.app.pay answers with the signed order string the App SDK
+        // consumes. Surfacing it as `redirect_url` opened a blank web page and
+        // the Alipay sheet never appeared.
+        let order_str = "app_id=2021000000000000&biz_content=%7B%7D&sign=abc";
+        let normalized =
+            super::normalize_alipay_redirect_response("alipay_app", "OT-APP-1", order_str);
+        assert_eq!(normalized["orderStr"], serde_json::json!(order_str));
+        assert!(normalized.get("redirect_url").is_none());
+        // No trade id is echoed; the merchant number keeps queries stable.
+        assert_eq!(normalized["out_trade_no"], serde_json::json!("OT-APP-1"));
+    }
+
+    #[test]
+    fn page_pay_form_stays_a_rendered_form_and_bare_url_falls_back_to_redirect() {
+        let form = "<form name=\"punchout_form\" action=\"https://openapi.alipay.com/gateway.do?x=1\"><input name=\"biz_content\" value=\"{}\" /></form>";
+        let normalized = super::normalize_alipay_redirect_response("alipay_pc", "OT-PC-1", form);
+        assert_eq!(normalized["payForm"], serde_json::json!(form));
+        assert_eq!(
+            normalized["redirect_url"],
+            serde_json::json!("https://openapi.alipay.com/gateway.do?x=1")
+        );
+        assert!(normalized.get("orderStr").is_none());
+
+        let bare = "https://openapi.alipay.com/gateway.do?method=alipay.trade.wap.pay";
+        let normalized = super::normalize_alipay_redirect_response("alipay_wap", "OT-WAP-1", bare);
+        assert_eq!(normalized["redirect_url"], serde_json::json!(bare));
+        assert!(normalized.get("orderStr").is_none());
+    }
     #[test]
     fn web_products_carry_the_required_alipay_product_code() {
         // Alipay rejects `page.pay`/`wap.pay` without the product discriminator,

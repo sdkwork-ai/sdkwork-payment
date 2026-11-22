@@ -155,9 +155,11 @@ fn payment_params_from_provider(
             if let Some(form) = outcome.payload.get("payForm").and_then(Value::as_str) {
                 params.insert("payForm".to_owned(), form.to_owned());
             }
-            // App pay returns the signed `orderStr` for the Alipay App SDK.
+            // App pay returns the signed `orderStr` for the Alipay App SDK; it is
+            // a launch payload, never a navigation target.
             if let Some(order_str) = outcome.payload.get("orderStr").and_then(Value::as_str) {
                 params.insert("orderStr".to_owned(), order_str.to_owned());
+                params.insert("nextAction".to_owned(), "app".to_owned());
             }
         }
         "wechat_pay" => {
@@ -368,6 +370,10 @@ mod tests {
             params.get("orderStr").map(String::as_str),
             Some("alipay_sdk=alipay-sdk-java-4.38.10.ALL&app_id=2021&biz_content=...")
         );
+        // The App SDK string is a launch payload: the client must hand it to the
+        // Alipay SDK, not navigate to it.
+        assert_eq!(params.get("nextAction").map(String::as_str), Some("app"));
+        assert!(!params.contains_key("payUrl"));
     }
 
     #[test]
