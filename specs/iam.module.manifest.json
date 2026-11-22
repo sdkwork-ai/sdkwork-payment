@@ -90,6 +90,14 @@
         "replacementCode": null
       },
       {
+        "code": "commerce.payments.audit_events.read",
+        "name": "Read the payment admin audit trail",
+        "resource": "audit_events",
+        "action": "read",
+        "status": "active",
+        "since": "1.0.0",
+        "replacementCode": null
+      },      {
         "code": "commerce.payments.provider_accounts.read",
         "name": "Read provider accounts",
         "resource": "provider_accounts",

@@ -3602,7 +3602,62 @@
         "x-sdkwork-permission": "commerce.payments.attempts.read"
       }
     },
-    "/backend/v3/api/payments/webhook_events": {
+    "/backend/v3/api/payments/audit_events": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Payment admin audit trail list.",
+        "description": "Append-only record of privileged payment-admin changes for the caller's tenant (who changed what, in which request). Secret material is never recorded.",
+        "operationId": "auditEvents.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentAuditEvents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.audit_events.read"
+      }
+    },    "/backend/v3/api/payments/webhook_events": {
       "get": {
         "tags": [
           "payments"
@@ -7624,7 +7679,88 @@
           }
         }
       },
-      "WebhookEventListResponse": {
+      "AuditEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "actorUserId",
+          "action",
+          "resourceType",
+          "resourceId",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "actorUserId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "Stable verb, e.g. provider_account.create or payment_provider_credential.rotate."
+          },
+          "resourceType": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "requestNo": {
+            "type": "string",
+            "description": "Write-command request number that carried the change."
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Non-secret context such as the changed credential kinds."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuditEventListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AuditEvent"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },      "WebhookEventListResponse": {
         "allOf": [
           {
             "$ref": "#/components/schemas/SdkWorkApiResponse"
