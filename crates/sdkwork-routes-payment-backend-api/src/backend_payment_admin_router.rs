@@ -2225,7 +2225,7 @@ async fn create_method(
         ctx,
         body.status,
         "status",
-        &["active", "inactive", "disabled"],
+        ADMIN_ACTIVE_STATUSES,
     ) {
         Ok(value) => value,
         Err(response) => return response,
@@ -2291,7 +2291,15 @@ async fn update_method(
         method_key,
         display_name,
         provider_code,
-        status: body.status.unwrap_or_else(|| "active".to_owned()),
+        status: match require_admin_status(
+            ctx,
+            body.status,
+            "status",
+            ADMIN_ACTIVE_STATUSES,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         sort_order: body.sort_order.unwrap_or(0),
         currency_code: body
             .currency_code
@@ -2739,7 +2747,15 @@ async fn upsert_channel_inner(
         scene_code,
         currency_code,
         country_code,
-        status: body.status.unwrap_or_else(|| "active".to_owned()),
+        status: match require_admin_status(
+            ctx,
+            body.status,
+            "status",
+            ADMIN_ACTIVE_STATUSES,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         priority: body.priority.unwrap_or(0),
     };
     match state.store.upsert_channel(payload).await {
@@ -2874,7 +2890,15 @@ async fn upsert_route_rule_inner(
         user_segment: body.user_segment,
         risk_level: body.risk_level,
         channel_id,
-        status: body.status.unwrap_or_else(|| "active".to_owned()),
+        status: match require_admin_status(
+            ctx,
+            body.status,
+            "status",
+            ADMIN_ACTIVE_STATUSES,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         starts_at: body.starts_at,
         ends_at: body.ends_at,
     };
@@ -3255,7 +3279,15 @@ async fn upsert_notify_domain_inner(
         hostname: body.hostname,
         port: body.port,
         is_default: body.is_default.unwrap_or(false),
-        status: body.status.unwrap_or_else(|| "active".to_owned()),
+        status: match require_admin_status(
+            ctx,
+            body.status,
+            "status",
+            ADMIN_NOTIFY_DOMAIN_STATUSES,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         sort_order: body.sort_order.unwrap_or(0),
         request_no: write_headers.request_no,
         idempotency_key: write_headers.idempotency_key,
@@ -3604,6 +3636,11 @@ fn require_trimmed_string(
 /// The table enforces the same values with a CHECK constraint, but letting a typo
 /// reach it surfaces as a 500 `storage` error. Validate here so the operator gets
 /// a 400 naming the accepted values, and default to `active` for a create.
+/// Lifecycle vocabulary shared by methods, channels and route rules
+/// (`CHECK (status IN ('active','inactive','deprecated'))`).
+const ADMIN_ACTIVE_STATUSES: &[&str] = &["active", "inactive", "deprecated"];
+/// Notify domains are binary: `CHECK (status IN ('active','inactive'))`.
+const ADMIN_NOTIFY_DOMAIN_STATUSES: &[&str] = &["active", "inactive"];
 fn require_admin_status(
     ctx: Option<&WebRequestContext>,
     value: Option<String>,
@@ -3858,6 +3895,9 @@ mod generated_account_no_tests {
             super::require_admin_status(None, None, "status", &["active", "inactive"]).expect("default"),
             "active"
         );
-        assert!(super::require_admin_status(None, Some("enabled".to_owned()), "status", &["active", "inactive"]).is_err());
+        assert!(super::require_admin_status(None, Some("enabled".to_owned()), "status", super::ADMIN_ACTIVE_STATUSES).is_err());
+        // `deprecated` is legitimate in the table; `disabled` is not.
+        assert!(super::require_admin_status(None, Some("deprecated".to_owned()), "status", super::ADMIN_ACTIVE_STATUSES).is_ok());
+        assert!(super::require_admin_status(None, Some("disabled".to_owned()), "status", super::ADMIN_ACTIVE_STATUSES).is_err());
     }
 }
