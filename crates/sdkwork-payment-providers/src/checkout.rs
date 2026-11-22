@@ -5,7 +5,8 @@ use sdkwork_payment_service::PayOwnerOrderOutcome;
 use serde_json::{json, Value};
 
 use crate::adapter::{
-    normalize_provider_code, PaymentCreateIntentRequest, PaymentProviderOperationOutcome,
+    normalize_provider_code, PaymentCreateIntentRequest, PaymentProviderCapabilities,
+    PaymentProviderOperationOutcome,
 };
 use crate::money::money_to_minor;
 use crate::registry::PaymentProviderRegistry;
@@ -48,6 +49,11 @@ pub async fn enrich_pay_owner_order_outcome(
         .clone()
         .or_else(|| registry.default_notify_url(&provider_code));
     let (provider_method_key, metadata) = provider_request_context(context, &outcome);
+    // The adapter declares the wire products it serves. A method key outside that
+    // set would be sent to the PSP as an unusable request (or silently fall into
+    // the adapter's default arm); reject it here, where the declaration is
+    // visible, so a mis-seeded catalog fails fast with an actionable message.
+    ensure_method_supported(adapter.capabilities(), &provider_method_key)?;
 
     let request = PaymentCreateIntentRequest {
         tenant_id: Some(context.tenant_id.clone()),
@@ -72,6 +78,25 @@ pub async fn enrich_pay_owner_order_outcome(
         outcome.payment_params.insert("cashierUrl".to_owned(), url);
     }
     Ok(outcome)
+}
+
+/// Rejects a wire method key the adapter does not declare.
+///
+/// The declaration is the channel's contract with the cashier: validating it at
+/// checkout keeps an operator-visible configuration error (a seeded method with
+/// no product behind it) from becoming an opaque provider rejection.
+fn ensure_method_supported(
+    capabilities: &PaymentProviderCapabilities,
+    method_key: &str,
+) -> Result<(), CommerceServiceError> {
+    if capabilities.supports_product(method_key) {
+        return Ok(());
+    }
+    Err(CommerceServiceError::validation(format!(
+        "payment method {} is not supported by provider {}",
+        method_key.trim(),
+        capabilities.provider_code
+    )))
 }
 
 fn provider_request_context(
@@ -426,6 +451,26 @@ mod tests {
         assert!(!params.contains_key("qrCodeUrl"));
     }
 
+    #[test]
+    fn a_method_the_channel_does_not_declare_is_rejected_before_the_psp_call() {
+        use crate::adapter::{CurrencyPolicy, PaymentAdapterOperation, RefundMode};
+        let capabilities = crate::adapter::PaymentProviderCapabilities {
+            provider_code: "wechat_pay",
+            operations: &[PaymentAdapterOperation::CreatePaymentIntent],
+            products: &["wechat_jsapi", "wechat_h5"],
+            currencies: CurrencyPolicy::Only(&["CNY"]),
+            refund_mode: RefundMode::FullOrPartial,
+        };
+        assert!(super::ensure_method_supported(&capabilities, "wechat_jsapi").is_ok());
+        assert!(super::ensure_method_supported(&capabilities, " WeChat_H5 ").is_ok());
+        // A seeded method with no product behind it fails fast and names both
+        // sides, instead of reaching the PSP as an unusable request.
+        let error = super::ensure_method_supported(&capabilities, "alipay_wap")
+            .expect_err("undeclared method must be rejected");
+        let message = format!("{error:?}");
+        assert!(message.contains("alipay_wap"), "unexpected: {message}");
+        assert!(message.contains("wechat_pay"), "unexpected: {message}");
+    }
     #[test]
     fn a_channel_the_core_never_heard_of_still_gets_a_next_action() {
         // The launch protocol is derived from the payload, so adding a PSP needs
