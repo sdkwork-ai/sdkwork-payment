@@ -1385,6 +1385,34 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         channel_id: String,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()> {
         Box::pin(async move {
+            // A channel with live payments must stay resolvable: deleting it would
+            // strand pending attempts (the payer's checkout can no longer resolve
+            // the provider) and break reconciliation and refunds afterwards.
+            let in_flight_reference = sqlx::query(
+                r#"
+                SELECT 1
+                FROM commerce_payment_attempt
+                WHERE tenant_id = CAST($1 AS TEXT)
+                  AND channel_id = CAST($2 AS TEXT)
+                  AND status IN ('created', 'pending', 'processing')
+                  AND deleted_at IS NULL
+                LIMIT 1
+                "#,
+            )
+            .bind(&scope.tenant_id)
+            .bind(&channel_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to check channel in-flight payments: {error}"
+                ))
+            })?;
+            if in_flight_reference.is_some() {
+                return Err(CommerceServiceError::conflict(
+                    "payment channel has in-flight payments; wait for them to settle or close them before deleting the channel",
+                ));
+            }
             let route_rule_reference = sqlx::query(
                 r#"
                 SELECT 1
