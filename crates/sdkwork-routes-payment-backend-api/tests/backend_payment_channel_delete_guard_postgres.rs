@@ -177,4 +177,14 @@ async fn a_channel_with_in_flight_payments_is_not_deletable() {
     .await
     .expect("read channel");
     assert!(deleted.is_some(), "the channel must be soft deleted");
+
+    // Deleting a channel is a privileged change and must be attributed.
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM commerce_payment_admin_audit_log \
+         WHERE action = 'payment_channel.delete' AND resource_id = 'ch-1'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("read audit trail");
+    assert_eq!(1, audited, "the deletion must be recorded in the audit trail");
 }

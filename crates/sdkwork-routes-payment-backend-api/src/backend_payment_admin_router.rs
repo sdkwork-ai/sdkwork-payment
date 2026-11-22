@@ -79,6 +79,7 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         scope: BackendTenantScope,
         channel_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()>;
     fn list_route_rules<'a>(
         &'a self,
@@ -1442,6 +1443,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
         &'a self,
         scope: BackendTenantScope,
         channel_id: String,
+        actor: BackendAdminActor,
     ) -> CommerceBackendPaymentAdminFuture<'a, ()> {
         Box::pin(async move {
             // A channel with live payments must stay resolvable: deleting it would
@@ -1497,6 +1499,12 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                     "payment channel is referenced by route rules; unbind them before deleting the channel",
                 ));
             }
+            // The soft delete and its audit record commit together.
+            let mut transaction = self.pool.begin().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to begin payment channel deletion: {error}"
+                ))
+            })?;
             let result = sqlx::query(
                 r#"
                 UPDATE commerce_payment_channel
@@ -1511,7 +1519,7 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             .bind(&channel_id)
             .bind(&scope.tenant_id)
             .bind(scope.organization_id.as_deref())
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| {
                 CommerceServiceError::storage(format!("failed to delete payment channel: {error}"))
@@ -1521,6 +1529,25 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                     "payment channel was not found",
                 ));
             }
+            sdkwork_payment_repository_sqlx::record_admin_audit_event_in_transaction(
+                &mut transaction,
+                &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                    tenant_id: &scope.tenant_id,
+                    organization_id: scope.organization_id.as_deref(),
+                    actor_user_id: &actor.user_id,
+                    action: "payment_channel.delete",
+                    resource_type: "payment_channel",
+                    resource_id: &channel_id,
+                    request_no: actor.request_no.as_deref(),
+                    detail: serde_json::json!({}),
+                },
+            )
+            .await?;
+            transaction.commit().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to commit payment channel deletion: {error}"
+                ))
+            })?;
             Ok(())
         })
     }
@@ -2972,7 +2999,18 @@ async fn delete_channel(
         tenant_id: subject.tenant_id,
         organization_id: subject.organization_id,
     };
-    match state.store.delete_channel(scope, channel_id).await {
+    match state
+        .store
+        .delete_channel(
+            scope,
+            channel_id,
+            BackendAdminActor {
+                user_id: subject.user_id.clone(),
+                request_no: None,
+            },
+        )
+        .await
+    {
         Ok(()) => success_no_content(ctx),
         Err(error) => backend_payment_error_response(ctx, "payment channel delete failed", error),
     }
