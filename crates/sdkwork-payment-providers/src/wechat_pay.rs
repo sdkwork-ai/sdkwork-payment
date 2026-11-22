@@ -6,9 +6,9 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce as AesNonce};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
-use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
+use rsa::pkcs8::DecodePublicKey;
 use rsa::signature::{SignatureEncoding, Signer, Verifier};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::RsaPublicKey;
 use serde_json::{json, Value};
 use sha2::Sha256;
 use x509_parser::parse_x509_certificate;
@@ -117,12 +117,7 @@ pub struct WeChatPayRsaCrypto {
 impl WeChatPayRsaCrypto {
     pub fn new(merchant_private_key_pem: &str, api_v3_key: &str) -> ProviderResult<Self> {
         let private_key =
-            RsaPrivateKey::from_pkcs8_pem(merchant_private_key_pem).map_err(|error| {
-                ProviderError::invalid_request(
-                    PaymentAdapterOperation::CreatePaymentIntent,
-                    format!("invalid WeChat Pay merchant private key: {error}"),
-                )
-            })?;
+            crate::rsa_pem::parse_rsa_private_key_pem("WeChat Pay", merchant_private_key_pem)?;
         if api_v3_key.len() != 32 {
             return Err(ProviderError::invalid_request(
                 PaymentAdapterOperation::VerifyWebhook,
@@ -304,6 +299,15 @@ impl WeChatPayProviderAdapter {
         validate_config_secret("merchant_serial_no", &config.merchant_serial_no)?;
         validate_config_secret("merchant_private_key_pem", &config.merchant_private_key_pem)?;
         validate_config_secret("api_v3_key", &config.api_v3_key)?;
+        // Every V3 response is signature-verified, and the trade is created
+        // *before* its response is verified. An adapter built without
+        // verification material therefore burns a live `out_trade_no` (WeChat
+        // answers `OUT_TRADE_NO_USED` on retry) and leaves the order unpayable.
+        // Fail at registry construction instead, where the operator sees it.
+        validate_config_secret(
+            "verification_key_pem",
+            config.verification_key_pem.as_deref().unwrap_or_default(),
+        )?;
         let crypto = Arc::new(WeChatPayRsaCrypto::new(
             &config.merchant_private_key_pem,
             &config.api_v3_key,
@@ -1415,6 +1419,31 @@ mod tests {
             Some("5030000701202601010000000001")
         );
         assert_eq!(outcome.raw_status.as_deref(), Some("PROCESSING"));
+    }
+
+    #[test]
+    fn adapter_rejects_configuration_without_verification_material() {
+        // The trade is created before its response is verified, so building an
+        // adapter without verification material would burn a live
+        // `out_trade_no` and leave the order unpayable. Fail at construction.
+        let error = match WeChatPayProviderAdapter::new(WeChatPayProviderConfig {
+            app_id: "app".to_owned(),
+            mch_id: "mch".to_owned(),
+            merchant_serial_no: "serial".to_owned(),
+            merchant_private_key_pem: "key".to_owned(),
+            api_v3_key: "0123456789abcdef0123456789abcdef".to_owned(),
+            notify_url: None,
+            sign_verify_mode: WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            verification_key_pem: None,
+            verification_serial_no: None,
+        }) {
+            Ok(_) => panic!("missing verification material must fail at construction"),
+            Err(error) => error,
+        };
+        assert!(
+            format!("{error:?}").contains("verification_key_pem"),
+            "unexpected error: {error:?}"
+        );
     }
 
     #[test]

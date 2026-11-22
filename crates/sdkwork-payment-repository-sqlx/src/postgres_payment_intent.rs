@@ -1,6 +1,7 @@
-﻿#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments)]
 
 use sdkwork_contract_service::{CommerceMoney, CommercePaymentStatus, CommerceServiceError};
+use sdkwork_payment_providers::{ensure_currency_supported, require_positive_minor};
 use sdkwork_payment_service::{
     CancelOwnerPaymentIntentCommand, CreateOwnerPaymentAttemptCommand,
     CreateOwnerPaymentAttemptOutcome, CreateOwnerPaymentIntentCommand, OrderPaymentReferenceQuery,
@@ -83,6 +84,12 @@ impl PostgresCommercePaymentIntentStore {
                 "order is not pending payment",
             ));
         }
+        // Adapters forward minor units verbatim and the column is
+        // NUMERIC(18,2), so a zero- or three-decimal currency would charge the
+        // wrong magnitude (JPY 1000 → ¥1000 instead of ¥10). The order-checkout
+        // path already guards this; the intent path must not be the hole.
+        require_positive_minor(&order_ref.total_amount, "order total amount")?;
+        ensure_currency_supported(order_currency_code(&order_ref))?;
         let method = load_payment_method_for_intent(&mut tx, &command).await?;
         let now = current_timestamp_string();
         let payment_intent_id = payment_intent_id(&command);
@@ -350,6 +357,11 @@ impl PostgresCommercePaymentIntentStore {
         if !order_payment_reference_is_payable(&order_ref) {
             return Err(CommerceServiceError::conflict("order is not payable"));
         }
+        // The attempt's stored amount and currency are what the adapter sends to
+        // the PSP; validate them again here so a legacy row written before the
+        // intent guard cannot be charged at the wrong magnitude.
+        require_positive_minor(&intent.amount, "payment intent amount")?;
+        ensure_currency_supported(&intent.currency_code)?;
 
         let channel = select_payment_channel_postgres(
             &mut tx,

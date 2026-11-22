@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::adapter::PaymentProviderAdapter;
 use crate::alipay::{AlipayPaymentProviderAdapter, AlipayPaymentProviderConfig, RsaAlipaySigner};
 use crate::credentials::{ProviderAccountBinding, ProviderCredentialBundle};
+use crate::error::ProviderError;
 use crate::notify_url::build_order_payment_webhook_url;
 use crate::paypal::PayPalPaymentProviderAdapter;
 use crate::stripe::{StripePaymentProviderAdapter, StripePaymentProviderConfig};
@@ -64,8 +65,11 @@ impl PaymentProviderRegistry {
         let Some(config) = config else {
             return;
         };
-        if let Ok(adapter) = StripePaymentProviderAdapter::with_default_http_client(config) {
-            self.adapters.insert("stripe".to_owned(), Arc::new(adapter));
+        match StripePaymentProviderAdapter::with_default_http_client(config) {
+            Ok(adapter) => {
+                self.adapters.insert("stripe".to_owned(), Arc::new(adapter));
+            }
+            Err(error) => log_provider_construction_failure("stripe", &error),
         }
     }
 
@@ -84,20 +88,27 @@ impl PaymentProviderRegistry {
         if let Some(notify_url) = config.notify_url.clone() {
             self.notify_urls.insert("alipay".to_owned(), notify_url);
         }
-        if let Ok(signer) =
-            RsaAlipaySigner::from_pkcs8_pem(&config.private_key_pem, &config.alipay_public_key_pem)
-        {
-            let provider_config = AlipayPaymentProviderConfig {
-                app_id: config.app_id,
-                notify_url: config.notify_url,
-                return_url: config.return_url,
-                sandbox: config.sandbox,
-            };
-            if let Ok(adapter) =
-                AlipayPaymentProviderAdapter::new(provider_config, Arc::new(signer))
-            {
+        let signer = match RsaAlipaySigner::from_pem(
+            &config.private_key_pem,
+            &config.alipay_public_key_pem,
+        ) {
+            Ok(signer) => Arc::new(signer),
+            Err(error) => {
+                log_provider_construction_failure("alipay", &error);
+                return;
+            }
+        };
+        let provider_config = AlipayPaymentProviderConfig {
+            app_id: config.app_id,
+            notify_url: config.notify_url,
+            return_url: config.return_url,
+            sandbox: config.sandbox,
+        };
+        match AlipayPaymentProviderAdapter::new(provider_config, signer) {
+            Ok(adapter) => {
                 self.adapters.insert("alipay".to_owned(), Arc::new(adapter));
             }
+            Err(error) => log_provider_construction_failure("alipay", &error),
         }
     }
 
@@ -128,9 +139,12 @@ impl PaymentProviderRegistry {
             verification_key_pem: config.verification_key_pem,
             verification_serial_no: config.verification_serial_no,
         };
-        if let Ok(adapter) = WeChatPayProviderAdapter::new(provider_config) {
-            self.adapters
-                .insert("wechat_pay".to_owned(), Arc::new(adapter));
+        match WeChatPayProviderAdapter::new(provider_config) {
+            Ok(adapter) => {
+                self.adapters
+                    .insert("wechat_pay".to_owned(), Arc::new(adapter));
+            }
+            Err(error) => log_provider_construction_failure("wechat_pay", &error),
         }
     }
 
@@ -150,7 +164,7 @@ impl PaymentProviderRegistry {
         if let Some(notify_url) = notify_url {
             self.notify_urls.insert("paypal".to_owned(), notify_url);
         }
-        if let Ok(adapter) = PayPalPaymentProviderAdapter::with_default_http_client(
+        match PayPalPaymentProviderAdapter::with_default_http_client(
             crate::paypal::PayPalPaymentProviderConfig {
                 client_id: config.client_id,
                 client_secret: config.client_secret,
@@ -158,9 +172,26 @@ impl PaymentProviderRegistry {
                 sandbox: config.sandbox,
             },
         ) {
-            self.adapters.insert("paypal".to_owned(), Arc::new(adapter));
+            Ok(adapter) => {
+                self.adapters.insert("paypal".to_owned(), Arc::new(adapter));
+            }
+            Err(error) => log_provider_construction_failure("paypal", &error),
         }
     }
+}
+
+/// Reports a provider whose adapter could not be built from its account
+/// credentials or certificate.
+///
+/// Registering these silently is what turns a fixable misconfiguration (a
+/// PKCS#1 private key, a missing verification certificate) into the opaque
+/// `payment provider <code> is not configured` at checkout time.
+fn log_provider_construction_failure(provider_code: &str, error: &ProviderError) {
+    tracing::error!(
+        provider_code,
+        error = ?error,
+        "payment provider adapter could not be constructed; the channel is unavailable until its credentials are fixed"
+    );
 }
 
 /// Whether the unsigned sandbox webhook adapter may be registered.

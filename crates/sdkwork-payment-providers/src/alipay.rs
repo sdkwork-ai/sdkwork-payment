@@ -4,7 +4,7 @@ use std::sync::Arc;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Local;
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
-use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
+use rsa::pkcs8::DecodePublicKey;
 use rsa::signature::{SignatureEncoding, Signer, Verifier};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::{json, Value};
@@ -25,6 +25,10 @@ use crate::money::minor_to_decimal_string;
 const ALIPAY_PROVIDER_CODE: &str = "alipay";
 const ALIPAY_GATEWAY_URL: &str = "https://openapi.alipay.com/gateway.do";
 const ALIPAY_SANDBOX_GATEWAY_URL: &str = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
+/// `product_code` discriminator required by `alipay.trade.page.pay`.
+const ALIPAY_FAST_INSTANT_TRADE_PAY: &str = "FAST_INSTANT_TRADE_PAY";
+/// `product_code` discriminator required by `alipay.trade.wap.pay`.
+const ALIPAY_QUICK_WAP_WAY: &str = "QUICK_WAP_WAY";
 
 static ALIPAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: ALIPAY_PROVIDER_CODE,
@@ -59,22 +63,28 @@ impl fmt::Debug for AlipayPaymentProviderConfig {
     }
 }
 
+/// Parses the merchant RSA private key in PKCS#8 or PKCS#1 PEM form.
+///
+/// The open platform exports PKCS#1; tooling elsewhere emits PKCS#8. Trying
+/// both keeps a valid key from being mistaken for missing credentials.
+pub fn parse_merchant_private_key(private_key_pem: &str) -> ProviderResult<RsaPrivateKey> {
+    crate::rsa_pem::parse_rsa_private_key_pem("Alipay", private_key_pem)
+}
+
 pub struct RsaAlipaySigner {
     signing_key: SigningKey<Sha256>,
     verifying_key: VerifyingKey<Sha256>,
 }
 
 impl RsaAlipaySigner {
-    pub fn from_pkcs8_pem(
-        private_key_pem: &str,
-        alipay_public_key_pem: &str,
-    ) -> ProviderResult<Self> {
-        let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_pem).map_err(|error| {
-            ProviderError::invalid_request(
-                PaymentAdapterOperation::CreatePaymentIntent,
-                format!("invalid Alipay merchant private key: {error}"),
-            )
-        })?;
+    /// Builds the signer from the merchant private key + Alipay platform key.
+    ///
+    /// The Alipay open platform hands out the merchant key as PKCS#1
+    /// (`-----BEGIN RSA PRIVATE KEY-----`), while some operators paste a PKCS#8
+    /// export instead. Both forms are accepted so a valid key never looks like
+    /// an unconfigured provider.
+    pub fn from_pem(private_key_pem: &str, alipay_public_key_pem: &str) -> ProviderResult<Self> {
+        let private_key = parse_merchant_private_key(private_key_pem)?;
         let public_key =
             RsaPublicKey::from_public_key_pem(alipay_public_key_pem).map_err(|error| {
                 ProviderError::invalid_request(
@@ -644,13 +654,17 @@ fn build_alipay_biz_content(
             // 当面付 precreate — returns qr_code url
         }
         "alipay_pc" => {
-            // PC 网站支付 — page.pay returns form HTML
+            // PC 网站支付 — page.pay returns form HTML. Alipay requires the
+            // product discriminator on this call; without it the gateway
+            // rejects the request outright.
+            biz_content["product_code"] = json!(ALIPAY_FAST_INSTANT_TRADE_PAY);
             if let Some(return_url) = metadata_string(metadata, "return_url") {
                 biz_content["return_url"] = json!(return_url);
             }
         }
         "alipay_wap" => {
-            // 手机网站支付 — wap.pay returns redirect URL
+            // 手机网站支付 — wap.pay returns redirect URL / form HTML.
+            biz_content["product_code"] = json!(ALIPAY_QUICK_WAP_WAY);
             if let Some(return_url) = metadata_string(metadata, "return_url") {
                 biz_content["return_url"] = json!(return_url);
             }
@@ -780,6 +794,35 @@ mod tests {
     };
     use crate::adapter::PaymentAdapterOperation;
     use crate::error::ProviderError;
+
+    #[test]
+    fn web_products_carry_the_required_alipay_product_code() {
+        // Alipay rejects `page.pay`/`wap.pay` without the product discriminator,
+        // so both web products were unusable in production until it was sent.
+        let metadata = serde_json::json!({"buyer_id": "2088000000000000"});
+        let pc = build_alipay_biz_content(
+            "OT-1", 100, "Order", Some("100001"), None, "alipay_pc", &metadata, None,
+        )
+        .expect("page.pay biz content");
+        assert_eq!(pc["product_code"], serde_json::json!("FAST_INSTANT_TRADE_PAY"));
+        let wap = build_alipay_biz_content(
+            "OT-2", 100, "Order", Some("100001"), None, "alipay_wap", &metadata, None,
+        )
+        .expect("wap.pay biz content");
+        assert_eq!(wap["product_code"], serde_json::json!("QUICK_WAP_WAY"));
+        // The scan/App/JSAPI products take no discriminator; sending one would
+        // make the gateway reject the call as an unexpected parameter.
+        for key in ["alipay_qr", "alipay_app", "alipay_jsapi"] {
+            let biz = build_alipay_biz_content(
+                "OT-3", 100, "Order", Some("100001"), None, key, &metadata, None,
+            )
+            .expect("biz content");
+            assert!(
+                biz.get("product_code").is_none(),
+                "{key} must not send product_code"
+            );
+        }
+    }
 
     #[test]
     fn wap_gateway_form_html_is_surfaced_as_pay_form_and_action_url() {

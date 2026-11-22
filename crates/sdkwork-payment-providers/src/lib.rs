@@ -13,6 +13,7 @@ mod notify_url;
 mod operations;
 mod paypal;
 mod registry;
+mod rsa_pem;
 mod sandbox_webhook;
 mod stripe;
 mod webhook_peek;
