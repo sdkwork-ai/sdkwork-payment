@@ -40,6 +40,23 @@ pub struct IngestProviderWebhookOutcome {
     pub payment_attempt_context: Option<PaymentWebhookAttemptContext>,
 }
 
+/// Terminal status recorded for a delivery that failed verification.
+///
+/// `dead` — not `failed` — because the replay worker claims
+/// `queued|processing|failed` rows: writing `failed` would queue a forged or
+/// unverifiable callback for replay. `dead` is terminal, is in the schema's
+/// status CHECK, and stays visible to operators through the admin webhook list.
+/// (`REPLAYABLE_WEBHOOK_STATUSES` below pins that distinction.)
+const REJECTED_WEBHOOK_STATUS: &str = "dead";
+
+/// The statuses the replay worker treats as outstanding work.
+///
+/// Must stay equal to the partial index predicate
+/// `idx_commerce_payment_webhook_event_status`. A rejected delivery must never
+/// appear here. Test-only: production code never enumerates the queue.
+#[cfg(test)]
+const REPLAYABLE_WEBHOOK_STATUSES: &[&str] = &["queued", "processing", "failed"];
+
 /// Persists a rejected provider webhook (signature or normalization
 /// failure) for forensics. Rejected events land under the system tenant `'0'`
 /// because the tenant scope cannot be trusted before verification; the event
@@ -66,7 +83,7 @@ pub async fn record_rejected_provider_webhook_postgres(
         INSERT INTO commerce_payment_webhook_event
             (id, tenant_id, organization_id, event_id, event_type, provider_code, payload, status,
              last_error, received_at, created_at, updated_at)
-        VALUES ($1, '0', '0', $2, 'rejected', $3, '{}'::jsonb, 'rejected', $4,
+        VALUES ($1, '0', '0', $2, 'rejected', $3, '{}'::jsonb, $6, $4,
                 $5::timestamptz, $5::timestamptz, $5::timestamptz)
         ON CONFLICT (tenant_id, event_id) DO NOTHING
         "#,
@@ -76,6 +93,7 @@ pub async fn record_rejected_provider_webhook_postgres(
     .bind(&provider_code)
     .bind(truncate_reason(reason))
     .bind(&now)
+    .bind(REJECTED_WEBHOOK_STATUS)
     .execute(pool)
     .await
     .map_err(|error| store_error("failed to record rejected provider webhook", error))?;
@@ -732,6 +750,7 @@ pub async fn apply_webhook_payment_status_postgres(
 #[cfg(test)]
 mod tests {
     use super::webhook_transition_allowed;
+    use super::{REJECTED_WEBHOOK_STATUS, REPLAYABLE_WEBHOOK_STATUSES};
 
     #[test]
     fn recovery_allows_terminal_failed_canceled_to_succeeded() {
@@ -767,6 +786,24 @@ mod tests {
                 webhook_transition_allowed(status, status),
                 "{status} -> {status} must replay"
             );
+        }
+    }
+
+    #[test]
+    fn a_rejected_delivery_is_terminal_and_never_replayed() {
+        // The schema's status CHECK offered no 'rejected' value, so an earlier
+        // implementation wrote one and every rejected callback failed to record
+        // (turning the intended 4xx into a 500 and leaving no audit row).
+        // 'dead' records the delivery without queueing it for replay.
+        assert_eq!(REJECTED_WEBHOOK_STATUS, "dead");
+        assert!(
+            !REPLAYABLE_WEBHOOK_STATUSES.contains(&REJECTED_WEBHOOK_STATUS),
+            "a rejected delivery must never enter the replay queue"
+        );
+        // Guard the coupling: the replay-worker predicate is this same set, and
+        // the schema CHECK must keep accepting every value we may write.
+        for status in REPLAYABLE_WEBHOOK_STATUSES {
+            assert_ne!(*status, REJECTED_WEBHOOK_STATUS);
         }
     }
 
