@@ -98,7 +98,9 @@ pub use provider_account::{
     load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
 };
 pub use checkout_scene_policy::{
-    resolve_checkout_scene_product_postgres, CheckoutSceneProduct,
+    list_checkout_scene_policies_postgres, resolve_checkout_scene_product_postgres,
+    upsert_checkout_scene_policy_in_transaction, upsert_checkout_scene_policy_postgres,
+    CheckoutScenePolicyRow, CheckoutSceneProduct, UpsertCheckoutScenePolicyCommand,
 };
 pub use admin_audit::{
     count_admin_audit_events_postgres, list_admin_audit_events_postgres,

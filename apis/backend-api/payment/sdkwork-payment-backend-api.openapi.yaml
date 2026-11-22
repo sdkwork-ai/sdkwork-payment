@@ -3602,7 +3602,123 @@
         "x-sdkwork-permission": "commerce.payments.attempts.read"
       }
     },
-    "/backend/v3/api/payments/checkout_scene_policy/resolve": {
+    "/backend/v3/api/payments/checkout_scene_policies": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Checkout scene policy list.",
+        "operationId": "checkoutScenePolicies.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.read"
+      }
+    },
+    "/backend/v3/api/payments/checkout_scene_policies/{policyId}": {
+      "put": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Create or replace a checkout scene rule.",
+        "description": "Codes are normalized to lower case; the unique index is case-insensitive, so `WeChat` and `wechat` cannot both claim the same context. The write and its audit record commit together.",
+        "operationId": "checkoutScenePolicies.upsert",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutScenePolicyUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.write"
+      }
+    },    "/backend/v3/api/payments/checkout_scene_policy/resolve": {
       "get": {
         "tags": [
           "payments"
@@ -7757,7 +7873,115 @@
           }
         }
       },
-      "CheckoutScenePolicyResolution": {
+      "CheckoutScenePolicyItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "scene",
+          "appArchitecture",
+          "osFamily",
+          "paymentMethod",
+          "productCode",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "scene": {
+            "type": "string"
+          },
+          "appArchitecture": {
+            "type": "string"
+          },
+          "osFamily": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "productCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      },
+      "CheckoutScenePolicyListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CheckoutScenePolicyItem"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CheckoutScenePolicyUpsertRequest": {
+        "type": "object",
+        "required": [
+          "paymentMethod",
+          "productCode"
+        ],
+        "properties": {
+          "scene": {
+            "type": "string"
+          },
+          "appArchitecture": {
+            "type": "string"
+          },
+          "osFamily": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "productCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      },      "CheckoutScenePolicyResolution": {
         "allOf": [
           {
             "$ref": "#/components/schemas/SdkWorkApiResponse"

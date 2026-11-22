@@ -9,7 +9,7 @@ use crate::subject::backend_runtime_subject_from_extension;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use sdkwork_contract_service::CommerceServiceError;
 use sdkwork_iam_context_service::IamAppContext;
@@ -104,6 +104,18 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         scope: BackendTenantScope,
         query: CheckoutSceneQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
+    /// Lists the tenant's checkout scene rules.
+    fn list_checkout_scene_policies<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        limit: i64,
+    ) -> CommerceBackendPaymentAdminFuture<'a, Vec<serde_json::Value>>;
+    /// Inserts or replaces one checkout scene rule and audits the change.
+    fn upsert_checkout_scene_policy<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        request: UpsertCheckoutScenePolicyRequest,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value>;
     /// Recent privileged admin changes for this tenant (newest first).
     fn list_audit_events<'a>(
         &'a self,
@@ -196,6 +208,41 @@ pub struct CheckoutSceneQuery {
     pub payment_method: String,
 }
 
+/// Operator-supplied checkout scene rule.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpsertCheckoutScenePolicyBody {
+    scene: Option<String>,
+    app_architecture: Option<String>,
+    os_family: Option<String>,
+    payment_method: Option<String>,
+    product_code: Option<String>,
+    status: Option<String>,
+    priority: Option<i64>,
+}
+
+/// Query bindings for the checkout scene rule list.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct CheckoutScenePolicyListParams {
+    #[serde(default)]
+    page: Option<i64>,
+    #[serde(default, rename = "page_size")]
+    page_size: Option<i64>,
+}
+/// One operator save of a checkout scene rule.
+#[derive(Debug, Clone)]
+pub struct UpsertCheckoutScenePolicyRequest {
+    pub id: String,
+    pub scene: String,
+    pub app_architecture: String,
+    pub os_family: String,
+    pub payment_method: String,
+    pub product_code: String,
+    pub status: String,
+    pub priority: i64,
+    pub actor_user_id: String,
+    pub request_no: Option<String>,
+}
 /// Query bindings for the checkout scene resolution endpoint (snake_case wire).
 #[derive(Debug, Clone, Default, Deserialize)]
 struct CheckoutSceneResolveParams {
@@ -1734,6 +1781,102 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             Ok(())
         })
     }
+    fn list_checkout_scene_policies<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        limit: i64,
+    ) -> CommerceBackendPaymentAdminFuture<'a, Vec<serde_json::Value>> {
+        Box::pin(async move {
+            let rows = sdkwork_payment_repository_sqlx::list_checkout_scene_policies_postgres(
+                &self.pool,
+                &scope.tenant_id,
+                scope.organization_id.as_deref(),
+                limit,
+            )
+            .await?;
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    serde_json::json!({
+                        "id": row.id,
+                        "scene": row.scene,
+                        "appArchitecture": row.app_architecture,
+                        "osFamily": row.os_family,
+                        "paymentMethod": row.payment_method,
+                        "productCode": row.product_code,
+                        "status": row.status,
+                        "priority": row.priority,
+                    })
+                })
+                .collect())
+        })
+    }
+
+    fn upsert_checkout_scene_policy<'a>(
+        &'a self,
+        scope: BackendTenantScope,
+        request: UpsertCheckoutScenePolicyRequest,
+    ) -> CommerceBackendPaymentAdminFuture<'a, serde_json::Value> {
+        Box::pin(async move {
+            let mut transaction = self.pool.begin().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to begin checkout scene policy transaction: {error}"
+                ))
+            })?;
+            let row = sdkwork_payment_repository_sqlx::upsert_checkout_scene_policy_in_transaction(
+                &mut transaction,
+                &sdkwork_payment_repository_sqlx::UpsertCheckoutScenePolicyCommand {
+                    id: &request.id,
+                    tenant_id: &scope.tenant_id,
+                    organization_id: scope.organization_id.as_deref(),
+                    scene: &request.scene,
+                    app_architecture: &request.app_architecture,
+                    os_family: &request.os_family,
+                    payment_method: &request.payment_method,
+                    product_code: &request.product_code,
+                    status: &request.status,
+                    priority: request.priority,
+                },
+            )
+            .await?;
+            sdkwork_payment_repository_sqlx::record_admin_audit_event_in_transaction(
+                &mut transaction,
+                &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                    tenant_id: &scope.tenant_id,
+                    organization_id: scope.organization_id.as_deref(),
+                    actor_user_id: &request.actor_user_id,
+                    action: "payment_checkout_scene_policy.upsert",
+                    resource_type: "checkout_scene_policy",
+                    resource_id: &row.id,
+                    request_no: request.request_no.as_deref(),
+                    detail: serde_json::json!({
+                        "scene": row.scene,
+                        "appArchitecture": row.app_architecture,
+                        "osFamily": row.os_family,
+                        "paymentMethod": row.payment_method,
+                        "productCode": row.product_code,
+                        "status": row.status,
+                    }),
+                },
+            )
+            .await?;
+            transaction.commit().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to commit checkout scene policy: {error}"
+                ))
+            })?;
+            Ok(serde_json::json!({
+                "id": row.id,
+                "scene": row.scene,
+                "appArchitecture": row.app_architecture,
+                "osFamily": row.os_family,
+                "paymentMethod": row.payment_method,
+                "productCode": row.product_code,
+                "status": row.status,
+                "priority": row.priority,
+            }))
+        })
+    }
     fn resolve_checkout_scene_policy<'a>(
         &'a self,
         scope: BackendTenantScope,
@@ -2401,6 +2544,14 @@ pub fn build_backend_payment_admin_router(
         .route(
             "/backend/v3/api/payments/cashier_token_settings/key",
             get(reveal_cashier_token_secret).put(set_cashier_token_secret),
+        )
+        .route(
+            "/backend/v3/api/payments/checkout_scene_policies",
+            get(list_checkout_scene_policies),
+        )
+        .route(
+            "/backend/v3/api/payments/checkout_scene_policies/{policyId}",
+            put(upsert_checkout_scene_policy),
         )
         .route(
             "/backend/v3/api/payments/checkout_scene_policy/resolve",
@@ -3224,6 +3375,111 @@ async fn delete_route_rule(
         }
     }
 }
+async fn list_checkout_scene_policies(
+    State(state): State<BackendPaymentAdminState>,
+    Query(params): Query<CheckoutScenePolicyListParams>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let page_params = OffsetListPageParams::parse(params.page, params.page_size);
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id,
+        organization_id: subject.organization_id,
+    };
+    match state
+        .store
+        .list_checkout_scene_policies(scope, page_params.page_size)
+        .await
+    {
+        Ok(items) => {
+            let total = items.len() as i64;
+            success_list(ctx, items, total, page_params)
+        }
+        Err(error) => backend_payment_error_response(
+            ctx,
+            "checkout scene policy list is unavailable",
+            error,
+        ),
+    }
+}
+
+async fn upsert_checkout_scene_policy(
+    State(state): State<BackendPaymentAdminState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Path(policy_id): Path<String>,
+    Json(body): Json<UpsertCheckoutScenePolicyBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let write_headers = match validate_backend_write_payload(
+        ctx,
+        &headers,
+        "payment-checkout-scene-policy-upsert",
+        &body,
+        "checkout-scene-policy",
+    ) {
+        Ok(headers) => headers,
+        Err(response) => return response,
+    };
+    let payment_method = match require_trimmed_string(ctx, body.payment_method, "paymentMethod") {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let product_code = match require_trimmed_string(ctx, body.product_code, "productCode") {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let status = match require_admin_status(
+        ctx,
+        body.status,
+        "status",
+        &["active", "inactive"],
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let scope = BackendTenantScope {
+        tenant_id: subject.tenant_id.clone(),
+        organization_id: subject.organization_id.clone(),
+    };
+    match state
+        .store
+        .upsert_checkout_scene_policy(
+            scope,
+            UpsertCheckoutScenePolicyRequest {
+                id: policy_id,
+                scene: body.scene.unwrap_or_else(|| "checkout".to_owned()),
+                app_architecture: body.app_architecture.unwrap_or_else(|| "any".to_owned()),
+                os_family: body.os_family.unwrap_or_else(|| "any".to_owned()),
+                payment_method,
+                product_code,
+                status,
+                priority: body.priority.unwrap_or(100),
+                actor_user_id: subject.user_id.clone(),
+                request_no: Some(write_headers.request_no.clone()),
+            },
+        )
+        .await
+    {
+        Ok(item) => success_item(ctx, item),
+        Err(error) => backend_payment_error_response(
+            ctx,
+            "checkout scene policy save failed",
+            error,
+        ),
+    }
+}
+
 async fn resolve_checkout_scene_policy(
     State(state): State<BackendPaymentAdminState>,
     Query(params): Query<CheckoutSceneResolveParams>,

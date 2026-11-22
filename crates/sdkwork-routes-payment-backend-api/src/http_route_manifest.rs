@@ -394,6 +394,19 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     .with_required_permission("commerce.payments.attempts.read"),
     HttpRoute::dual_token(
         HttpMethod::Get,
+        "/backend/v3/api/payments/checkout_scene_policies",
+        "payments",
+        "checkoutScenePolicies.list",
+    )
+    .with_required_permission("commerce.payments.checkout_scene_policy.read"),
+    HttpRoute::dual_token(
+        HttpMethod::Put,
+        "/backend/v3/api/payments/checkout_scene_policies/{policyId}",
+        "payments",
+        "checkoutScenePolicies.upsert",
+    )
+    .with_required_permission("commerce.payments.checkout_scene_policy.write"),    HttpRoute::dual_token(
+        HttpMethod::Get,
         "/backend/v3/api/payments/checkout_scene_policy/resolve",
         "payments",
         "checkoutScenePolicy.resolve",

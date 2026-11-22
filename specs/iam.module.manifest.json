@@ -90,6 +90,14 @@
         "replacementCode": null
       },
       {
+        "code": "commerce.payments.checkout_scene_policy.write",
+        "name": "Manage the checkout scene policy",
+        "resource": "checkout_scene_policy",
+        "action": "update",
+        "status": "active",
+        "since": "1.0.0",
+        "replacementCode": null
+      },      {
         "code": "commerce.payments.checkout_scene_policy.read",
         "name": "Read the checkout scene policy",
         "resource": "checkout_scene_policy",
