@@ -15,7 +15,7 @@ use crate::adapter::{
 };
 use crate::error::{ProviderError, ProviderResult};
 use crate::http::ReqwestHttpClient;
-use crate::money::minor_to_decimal_string;
+use crate::money::{currency_exponent, minor_to_decimal_string_for};
 
 pub const PAYPAL_PROVIDER_CODE: &str = "paypal";
 const PAYPAL_LIVE_API_BASE_URL: &str = "https://api-m.paypal.com";
@@ -274,7 +274,7 @@ impl PaymentProviderAdapter for PayPalPaymentProviderAdapter {
                     "invoice_id": out_trade_no,
                     "amount": {
                         "currency_code": currency,
-                        "value": minor_to_decimal_string(amount_minor),
+                        "value": paypal_amount_value(amount_minor, &currency),
                     },
                 }],
             });
@@ -376,7 +376,7 @@ impl PaymentProviderAdapter for PayPalPaymentProviderAdapter {
             let body = json!({
                 "amount": {
                     "currency_code": currency,
-                    "value": minor_to_decimal_string(amount_minor),
+                    "value": paypal_amount_value(amount_minor, &currency),
                 },
             });
             let response = self
@@ -569,6 +569,14 @@ fn unverified() -> PaymentWebhookVerificationOutcome {
     }
 }
 
+/// Formats a PayPal amount at the currency's own scale.
+///
+/// PayPal accepts zero-decimal (JPY/KRW) and three-decimal (KWD/BHD) currencies.
+/// Formatting every amount as if it had two decimals would charge 100x (or 1/10x)
+/// for those currencies, so the value comes from the ISO exponent table instead.
+fn paypal_amount_value(amount_minor: i64, currency: &str) -> String {
+    minor_to_decimal_string_for(amount_minor, currency_exponent(currency))
+}
 fn paypal_order_outcome(
     operation: PaymentAdapterOperation,
     response: Value,
@@ -813,6 +821,17 @@ mod tests {
         .is_ok());
     }
 
+    #[test]
+    fn amounts_are_formatted_at_the_currency_scale() {
+        // A two-decimal currency keeps the historical representation.
+        assert_eq!(super::paypal_amount_value(1234, "USD"), "12.34");
+        assert_eq!(super::paypal_amount_value(1234, "cny"), "12.34");
+        // Zero-decimal: 1234 JPY is 1234 yen, not 12.34 (or 123400).
+        assert_eq!(super::paypal_amount_value(1234, "JPY"), "1234");
+        assert_eq!(super::paypal_amount_value(500, "KRW"), "500");
+        // Three-decimal.
+        assert_eq!(super::paypal_amount_value(1234, "KWD"), "1.234");
+    }
     #[test]
     fn trade_numbers_must_stay_url_safe() {
         assert!(require_url_safe_trade_no("../token", PaymentAdapterOperation::CreatePaymentIntent, "no").is_err());
