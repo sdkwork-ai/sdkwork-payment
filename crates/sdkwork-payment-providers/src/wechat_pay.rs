@@ -1502,6 +1502,121 @@ mod tests {
         // Lower-case input is still CNY once normalised.
         assert!(super::validate_refund_request(10, 100, Some("cny")).is_ok());
     }
+    fn wechat_verify_route() -> (super::WeChatPayProviderAdapter, rsa::RsaPrivateKey) {
+        use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
+        let merchant = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).expect("merchant");
+        let merchant_pem = merchant
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("pem")
+            .to_string();
+        let platform = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), 2048).expect("platform");
+        let platform_pub = rsa::RsaPublicKey::from(&platform)
+            .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("public pem");
+        let adapter = super::WeChatPayProviderAdapter::new(super::WeChatPayProviderConfig {
+            app_id: "wx1234567890".to_owned(),
+            mch_id: "1900000001".to_owned(),
+            merchant_serial_no: "MERCHANT-SERIAL".to_owned(),
+            merchant_private_key_pem: merchant_pem,
+            api_v3_key: "0123456789abcdef0123456789abcdef".to_owned(),
+            notify_url: None,
+            sign_verify_mode: super::WeChatPaySignVerifyMode::WeChatPayPublicKey,
+            verification_key_pem: Some(platform_pub),
+            verification_serial_no: Some("PUB_KEY_ID_1".to_owned()),
+        })
+        .expect("adapter");
+        (adapter, platform)
+    }
+
+    fn wechat_signed_headers(
+        platform: &rsa::RsaPrivateKey,
+        timestamp: i64,
+        nonce: &str,
+        body: &[u8],
+        serial: &str,
+    ) -> Vec<(String, String)> {
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine as _;
+        use rsa::signature::{SignatureEncoding, Signer};
+        let payload = format!("{timestamp}\n{nonce}\n{}\n", String::from_utf8_lossy(body));
+        let signing = rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new(platform.clone());
+        let signature = signing.sign(payload.as_bytes()).to_bytes();
+        vec![
+            ("wechatpay-timestamp".to_owned(), timestamp.to_string()),
+            ("wechatpay-nonce".to_owned(), nonce.to_owned()),
+            ("wechatpay-signature".to_owned(), B64.encode(signature)),
+            ("wechatpay-serial".to_owned(), serial.to_owned()),
+        ]
+    }
+
+    #[test]
+    fn wechat_webhook_verification_binds_the_platform_key_and_serial() {
+        let (adapter, platform) = wechat_verify_route();
+        let body = br#"{"id":"EV-1","event_type":"TRANSACTION.SUCCESS"}"#;
+        let now = super::unix_timestamp() as i64;
+        let nonce = "nonce-value-1";
+
+        // A genuine notification signed by the configured platform key verifies.
+        let headers = wechat_signed_headers(&platform, now, nonce, body, "PUB_KEY_ID_1");
+        let outcome = tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(adapter.verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: headers.clone(),
+                body: body.to_vec(),
+                metadata: serde_json::json!({}),
+            }))
+            .expect("verify");
+        assert!(outcome.verified);
+
+        // A signature made with a different platform key must not verify.
+        let (_, other_platform) = wechat_verify_route();
+        let impostor = wechat_signed_headers(&other_platform, now, nonce, body, "PUB_KEY_ID_1");
+        assert!(!tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(adapter.verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: impostor,
+                body: body.to_vec(),
+                metadata: serde_json::json!({}),
+            }))
+            .expect("verify")
+            .verified);
+
+        // A serial that is not the configured one is rejected without trusting
+        // the signature (key-rotation hygiene).
+        let wrong_serial = wechat_signed_headers(&platform, now, nonce, body, "PUB_KEY_ID_OTHER");
+        assert!(!tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(adapter.verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: wrong_serial,
+                body: body.to_vec(),
+                metadata: serde_json::json!({}),
+            }))
+            .expect("verify")
+            .verified);
+
+        // Replaying outside the five-minute window fails closed.
+        let stale = wechat_signed_headers(&platform, now - 400, nonce, body, "PUB_KEY_ID_1");
+        assert!(!tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(adapter.verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers: stale,
+                body: body.to_vec(),
+                metadata: serde_json::json!({}),
+            }))
+            .expect("verify")
+            .verified);
+
+        // A different body under a valid header must not verify.
+        assert!(!tokio::runtime::Runtime::new()
+            .expect("runtime")
+            .block_on(adapter.verify_webhook(super::PaymentVerifyWebhookRequest {
+                headers,
+                body: br#"{"id":"EV-2","event_type":"TRANSACTION.SUCCESS"}"#.to_vec(),
+                metadata: serde_json::json!({}),
+            }))
+            .expect("verify")
+            .verified);
+    }
     #[test]
     fn the_encrypted_notification_resource_decrypts_and_rejects_tampering() {
         use aes_gcm::aead::{Aead, Payload};
