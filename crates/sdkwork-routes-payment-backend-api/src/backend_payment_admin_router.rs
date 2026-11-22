@@ -530,6 +530,9 @@ pub struct BackendProviderAccountPayload {
     pub webhook_secret_ref: Option<String>,
     pub certificate_ref: Option<String>,
     pub credential_write: sdkwork_payment_repository_sqlx::ProviderCredentialWrite,
+    /// Actor recorded in the audit trail; never the secret material.
+    pub actor_user_id: String,
+    pub request_no: Option<String>,
     pub account_mode: Option<String>,
     pub partner_provider_account_id: Option<String>,
     pub capabilities: Option<Value>,
@@ -999,9 +1002,53 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 &payload.tenant_id,
                 Some(organization_id),
                 &id,
-                credential_write,
+                credential_write.clone(),
             )
             .await?;
+            // The audit record shares the mutation's transaction: a change that
+            // commits without a record would be exactly the gap an incident review
+            // needs to close.
+            let credential_kinds = credential_write.credential_kinds();
+            let is_create = payload.id.is_none();
+            sdkwork_payment_repository_sqlx::record_admin_audit_event_in_transaction(
+                &mut transaction,
+                &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                    tenant_id: &payload.tenant_id,
+                    organization_id: Some(organization_id),
+                    actor_user_id: &payload.actor_user_id,
+                    action: if is_create {
+                        "provider_account.create"
+                    } else {
+                        "provider_account.update"
+                    },
+                    resource_type: "provider_account",
+                    resource_id: &id,
+                    request_no: payload.request_no.as_deref(),
+                    detail: serde_json::json!({
+                        "providerCode": payload.provider_code.clone(),
+                        "environment": payload.environment.clone(),
+                        "credentialKinds": credential_kinds.clone(),
+                    }),
+                },
+            )
+            .await?;
+            if !credential_kinds.is_empty() {
+                sdkwork_payment_repository_sqlx::record_admin_audit_event_in_transaction(
+                    &mut transaction,
+                    &sdkwork_payment_repository_sqlx::AdminAuditEvent {
+                        tenant_id: &payload.tenant_id,
+                        organization_id: Some(organization_id),
+                        actor_user_id: &payload.actor_user_id,
+                        action: "payment_provider_credential.rotate",
+                        resource_type: "provider_account",
+                        resource_id: &id,
+                        request_no: payload.request_no.as_deref(),
+                        // Kinds only: the trail must never carry secret material.
+                        detail: serde_json::json!({ "kinds": credential_kinds }),
+                    },
+                )
+                .await?;
+            }
             transaction.commit().await.map_err(|error| {
                 CommerceServiceError::storage(format!(
                     "failed to commit provider account transaction: {error}"
@@ -2459,7 +2506,7 @@ async fn upsert_provider_account_inner(
         Ok(subject) => subject,
         Err(message) => return unauthorized_response(ctx, message),
     };
-    let _write_headers = match validate_backend_write_payload(
+    let write_headers = match validate_backend_write_payload(
         ctx,
         &headers,
         "payment-provider-account-upsert",
@@ -2630,6 +2677,8 @@ async fn upsert_provider_account_inner(
             webhook_secret,
             certificate,
         },
+        actor_user_id: subject.user_id.clone(),
+        request_no: Some(write_headers.request_no.clone()),
         account_mode,
         partner_provider_account_id,
         capabilities: body.capabilities.or_else(|| {
@@ -2721,7 +2770,7 @@ async fn upsert_channel_inner(
         Ok(subject) => subject,
         Err(message) => return unauthorized_response(ctx, message),
     };
-    let _write_headers = match validate_backend_write_payload(
+    let write_headers = match validate_backend_write_payload(
         ctx,
         &headers,
         "payment-channel-upsert",
@@ -2870,7 +2919,7 @@ async fn upsert_route_rule_inner(
         Ok(subject) => subject,
         Err(message) => return unauthorized_response(ctx, message),
     };
-    let _write_headers = match validate_backend_write_payload(
+    let write_headers = match validate_backend_write_payload(
         ctx,
         &headers,
         "payment-route-rule-upsert",
@@ -3380,7 +3429,7 @@ async fn replay_webhook_event(
         Err(message) => return unauthorized_response(ctx, message),
     };
     let replay_body = serde_json::json!({ "eventId": event_id });
-    let _write_headers = match validate_backend_write_payload(
+    let write_headers = match validate_backend_write_payload(
         ctx,
         &headers,
         "payment-webhook-replay",

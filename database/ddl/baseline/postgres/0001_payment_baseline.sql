@@ -1317,3 +1317,29 @@ CREATE INDEX IF NOT EXISTS idx_commerce_payment_cashier_link_expiry
     ON commerce_payment_cashier_link (expires_at);
 
 COMMIT;
+
+-- =============================================================================
+-- Payment admin audit trail
+-- =============================================================================
+-- Append-only record of privileged configuration changes (credential create,
+-- rotate, revoke, account changes). It records who changed what in which request
+-- and never the secret material, so it can be retained and queried without
+-- becoming a second secret store (INTEGRATION_SPEC audit requirements).
+CREATE TABLE IF NOT EXISTS commerce_payment_admin_audit_log (
+    id                TEXT PRIMARY KEY,
+    tenant_id         TEXT NOT NULL,
+    organization_id   TEXT NOT NULL DEFAULT '0',
+    actor_user_id     TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    resource_type     TEXT NOT NULL,
+    resource_id       TEXT NOT NULL,
+    request_no        TEXT,
+    detail            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_admin_audit_tenant_time
+    ON commerce_payment_admin_audit_log (tenant_id, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_commerce_payment_admin_audit_resource
+    ON commerce_payment_admin_audit_log (tenant_id, resource_type, resource_id, created_at DESC);

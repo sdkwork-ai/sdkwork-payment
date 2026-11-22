@@ -19,6 +19,7 @@ pub mod postgres_refund;
 pub mod postgres_refund_webhook_ingestion;
 pub mod postgres_webhook_ingestion;
 mod provider_account;
+mod admin_audit;
 mod provider_credential;
 mod shared;
 mod webhook_event_payload;
@@ -94,6 +95,10 @@ pub use provider_account::{
     load_active_provider_account_by_merchant_id_postgres,
     load_active_provider_account_for_channel_postgres, load_active_provider_account_postgres,
     load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
+};
+pub use admin_audit::{
+    list_admin_audit_events_postgres, record_admin_audit_event_in_transaction,
+    record_admin_audit_event_postgres, AdminAuditEvent,
 };
 pub use provider_credential::{
     ensure_development_provider_credentials_postgres, load_provider_credentials_postgres,

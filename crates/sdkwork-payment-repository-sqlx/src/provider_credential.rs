@@ -392,3 +392,25 @@ mod tests {
         assert!(ENSURE_ACCOUNT_POSTGRES_SQL.contains("deleted_at IS NULL"));
     }
 }
+
+impl ProviderCredentialWrite {
+    /// Credential kinds this write replaces, in a stable order.
+    ///
+    /// Audit trails and admin summaries need to say *which* secrets changed
+    /// without ever carrying the values.
+    pub fn credential_kinds(&self) -> Vec<&'static str> {
+        [
+            (PRIMARY_SECRET, self.primary_secret.as_deref()),
+            (WEBHOOK_SECRET, self.webhook_secret.as_deref()),
+            (CERTIFICATE, self.certificate.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(kind, value)| {
+            value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|_| kind)
+        })
+        .collect()
+    }
+}

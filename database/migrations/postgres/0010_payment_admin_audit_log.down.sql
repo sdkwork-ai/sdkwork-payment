@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_commerce_payment_admin_audit_resource;
+DROP INDEX IF EXISTS idx_commerce_payment_admin_audit_tenant_time;
+DROP TABLE IF EXISTS commerce_payment_admin_audit_log;
