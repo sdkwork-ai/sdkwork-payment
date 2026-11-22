@@ -183,6 +183,22 @@ async fn the_shipped_defaults_cover_every_supported_platform() {
         );
     }
 
+    // The purchase scenes the order service sends must be covered too: a
+    // membership or recharge checkout without a rule has no product at all.
+    for (scene, arch, os, method, expected) in [
+        ("membership", "app", "ios", "wechat", "wechat_app"),
+        ("membership", "web", "any", "stripe", "stripe_card"),
+        ("points_recharge", "mini_program", "any", "wechat", "wechat_jsapi"),
+        ("points_recharge", "app", "ios", "alipay", "alipay_app"),
+    ] {
+        let resolved = resolve_checkout_scene_product_postgres(
+            &pool, "100001", None, scene, arch, os, method,
+        )
+        .await
+        .expect("resolve purchase scene")
+        .unwrap_or_else(|| panic!("no default policy for {scene}/{arch}/{os}/{method}"));
+        assert_eq!(expected, resolved.product_code, "{scene} resolved wrongly");
+    }
     // A platform without a default must report "unconfigured" instead of silently
     // reusing another platform's product.
     let pad = resolve_checkout_scene_product_postgres(

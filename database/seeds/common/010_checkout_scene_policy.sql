@@ -31,3 +31,26 @@ VALUES
     ('bootstrap-checkout-scene-stripe-app-android', '100001', '0', 'checkout', 'app',           'android', 'stripe', 'stripe_google_pay', 'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
     ('bootstrap-checkout-scene-stripe-app-any',     '100001', '0', 'checkout', 'app',           'any',     'stripe', 'stripe_card',  'active', 200, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT DO NOTHING;
+
+-- The same platform matrix for the purchase scenes the order service actually
+-- sends: membership subscriptions and points recharge. Without these rows a
+-- membership purchase on any platform has no configured product.
+INSERT INTO commerce_payment_checkout_scene_policy (
+    id, tenant_id, organization_id, scene, app_architecture, os_family,
+    payment_method, product_code, status, priority, metadata, created_at, updated_at
+)
+VALUES
+    ('bootstrap-scene-membership-wechat-web',     '100001', '0', 'membership',      'web',          'any',     'wechat', 'wechat_h5',    'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-wechat-mp',      '100001', '0', 'membership',      'mini_program', 'any',     'wechat', 'wechat_jsapi', 'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-wechat-ios',     '100001', '0', 'membership',      'app',          'ios',     'wechat', 'wechat_app',   'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-wechat-android', '100001', '0', 'membership',      'app',          'android', 'wechat', 'wechat_app',   'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-alipay-web',     '100001', '0', 'membership',      'web',          'any',     'alipay', 'alipay_pc',    'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-alipay-ios',     '100001', '0', 'membership',      'app',          'ios',     'alipay', 'alipay_app',   'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-membership-stripe-web',     '100001', '0', 'membership',      'web',          'any',     'stripe', 'stripe_card',  'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-wechat-web',       '100001', '0', 'points_recharge', 'web',          'any',     'wechat', 'wechat_h5',    'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-wechat-mp',        '100001', '0', 'points_recharge', 'mini_program', 'any',     'wechat', 'wechat_jsapi', 'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-wechat-ios',       '100001', '0', 'points_recharge', 'app',          'ios',     'wechat', 'wechat_app',   'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-alipay-web',       '100001', '0', 'points_recharge', 'web',          'any',     'alipay', 'alipay_pc',    'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-alipay-ios',       '100001', '0', 'points_recharge', 'app',          'ios',     'alipay', 'alipay_app',   'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+    ('bootstrap-scene-recharge-stripe-web',       '100001', '0', 'points_recharge', 'web',          'any',     'stripe', 'stripe_card',  'active', 100, '{"bootstrap":true}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT DO NOTHING;
