@@ -879,6 +879,14 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .unwrap_or("0");
+            // The account and the credentials that make it usable are one unit: a
+            // credential failure must not leave an account that looks configured
+            // but has nothing to sign with.
+            let mut transaction = self.pool.begin().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to begin provider account transaction: {error}"
+                ))
+            })?;
             let row = if payload.id.is_some() {
                 sqlx::query(
                     r#"
@@ -982,18 +990,23 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
                 .bind(metadata.as_deref())
                 .bind(payload.status.as_deref())
                 .bind(&now)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *transaction)
                 .await
             }
             .map_err(|error| CommerceServiceError::storage(format!("failed to upsert provider account: {error}")))?;
-            sdkwork_payment_repository_sqlx::rotate_provider_credentials_postgres(
-                &self.pool,
+            sdkwork_payment_repository_sqlx::rotate_provider_credentials_in_transaction(
+                &mut transaction,
                 &payload.tenant_id,
                 Some(organization_id),
                 &id,
                 credential_write,
             )
             .await?;
+            transaction.commit().await.map_err(|error| {
+                CommerceServiceError::storage(format!(
+                    "failed to commit provider account transaction: {error}"
+                ))
+            })?;
             Ok(pg_provider_account_value(&row))
         })
     }

@@ -42,8 +42,14 @@ impl ProviderCredentialWrite {
         .collect()
     }
 }
-pub async fn rotate_provider_credentials_postgres(
-    pool: &PgPool,
+/// Rotates an account's credentials in a transaction the caller owns.
+///
+/// An account upsert and the credentials that make it usable must commit or roll
+/// back together: otherwise a failed credential write leaves an account that looks
+/// configured (secret refs, active status) but has nothing to sign with, and every
+/// checkout through it fails until an operator notices.
+pub async fn rotate_provider_credentials_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant_id: &str,
     organization_id: Option<&str>,
     provider_account_id: &str,
@@ -62,7 +68,6 @@ pub async fn rotate_provider_credentials_postgres(
     if encrypted.is_empty() {
         return Ok(());
     }
-    let mut transaction = pool.begin().await.map_err(store_error)?;
     // Serialize the version = MAX(version)+1 read-modify-write per account:
     // two concurrent rotations (admin rotate + bootstrap fill) would otherwise
     // compute the same next version and race the active-unique index.
@@ -77,11 +82,11 @@ pub async fn rotate_provider_credentials_postgres(
     )
     .bind(tenant_id)
     .bind(provider_account_id)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(store_error)?;
     ensure_account_postgres(
-        &mut transaction,
+        transaction,
         tenant_id,
         organization_id,
         provider_account_id,
@@ -92,18 +97,38 @@ pub async fn rotate_provider_credentials_postgres(
             "SELECT COALESCE(MAX(version), 0) + 1 FROM commerce_payment_provider_credential WHERE tenant_id = CAST($1 AS TEXT) AND provider_account_id = CAST($2 AS TEXT) AND credential_kind = $3",
         )
         .bind(tenant_id).bind(provider_account_id).bind(kind)
-        .fetch_one(&mut *transaction).await.map_err(store_error)?;
+        .fetch_one(&mut **transaction).await.map_err(store_error)?;
         sqlx::query("UPDATE commerce_payment_provider_credential SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE tenant_id = CAST($1 AS TEXT) AND provider_account_id = CAST($2 AS TEXT) AND credential_kind = $3 AND status = 'active' AND deleted_at IS NULL")
             .bind(tenant_id).bind(provider_account_id).bind(kind)
-            .execute(&mut *transaction).await.map_err(store_error)?;
+            .execute(&mut **transaction).await.map_err(store_error)?;
         sqlx::query("INSERT INTO commerce_payment_provider_credential (id, tenant_id, organization_id, provider_account_id, credential_kind, ciphertext, encryption_key_id, encryption_algorithm, fingerprint_sha256, status, version) VALUES (CAST($1 AS TEXT), CAST($2 AS TEXT), CAST($3 AS TEXT), CAST($4 AS TEXT), $5, $6, $7, $8, $9, 'active', $10)")
             .bind(uuid::Uuid::new_v4().to_string()).bind(tenant_id).bind(organization_id)
             .bind(provider_account_id).bind(kind).bind(envelope.ciphertext)
             .bind(envelope.encryption_key_id).bind(envelope.encryption_algorithm)
             .bind(envelope.fingerprint_sha256).bind(version)
-            .execute(&mut *transaction).await.map_err(store_error)?;
-        update_legacy_marker_postgres(&mut transaction, provider_account_id, kind).await?;
+            .execute(&mut **transaction).await.map_err(store_error)?;
+        update_legacy_marker_postgres(transaction, provider_account_id, kind).await?;
     }
+    Ok(())
+}
+
+/// Rotates an account's credentials in a transaction of its own.
+pub async fn rotate_provider_credentials_postgres(
+    pool: &PgPool,
+    tenant_id: &str,
+    organization_id: Option<&str>,
+    provider_account_id: &str,
+    write: ProviderCredentialWrite,
+) -> Result<(), CommerceServiceError> {
+    let mut transaction = pool.begin().await.map_err(store_error)?;
+    rotate_provider_credentials_in_transaction(
+        &mut transaction,
+        tenant_id,
+        organization_id,
+        provider_account_id,
+        write,
+    )
+    .await?;
     transaction.commit().await.map_err(store_error)
 }
 /// Idempotently fills bootstrap provider accounts with real-format test

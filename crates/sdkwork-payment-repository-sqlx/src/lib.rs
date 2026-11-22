@@ -97,7 +97,8 @@ pub use provider_account::{
 };
 pub use provider_credential::{
     ensure_development_provider_credentials_postgres, load_provider_credentials_postgres,
-    rotate_provider_credentials_postgres, ProviderCredentialSet, ProviderCredentialWrite,
+    rotate_provider_credentials_in_transaction, rotate_provider_credentials_postgres,
+    ProviderCredentialSet, ProviderCredentialWrite,
 };
 pub use sdkwork_payment_service::ConfirmOwnerOrderPaymentOutcome;
 pub use webhook_replay::{
