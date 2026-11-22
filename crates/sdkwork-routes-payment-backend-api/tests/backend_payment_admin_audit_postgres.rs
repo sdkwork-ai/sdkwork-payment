@@ -88,7 +88,14 @@ async fn creating_an_account_with_credentials_records_who_changed_what() {
         return;
     };
 
-    const SECRET: &str = "sk-audit-secret-do-not-record";
+    // The host installs the credential cipher at boot; a test process must do the
+    // same or every credential write answers 500 ("cipher is not initialized").
+    let _ = sdkwork_payment_providers::install_payment_credential_cipher(std::sync::Arc::new(
+        sdkwork_payment_providers::LocalFilePaymentCredentialCipher::from_key_material(
+            b"payment-audit-test-master-key-material".to_vec(),
+        )
+        .expect("credential cipher"),
+    ));    const SECRET: &str = "sk-audit-secret-do-not-record";
     let router = backend_payment_admin_router_with_postgres_pool(pool.clone());
     let body = serde_json::json!({
         "accountNo": "acct-audit-1",
