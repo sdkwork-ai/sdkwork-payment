@@ -95,6 +95,11 @@ pub trait CommerceBackendPaymentAdminStore: Send + Sync {
         &'a self,
         query: BackendTenantListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
+    /// Recent privileged admin changes for this tenant (newest first).
+    fn list_audit_events<'a>(
+        &'a self,
+        query: BackendTenantListQuery,
+    ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage>;
     fn upsert_notify_domain<'a>(
         &'a self,
         payload: BackendNotifyDomainPayload,
@@ -1621,7 +1626,29 @@ impl CommerceBackendPaymentAdminStore for PostgresBackendPaymentAdminStore {
             Ok(())
         })
     }
-    fn list_notify_domains<'a>(
+    fn list_audit_events<'a>(
+        &'a self,
+        query: BackendTenantListQuery,
+    ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
+        Box::pin(async move {
+            let limit = query.limit.clamp(1, 200);
+            let items = sdkwork_payment_repository_sqlx::list_admin_audit_events_postgres(
+                &self.pool,
+                &query.scope.tenant_id,
+                limit,
+            )
+            .await?;
+            let total_items = sdkwork_payment_repository_sqlx::count_admin_audit_events_postgres(
+                &self.pool,
+                &query.scope.tenant_id,
+            )
+            .await?;
+            Ok(BackendJsonListPage {
+                items,
+                total_items,
+            })
+        })
+    }    fn list_notify_domains<'a>(
         &'a self,
         query: BackendTenantListQuery,
     ) -> CommerceBackendPaymentAdminFuture<'a, BackendJsonListPage> {
@@ -2236,6 +2263,7 @@ pub fn build_backend_payment_admin_router(
             "/backend/v3/api/payments/cashier_token_settings/key",
             get(reveal_cashier_token_secret).put(set_cashier_token_secret),
         )
+        .route("/backend/v3/api/payments/audit_events", get(list_audit_events))
         .route("/backend/v3/api/payments/attempts", get(list_attempts))
         .route(
             "/backend/v3/api/payments/webhook_events",
@@ -3028,6 +3056,34 @@ async fn delete_route_rule(
         }
     }
 }
+async fn list_audit_events(
+    State(state): State<BackendPaymentAdminState>,
+    Query(params): Query<BackendListQueryParams>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match backend_runtime_subject_from_extension(runtime_context) {
+        Ok(subject) => subject,
+        Err(message) => return unauthorized_response(ctx, message),
+    };
+    let page_params = OffsetListPageParams::parse(params.page, params.page_size);
+    let query = BackendTenantListQuery {
+        scope: BackendTenantScope {
+            tenant_id: subject.tenant_id,
+            organization_id: subject.organization_id,
+        },
+        offset: page_params.offset,
+        limit: page_params.page_size,
+    };
+    match state.store.list_audit_events(query).await {
+        Ok(page) => success_list(ctx, page.items, page.total_items, page_params),
+        Err(error) => {
+            backend_payment_error_response(ctx, "payment admin audit trail is unavailable", error)
+        }
+    }
+}
+
 async fn list_notify_domains(
     State(state): State<BackendPaymentAdminState>,
     Query(params): Query<BackendListQueryParams>,

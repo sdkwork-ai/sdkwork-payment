@@ -129,3 +129,19 @@ fn organization_id_or_platform<'a>(organization_id: Option<&'a str>) -> &'a str 
         .filter(|value| !value.is_empty())
         .unwrap_or("0")
 }
+
+/// Number of recorded admin events for a tenant.
+pub async fn count_admin_audit_events_postgres(
+    pool: &PgPool,
+    tenant_id: &str,
+) -> Result<i64, CommerceServiceError> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM commerce_payment_admin_audit_log WHERE tenant_id = CAST($1 AS TEXT)",
+    )
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| {
+        CommerceServiceError::storage(format!("failed to count payment admin audit events: {error}"))
+    })
+}

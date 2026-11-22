@@ -178,4 +178,34 @@ async fn creating_an_account_with_credentials_records_who_changed_what() {
                 && detail.contains("primary_secret")),
         "the rotation record must name the changed credential kind"
     );
+
+    // The trail must also be readable through the admin API, otherwise it only
+    // exists for whoever can open psql.
+    let router = backend_payment_admin_router_with_postgres_pool(pool.clone());
+    let mut request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/payments/audit_events?page=1&page_size=20")
+        .body(Body::empty())
+        .expect("request");
+    request.extensions_mut().insert(backend_member_context());
+    let response = router.oneshot(request).await.expect("route");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let listing = String::from_utf8_lossy(&body);
+    assert_eq!(StatusCode::OK, status, "audit listing failed: {listing}");
+    assert!(
+        listing.contains("provider_account.create")
+            && listing.contains("payment_provider_credential.rotate"),
+        "the listing must return the recorded actions: {listing}"
+    );
+    assert!(
+        listing.contains("\"actorUserId\""),
+        "the listing must name the acting user: {listing}"
+    );
+    assert!(
+        !listing.contains(SECRET),
+        "the listing must never expose secret material: {listing}"
+    );
 }

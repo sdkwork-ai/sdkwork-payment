@@ -97,7 +97,8 @@ pub use provider_account::{
     load_provider_account_for_existing_payment_postgres, PaymentProviderAccountRecord,
 };
 pub use admin_audit::{
-    list_admin_audit_events_postgres, record_admin_audit_event_in_transaction,
+    count_admin_audit_events_postgres, list_admin_audit_events_postgres,
+    record_admin_audit_event_in_transaction,
     record_admin_audit_event_postgres, AdminAuditEvent,
 };
 pub use provider_credential::{
