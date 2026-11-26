@@ -1,7 +1,7 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { CashierTokenKeySetCommand, CashierTokenSecretReveal, CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { AuditEvent, CashierTokenKeySetCommand, CashierTokenSecretReveal, CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CheckoutScenePolicyItem, CheckoutScenePolicyUpsertRequest, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, TestPaymentActionResult, TestPaymentCancelCommand, TestPaymentSettleCommand, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
 
 export interface PaymentsDevSandboxTriggerParams {
@@ -13,6 +13,14 @@ export interface PaymentsDevTestPaymentsParams {
 }
 
 export interface PaymentsDevCheckAttemptStatusParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsDevSettleTestPaymentParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsDevCancelTestPaymentParams {
   idempotencyKey: string;
 }
 
@@ -59,6 +67,28 @@ export class PaymentsDevApi {
       {}
     );
     return this.client.request<CheckAttemptStatusResult>(backendApiPath(`/payments/dev/check_attempt_status`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
+  }
+
+/** Simulate settlement of a dev test payment (dev config). */
+  async settleTestPayment(body: TestPaymentSettleCommand, params: PaymentsDevSettleTestPaymentParams, requestOptions?: ApiRequestOptions): Promise<TestPaymentActionResult> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<TestPaymentActionResult>(backendApiPath(`/payments/dev/settle_test_payment`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
+  }
+
+/** Cancel a dev test payment (dev config). */
+  async cancelTestPayment(body: TestPaymentCancelCommand, params: PaymentsDevCancelTestPaymentParams, requestOptions?: ApiRequestOptions): Promise<TestPaymentActionResult> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<TestPaymentActionResult>(backendApiPath(`/payments/dev/cancel_test_payment`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Webhook signature verification test (dev config). */
@@ -156,6 +186,75 @@ export class PaymentsWebhookEventsApi {
 /** Webhook event replay. */
   async replay(eventId: string, body?: WebhookEventsReplayRequest, requestOptions?: ApiRequestOptions): Promise<SdkWorkCommandData> {
     return this.client.request<SdkWorkCommandData>(backendApiPath(`/payments/webhook_events/${serializePathParameter(eventId, { name: 'eventId', style: 'simple', explode: false })}/replay`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(body !== undefined ? { body, contentType: 'application/json' } : {}), sdkworkUnwrapKind: 'command' });
+  }
+}
+
+export interface PaymentsAuditEventsListParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export class PaymentsAuditEventsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Payment admin audit trail list. */
+  async list(params?: PaymentsAuditEventsListParams, requestOptions?: ApiRequestOptions): Promise<{ items: AuditEvent[]; pageInfo: PageInfo; }> {
+    const query = buildQueryString([
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<{ items: AuditEvent[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/audit_events`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+  }
+}
+
+export interface PaymentsCheckoutScenePoliciesListParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaymentsCheckoutScenePoliciesRetrieveParams {
+  scene?: string;
+  appArchitecture?: string;
+  osFamily?: string;
+  paymentMethod: string;
+}
+
+export class PaymentsCheckoutScenePoliciesApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Checkout scene policy list. */
+  async list(params?: PaymentsCheckoutScenePoliciesListParams, requestOptions?: ApiRequestOptions): Promise<{ items: CheckoutScenePolicyItem[]; pageInfo: PageInfo; }> {
+    const query = buildQueryString([
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<{ items: CheckoutScenePolicyItem[]; pageInfo: PageInfo; }>(appendQueryString(backendApiPath(`/payments/checkout_scene_policies`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'page' });
+  }
+
+/** Create or replace a checkout scene rule. */
+  async update(policyId: string, body: CheckoutScenePolicyUpsertRequest, requestOptions?: ApiRequestOptions): Promise<{ configured: boolean; productCode?: string | null; matchedScope?: string | null; }> {
+    return this.client.request<{ configured: boolean; productCode?: string | null; matchedScope?: string | null; }>(backendApiPath(`/payments/checkout_scene_policies/${serializePathParameter(policyId, { name: 'policyId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'PUT' as any, body, contentType: 'application/json', sdkworkUnwrapKind: 'data' });
+  }
+
+/** Resolve the checkout product for a buyer context. */
+  async retrieve(params: PaymentsCheckoutScenePoliciesRetrieveParams, requestOptions?: ApiRequestOptions): Promise<{ configured: boolean; productCode?: string | null; matchedScope?: string | null; }> {
+    const query = buildQueryString([
+      { name: 'scene', value: params.scene, style: 'form', explode: true, allowReserved: false },
+      { name: 'app_architecture', value: params.appArchitecture, style: 'form', explode: true, allowReserved: false },
+      { name: 'os_family', value: params.osFamily, style: 'form', explode: true, allowReserved: false },
+      { name: 'payment_method', value: params.paymentMethod, style: 'form', explode: true, allowReserved: false },
+    ]);
+    return this.client.request<{ configured: boolean; productCode?: string | null; matchedScope?: string | null; }>(appendQueryString(backendApiPath(`/payments/checkout_scene_policy/resolve`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'data' });
   }
 }
 
@@ -977,6 +1076,8 @@ export class PaymentsApi {
   public readonly subMerchants: PaymentsSubMerchantsApi;
   public readonly certificates: PaymentsCertificatesApi;
   public readonly attempts: PaymentsAttemptsApi;
+  public readonly checkoutScenePolicies: PaymentsCheckoutScenePoliciesApi;
+  public readonly auditEvents: PaymentsAuditEventsApi;
   public readonly webhookEvents: PaymentsWebhookEventsApi;
   public readonly reconciliationRuns: PaymentsReconciliationRunsApi;
   public readonly dev: PaymentsDevApi;
@@ -994,6 +1095,8 @@ export class PaymentsApi {
     this.subMerchants = new PaymentsSubMerchantsApi(client);
     this.certificates = new PaymentsCertificatesApi(client);
     this.attempts = new PaymentsAttemptsApi(client);
+    this.checkoutScenePolicies = new PaymentsCheckoutScenePoliciesApi(client);
+    this.auditEvents = new PaymentsAuditEventsApi(client);
     this.webhookEvents = new PaymentsWebhookEventsApi(client);
     this.reconciliationRuns = new PaymentsReconciliationRunsApi(client);
     this.dev = new PaymentsDevApi(client);

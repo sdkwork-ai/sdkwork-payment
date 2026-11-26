@@ -5576,6 +5576,437 @@
         "x-sdkwork-permission": "commerce.payments.attempts.read"
       }
     },
+    "/backend/v3/api/payments/checkout_scene_policies": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Checkout scene policy list.",
+        "operationId": "checkoutScenePolicies.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.read"
+      }
+    },
+    "/backend/v3/api/payments/checkout_scene_policies/{policyId}": {
+      "put": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Create or replace a checkout scene rule.",
+        "description": "Codes are normalized to lower case; the unique index is case-insensitive, so `WeChat` and `wechat` cannot both claim the same context. The write and its audit record commit together.",
+        "operationId": "checkoutScenePolicies.update",
+        "parameters": [
+          {
+            "name": "policyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutScenePolicyUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.write"
+      }
+    },
+    "/backend/v3/api/payments/checkout_scene_policy/resolve": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Resolve the checkout product for a buyer context.",
+        "description": "Dry-runs the configured scene policy: returns the product code that would serve the given scene, app architecture, os family and payment method, plus which scope matched. An unconfigured context reports `configured: false` instead of guessing a product.",
+        "operationId": "checkoutScenePolicy.retrieve",
+        "parameters": [
+          {
+            "name": "scene",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "app_architecture",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "os_family",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "payment_method",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutScenePolicyResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "checkoutScenePolicy",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.checkout_scene_policy.read"
+      }
+    },
+    "/backend/v3/api/payments/audit_events": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Payment admin audit trail list.",
+        "description": "Append-only record of privileged payment-admin changes for the caller's tenant (who changed what, in which request). Secret material is never recorded.",
+        "operationId": "auditEvents.list",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "paymentAuditEvents",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.audit_events.read"
+      }
+    },
     "/backend/v3/api/payments/webhook_events": {
       "get": {
         "tags": [
@@ -6574,6 +7005,294 @@
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
         "x-sdkwork-resource": "devCheckAttemptStatus",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.test_payments",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/settle_test_payment": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Simulate settlement of a dev test payment (dev config).",
+        "description": "Dev config: settles a one-cent test payment whose product cannot be completed from an admin browser — the local sandbox provider and wallet payload products (wechat_jsapi, wechat_app, alipay_app, alipay_jsapi), whose launcher needs the payer's openid/buyer_id or the installed app. The event is ingested through the same PSP webhook pipeline as a real callback (event de-duplication, amount/currency integrity, status machine), so the webhook event record, refund eligibility, and order-side settlement all observe the state a real provider callback would produce. Refused for products that settle real money at the provider (card, QR, redirect, hosted checkout) and on production-like deployments.",
+        "operationId": "dev.settleTestPayment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentSettleCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentActionResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devSettleTestPayment",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.sandbox_trigger",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/cancel_test_payment": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Cancel a dev test payment (dev config).",
+        "description": "Dev config: closes a one-cent test payment's provider trade and closes the local payment attempt. The provider close runs first, so a provider refusal never leaves a locally closed trade open at the service provider; the local state is then driven through the same status machine as the webhook path with a closed event, which also records a webhook event like a real close notification. Already-terminal attempts are returned unchanged (idempotent command).",
+        "operationId": "dev.cancelTestPayment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentCancelCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentActionResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devCancelTestPayment",
         "x-sdkwork-request-context": "WebRequestContext",
         "x-sdkwork-api-surface": "backend-api",
         "x-sdkwork-server-request-id": true,
@@ -10046,6 +10765,236 @@
           }
         }
       },
+      "CheckoutScenePolicyItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "scene",
+          "appArchitecture",
+          "osFamily",
+          "paymentMethod",
+          "productCode",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "scene": {
+            "type": "string"
+          },
+          "appArchitecture": {
+            "type": "string"
+          },
+          "osFamily": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "productCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      },
+      "CheckoutScenePolicyListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CheckoutScenePolicyItem"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CheckoutScenePolicyUpsertRequest": {
+        "type": "object",
+        "required": [
+          "paymentMethod",
+          "productCode"
+        ],
+        "properties": {
+          "scene": {
+            "type": "string"
+          },
+          "appArchitecture": {
+            "type": "string"
+          },
+          "osFamily": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "productCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      },
+      "CheckoutScenePolicyResolution": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "configured"
+                ],
+                "properties": {
+                  "configured": {
+                    "type": "boolean"
+                  },
+                  "productCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "matchedScope": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "os, architecture or scene — how specific the winning rule was."
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AuditEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "actorUserId",
+          "action",
+          "resourceType",
+          "resourceId",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "actorUserId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "Stable verb, e.g. provider_account.create or payment_provider_credential.rotate."
+          },
+          "resourceType": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "requestNo": {
+            "type": "string",
+            "description": "Write-command request number that carried the change."
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Non-secret context such as the changed credential kinds."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuditEventListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "pageInfo"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AuditEvent"
+                    }
+                  },
+                  "pageInfo": {
+                    "$ref": "#/components/schemas/PageInfo"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "WebhookEventListResponse": {
         "allOf": [
           {
@@ -10471,6 +11420,32 @@
             "type": "string",
             "description": "Stripe publishable key for Stripe.js (stripe methods)"
           },
+          "launchKind": {
+            "type": "string",
+            "enum": [
+              "qr_code",
+              "redirect",
+              "form_redirect",
+              "card",
+              "jsapi",
+              "app",
+              "local_sandbox",
+              "unsupported"
+            ],
+            "description": "Normalized launch surface for the cashier, projected from the channel's nextAction plus provider semantics: qr_code shows the QR, redirect opens payUrl, form_redirect auto-submits payForm, card mounts the Stripe.js element, jsapi/app render the client invocation payload, local_sandbox has no PSP surface, unsupported means the channel returned nothing launchable (a configuration finding)"
+          },
+          "launchPayload": {
+            "type": "string",
+            "description": "Client invocation payload for jsapi/app launches (wx.requestPayment params, WeChat PayReq params, or the Alipay App SDK orderStr)"
+          },
+          "nextAction": {
+            "type": "string",
+            "description": "nextAction recorded by the checkout normalizer (diagnosis only)"
+          },
+          "settleSupported": {
+            "type": "boolean",
+            "description": "True when the operator can settle this test payment from the dialog through dev.settleTestPayment (sandbox and client-payload products) instead of paying for real"
+          },
           "expiresAt": {
             "type": "string",
             "format": "date-time"
@@ -10518,8 +11493,122 @@
             "type": "string",
             "minLength": 1,
             "description": "Payment intent id of the one-cent test payment to check"
+          },
+          "settleIfUnpaid": {
+            "type": "boolean",
+            "default": false,
+            "description": "Settle a sandbox or client-payload product the payer has not paid yet, in the same request (same gate as dev.settleTestPayment)"
           }
         }
+      },
+      "TestPaymentSettleCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the one-cent test payment to settle"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ],
+            "default": "success",
+            "description": "Simulated provider outcome: success settles the payment, failed exercises the failure branch"
+          }
+        }
+      },
+      "TestPaymentCancelCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the one-cent test payment to cancel"
+          }
+        }
+      },
+      "TestPaymentActionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId",
+          "attemptId",
+          "outTradeNo",
+          "previousStatus",
+          "localStatus",
+          "providerCode"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "previousStatus": {
+            "type": "string",
+            "description": "Attempt status before the action"
+          },
+          "localStatus": {
+            "type": "string",
+            "description": "Attempt status after the action was applied"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "appliedStatus": {
+            "type": "string",
+            "description": "Status the simulated provider event mapped to (null when nothing was applied)"
+          },
+          "webhookEventId": {
+            "type": "string",
+            "description": "Webhook event record id created by the action (empty when no event was recorded)"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Provider event id used for de-duplication"
+          }
+        }
+      },
+      "TestPaymentActionResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/TestPaymentActionResult"
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "CheckAttemptStatusResult": {
         "type": "object",

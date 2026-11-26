@@ -432,6 +432,42 @@
     },
     {
       "method": "GET",
+      "path": "/backend/v3/api/payments/checkout_scene_policies",
+      "operationId": "checkoutScenePolicies.list",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/backend/v3/api/payments/checkout_scene_policies/{policyId}",
+      "operationId": "checkoutScenePolicies.update",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend/v3/api/payments/checkout_scene_policy/resolve",
+      "operationId": "checkoutScenePolicy.retrieve",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend/v3/api/payments/audit_events",
+      "operationId": "auditEvents.list",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "GET",
       "path": "/backend/v3/api/payments/webhook_events",
       "operationId": "webhookEvents.list",
       "source": {
@@ -488,6 +524,24 @@
       "method": "POST",
       "path": "/backend/v3/api/payments/dev/check_attempt_status",
       "operationId": "dev.checkAttemptStatus",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/dev/settle_test_payment",
+      "operationId": "dev.settleTestPayment",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/dev/cancel_test_payment",
+      "operationId": "dev.cancelTestPayment",
       "source": {
         "routeCrate": "sdkwork-routes-payment-backend-api",
         "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"

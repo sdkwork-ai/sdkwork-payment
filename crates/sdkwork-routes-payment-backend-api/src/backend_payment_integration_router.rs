@@ -8,12 +8,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use sdkwork_iam_context_service::IamAppContext;
 use sdkwork_payment_providers::{
-    payment_credential_cipher, provider_registry_for_account, resolve_secret_ref,
+    cancel_provider_payment, capture_provider_payment, payment_credential_cipher,
+    provider_payment_awaits_capture, provider_registry_for_account, resolve_secret_ref,
     CredentialCipherScope, EncryptedPaymentCredential, EnvPaymentCredentialResolver,
     PaymentProviderRegistry, PaymentQueryPaymentIntentRequest, PaymentVerifyWebhookRequest,
     ProviderAccountBinding, ProviderCredentialBundle,
-};
-use sdkwork_payment_repository_sqlx::{
+};use sdkwork_payment_repository_sqlx::{
     enrich_owner_payment_attempt_postgres,
     payment_attempt_context::PaymentWebhookAttemptIdentity,
     postgres_webhook_ingestion::{
@@ -224,6 +224,22 @@ struct TestPaymentResult {
     /// Stripe publishable key for Stripe.js (from deployment env or the
     /// provider account metadata).
     publishable_key: Option<String>,
+    /// How the cashier must launch this payment, normalized across providers
+    /// and products: `qr_code` (show the QR), `redirect` (open the pay URL),
+    /// `form_redirect` (auto-submit the cashier form), `card` (Stripe.js card
+    /// element), `jsapi` / `app` (client invocation payload), `local_sandbox`
+    /// (no PSP, settle simulated) or `unsupported` (the channel returned
+    /// nothing that can be launched — a configuration finding).
+    launch_kind: String,
+    /// Client invocation payload (`jsapiPayload` for wx.requestPayment,
+    /// `appPayload` for WeChat PayReq, `orderStr` for the Alipay App SDK).
+    launch_payload: Option<String>,
+    /// `nextAction` exactly as the checkout normalizer recorded it, for
+    /// operator diagnosis when the launch kind is projected.
+    next_action: Option<String>,
+    /// True when the operator can settle this test payment from the dialog
+    /// (sandbox / client-payload products) instead of paying for real.
+    settle_supported: bool,
     expires_at: Option<String>,
     created_at: String,
 }
@@ -232,6 +248,59 @@ struct TestPaymentResult {
 #[serde(rename_all = "camelCase")]
 struct CheckAttemptStatusBody {
     payment_intent_id: String,
+    /// Settle a wallet-style or sandbox trade the payer has not paid yet (see
+    /// [`TestPaymentSettleBody`]) as part of the same request. The settlement
+    /// gate is re-checked here, so the flag can never grant a capability the
+    /// dedicated endpoint would refuse.
+    #[serde(default)]
+    settle_if_unpaid: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentActionBody {
+    payment_intent_id: String,
+}
+
+/// Settlement override for a one-cent test payment.
+///
+/// A one-cent test payment must prove the WHOLE chain — checkout, settlement,
+/// webhook bookkeeping, refund — for every configured service provider. Two
+/// channel classes cannot finish on their own from an admin browser session:
+///
+/// - the local `sandbox` provider has no PSP checkout at all, and
+/// - wallet products (`wechat_jsapi`, `alipay_jsapi`, `alipay_app`,
+///   `wechat_app`) hand the launcher to a client that needs a payer identity
+///   (openid / buyer_id) or an installed app the operator may not have.
+///
+/// For those, an explicit operator action (button behind a confirmation —
+/// never an automatic step) injects the settlement event through the same
+/// ingest pipeline a PSP callback uses, so the refund path can be verified
+/// instead of the test ending at "created".
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentSettleBody {
+    payment_intent_id: String,
+    /// `success` (default) settles the payment; `failed` marks it failed so
+    /// the failure branch of the status machine can be exercised too.
+    #[serde(default)]
+    outcome: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentSettleResult {
+    payment_intent_id: String,
+    attempt_id: String,
+    out_trade_no: String,
+    /// Attempt status before the simulated event.
+    previous_status: String,
+    /// Attempt status after the simulated event was applied.
+    local_status: String,
+    provider_code: String,
+    applied_status: Option<String>,
+    webhook_event_id: String,
+    event_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -315,6 +384,14 @@ fn build_router(state: IntegrationState) -> Router {
         .route(
             "/backend/v3/api/payments/dev/check_attempt_status",
             post(check_attempt_status),
+        )
+        .route(
+            "/backend/v3/api/payments/dev/settle_test_payment",
+            post(settle_test_payment),
+        )
+        .route(
+            "/backend/v3/api/payments/dev/cancel_test_payment",
+            post(cancel_test_payment),
         )
         .route(
             "/backend/v3/api/payments/dev/webhook_signature_test",
@@ -903,29 +980,68 @@ struct SandboxTriggerResult {
 // One-cent test payment (dev config)
 // ===========================================================================
 
-/// Payment method keys that can drive the one-cent test payment. Two classes:
-/// scan-to-pay QR methods (`wechat_native` → WeChat `/v3/pay/transactions/native`
-/// `code_url`, `alipay_qr` → Alipay `alipay.trade.precreate` `qr_code`) and
-/// web-redirect methods (`alipay_wap`/`alipay_pc` → Alipay H5/PC cashier
-/// `redirect_url`/`payForm`). Other products return SDK invocation payloads,
-/// require payer identifiers (openid/buyer_id), or have no checkout at all
-/// (sandbox).
-const TEST_PAYMENT_METHOD_KEYS: [&str; 10] = [
+/// Payment method keys that can drive the one-cent test payment. Every product
+/// a configured service provider can sell is reachable, which is what makes
+/// "configure the provider, then exercise the whole payment function" true for
+/// the whole catalogue instead of a hand-picked subset:
+///
+/// - scan-to-pay QR: `wechat_native` (WeChat `/v3/pay/transactions/native`
+///   `code_url`), `alipay_qr` (Alipay `alipay.trade.precreate` `qr_code`);
+/// - web cashier navigation: `alipay_wap` / `alipay_pc` (Alipay H5/PC cashier),
+///   `wechat_h5` (WeChat `/v3/pay/transactions/h5` `h5_url`), `paypal`
+///   (PayPal Orders approve link);
+/// - client invocation payloads: `wechat_jsapi` / `wechat_app`,
+///   `alipay_app` / `alipay_jsapi` — the launcher is rendered in the dialog,
+///   and settlement is supported for them because a browser session cannot
+///   present the payer identity or the installed app the launcher expects;
+/// - card / wallet collection: `stripe_card`, `stripe_apple_pay`,
+///   `stripe_google_pay`, `stripe_alipay`, `stripe_wechat_pay` (client secret
+///   confirmed with Stripe.js);
+/// - the local sandbox (`sandbox_test`) and the legacy `wechat_pay` alias that
+///   the WeChat adapter maps onto Native.
+const TEST_PAYMENT_METHOD_KEYS: [&str; 17] = [
     "wechat_native",
+    "wechat_pay",
+    "wechat_jsapi",
+    "wechat_h5",
+    "wechat_app",
     "alipay_qr",
     "alipay_wap",
     "alipay_pc",
-    // Stripe card/wallet methods use the client-secret confirm flow: the
-    // admin enters card details in the dialog (Stripe.js) and pays directly.
+    "alipay_app",
+    "alipay_jsapi",
     "stripe_card",
     "stripe_apple_pay",
     "stripe_google_pay",
     "stripe_alipay",
     "stripe_wechat_pay",
-    // The local sandbox has no real PSP checkout; the dialog simulates the
-    // payment success via the sandbox webhook trigger (no credentials needed).
+    "paypal",
+    // The local sandbox has no real PSP checkout; settlement is simulated
+    // through the sandbox webhook trigger (no credentials needed).
     "sandbox_test",
 ];
+
+/// Products that hand the payer a client invocation payload instead of a
+/// pay-in-browser surface. They are still full one-cent tests — the checkout is
+/// created for real and the launcher is rendered in the dialog — but settlement
+/// can be simulated for them, because an admin browser session cannot present
+/// the payer's openid / buyer_id or the installed app the payload targets.
+const TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS: [&str; 4] = [
+    "wechat_jsapi",
+    "wechat_app",
+    "alipay_app",
+    "alipay_jsapi",
+];
+
+/// True when the settle override is allowed for the method: the local sandbox
+/// performs no real settlement, and a client-payload product cannot be
+/// completed from the dialog. Every card / QR / redirect / hosted-checkout
+/// product moves real money, so its settlement must come from the provider.
+fn test_payment_settle_supported(method_key: &str) -> bool {
+    let method_key = method_key.trim().to_ascii_lowercase();
+    method_key == "sandbox_test" || TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS.contains(&method_key.as_str())
+}
+
 const TEST_PAYMENT_ORDER_SUBJECT: &str = "One-cent test payment";
 /// Test order lifetime in minutes. Order-expiration enforcement rejects
 /// payment for orders with missing/expired boundaries, and the provider
@@ -1173,8 +1289,8 @@ async fn create_test_payment(
             payment_intent_no: intent.payment_intent_no,
             attempt_id: attempt.attempt_id,
             out_trade_no: attempt.out_trade_no,
-            method_key: attempt.payment_method,
-            provider_code: attempt.provider_code,
+            method_key: attempt.payment_method.clone(),
+            provider_code: attempt.provider_code.clone(),
             amount: attempt
                 .amount
                 .as_str()
@@ -1192,10 +1308,90 @@ async fn create_test_payment(
                 .ok()
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),
+            launch_kind: test_payment_launch_kind(&attempt.provider_code, &attempt.payment_params)
+                .as_str()
+                .to_owned(),
+            launch_payload: attempt
+                .payment_params
+                .get("jsapiPayload")
+                .or_else(|| attempt.payment_params.get("appPayload"))
+                .or_else(|| attempt.payment_params.get("orderStr"))
+                .cloned(),
+            next_action: attempt.payment_params.get("nextAction").cloned(),
+            settle_supported: test_payment_settle_supported(&attempt.payment_method),
             expires_at: attempt.payment_params.get("expiresAt").cloned(),
             created_at: now,
         },
     )
+}
+
+/// How the cashier launches a test payment, projected from the channel's
+/// normalized `nextAction` plus the provider's own semantics.
+///
+/// The projection exists so the dialog never has to guess: a provider that
+/// returns only a client payload (WeChat App PayReq, Alipay `orderStr`) is not
+/// a "web cashier page", and the local sandbox has no surface at all. Only the
+/// launch surface the renderer can actually drive is reported.
+fn test_payment_launch_kind(
+    provider_code: &str,
+    payment_params: &std::collections::BTreeMap<String, String>,
+) -> TestPaymentLaunchKind {
+    let has = |key: &str| {
+        payment_params
+            .get(key)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    match provider_code {
+        "sandbox" => return TestPaymentLaunchKind::LocalSandbox,
+        "stripe" if has("clientSecret") => return TestPaymentLaunchKind::Card,
+        _ => {}
+    }
+    match payment_params.get("nextAction").map(String::as_str) {
+        Some("jsapi") if has("jsapiPayload") => TestPaymentLaunchKind::Jsapi,
+        Some("app") if has("appPayload") || has("orderStr") => TestPaymentLaunchKind::App,
+        Some("redirect") if has("payUrl") => {
+            if has("payForm") {
+                TestPaymentLaunchKind::FormRedirect
+            } else {
+                TestPaymentLaunchKind::Redirect
+            }
+        }
+        Some("qr_code") if has("qrCodeUrl") => TestPaymentLaunchKind::QrCode,
+        Some("stripe_confirm") if has("clientSecret") => TestPaymentLaunchKind::Card,
+        // A resolved checkout always carries a launch surface; a channel whose
+        // product returned none is a configuration/renderer mismatch, and the
+        // dialog reports it instead of showing an empty QR frame.
+        _ if has("payForm") => TestPaymentLaunchKind::FormRedirect,
+        _ => TestPaymentLaunchKind::Unsupported,
+    }
+}
+
+/// Stable wire discriminator for the test-payment launch surface.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum TestPaymentLaunchKind {
+    QrCode,
+    Redirect,
+    FormRedirect,
+    Card,
+    Jsapi,
+    App,
+    LocalSandbox,
+    Unsupported,
+}
+
+impl TestPaymentLaunchKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::QrCode => "qr_code",
+            Self::Redirect => "redirect",
+            Self::FormRedirect => "form_redirect",
+            Self::Card => "card",
+            Self::Jsapi => "jsapi",
+            Self::App => "app",
+            Self::LocalSandbox => "local_sandbox",
+            Self::Unsupported => "unsupported",
+        }
+    }
 }
 
 async fn create_test_payment_checkout(
@@ -1287,11 +1483,7 @@ async fn check_attempt_status(
         Err(error) => return map_service_error(ctx, error),
     };
 
-    let terminal = matches!(
-        attempt.status.as_str(),
-        "succeeded" | "failed" | "closed" | "canceled" | "cancelled"
-    );
-    if terminal {
+    if attempt.is_terminal() {
         return success_item(
             ctx,
             CheckAttemptStatusResult {
@@ -1302,6 +1494,21 @@ async fn check_attempt_status(
                 paid: attempt.status == "succeeded",
             },
         );
+    }
+
+    // The settle override is a separate, explicit capability: it is re-checked
+    // here (deployment gate + product class) so the flag cannot borrow the
+    // status query to settle money-moving products.
+    if body.settle_if_unpaid {
+        if !state.sandbox_trigger_enabled || !test_payment_settle_supported(&attempt.payment_method) {
+            return conflict(
+                ctx,
+                format!(
+                    "attempt {} of product {} settles real money at the provider and cannot be settled from the status check; pay it through the provider instead",
+                    attempt.attempt_id, attempt.payment_method
+                ),
+            );
+        }
     }
 
     // Resolve the provider account bound to the attempt's channel so the PSP
@@ -1316,6 +1523,43 @@ async fn check_attempt_status(
             .as_ref()
             .map(|account| account.binding(account.environment.clone())),
     );
+
+    // A sandbox trade has no PSP to ask: the only authority is local state, so
+    // the check reports the current attempt status and never calls out.
+    if attempt.provider_code == "sandbox" {
+        if body.settle_if_unpaid {
+            if let Some(result) =
+                apply_test_payment_event(pool, &attempt, "settle-test-payment", "succeeded", "sdkwork.test.settled")
+                    .await
+            {
+                return success_item(
+                    ctx,
+                    CheckAttemptStatusResult {
+                        payment_intent_id: result.payment_intent_id,
+                        attempt_id: result.attempt_id,
+                        provider_status: Some("succeeded".to_owned()),
+                        local_status: result.local_status.clone(),
+                        paid: result.local_status == "succeeded",
+                    },
+                );
+            }
+            return map_service_error(
+                ctx,
+                storage("the simulated settlement could not be applied"),
+            );
+        }
+        return success_item(
+            ctx,
+            CheckAttemptStatusResult {
+                payment_intent_id: payment_intent_id.clone(),
+                attempt_id: attempt.attempt_id.clone(),
+                provider_status: None,
+                local_status: attempt.status.clone(),
+                paid: false,
+            },
+        );
+    }
+
     let Some(adapter) = registry.resolve(&attempt.provider_code) else {
         return validation(
             ctx,
@@ -1355,23 +1599,58 @@ async fn check_attempt_status(
             );
         }
     };
-    let raw_status = query_outcome.raw_status.clone();
-    let Some(raw_status) = raw_status
+    let mut raw_status = match query_outcome
+        .raw_status
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(str::to_owned)
-    else {
-        return success_item(
-            ctx,
-            CheckAttemptStatusResult {
-                payment_intent_id,
-                attempt_id: attempt.attempt_id.clone(),
-                provider_status: raw_status,
-                local_status: attempt.status.clone(),
-                paid: false,
-            },
-        );
+    {
+        Some(raw_status) => raw_status,
+        None => {
+            return success_item(
+                ctx,
+                CheckAttemptStatusResult {
+                    payment_intent_id,
+                    attempt_id: attempt.attempt_id.clone(),
+                    provider_status: None,
+                    local_status: attempt.status.clone(),
+                    paid: false,
+                },
+            );
+        }
     };
+    // PayPal Orders v2 stops at APPROVED: money has not moved, and no success
+    // callback arrives until the merchant captures. The admin cannot complete
+    // that step from the dialog, so the status check — the operator's "confirm
+    // this payment" action — performs the capture with a deterministic
+    // idempotency key instead of reporting "not paid" forever. Every other
+    // channel captures as part of its own checkout.
+    if provider_payment_awaits_capture(&attempt.provider_code, Some(&raw_status)) {
+        let capture_key = format!("capture:{}:{}", attempt.provider_code, attempt.out_trade_no);
+        match capture_provider_payment(
+            &registry,
+            &attempt.provider_code,
+            &attempt.out_trade_no,
+            Some(&capture_key),
+        )
+        .await
+        {
+            Ok(Some(captured)) => raw_status = captured,
+            // The capture reported a state the mapper may not consume; the
+            // status check then reports what the provider returned.
+            Ok(None) => {}
+            Err(error) => {
+                return validation(
+                    ctx,
+                    format!(
+                        "the provider order was approved but could not be captured: {}; retry the status check",
+                        error.message()
+                    ),
+                );
+            }
+        }
+    }
     let target_status = map_provider_payment_status(&attempt.provider_code, &raw_status);
     let mut local_status = attempt.status.clone();
     if target_status.is_some() && target_status != Some(local_status.as_str()) {
@@ -1453,6 +1732,10 @@ async fn check_attempt_status(
 struct TestAttemptForCheck {
     attempt_id: String,
     payment_intent_id: String,
+    /// Product key of the intent (`wechat_jsapi`, `paypal`, ...). The attempt
+    /// row itself only stores the provider code and a legacy method column, so
+    /// the settle gate reads the authoritative intent row.
+    payment_method: String,
     provider_code: String,
     out_trade_no: String,
     provider_transaction_id: Option<String>,
@@ -1462,6 +1745,317 @@ struct TestAttemptForCheck {
     organization_id: Option<String>,
     owner_user_id: String,
     order_id: String,
+}
+
+impl TestAttemptForCheck {
+    /// Terminal states are never re-applied: a settled or closed attempt keeps
+    /// its result even when a later provider/query event disagrees.
+    fn is_terminal(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "succeeded" | "failed" | "closed" | "canceled" | "cancelled"
+        )
+    }
+}
+
+impl Clone for TestAttemptForCheck {
+    fn clone(&self) -> Self {
+        Self {
+            attempt_id: self.attempt_id.clone(),
+            payment_intent_id: self.payment_intent_id.clone(),
+            payment_method: self.payment_method.clone(),
+            provider_code: self.provider_code.clone(),
+            out_trade_no: self.out_trade_no.clone(),
+            provider_transaction_id: self.provider_transaction_id.clone(),
+            status: self.status.clone(),
+            channel_id: self.channel_id.clone(),
+            tenant_id: self.tenant_id.clone(),
+            organization_id: self.organization_id.clone(),
+            owner_user_id: self.owner_user_id.clone(),
+            order_id: self.order_id.clone(),
+        }
+    }
+}
+
+/// Cancels a one-cent test payment's provider trade and closes the local
+/// attempt.
+///
+/// Every product needs a close path in the test surface: a QR code that is
+/// abandoned, a PayPal order the tester never approved, or a wallet trade whose
+/// launcher cannot complete would otherwise sit pending until it expires, and
+/// the operator could not tell a close regression from a slow PSP. The
+/// provider close runs first (so a provider refusal never leaves a locally
+/// closed trade open at the PSP), then the same status machine the webhook path
+/// uses is driven with a `closed` event, which records a webhook event exactly
+/// like a real PSP close notification.
+async fn cancel_test_payment(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<TestPaymentActionBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    if let Err(response) = validate_command(ctx, &headers, "cancel-test-payment", &body) {
+        return response;
+    }
+    let payment_intent_id = match required_text(&body.payment_intent_id, "paymentIntentId", ctx) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let IntegrationPool::Postgres(pool) = &state.pool;
+    let attempt = match load_test_attempt_for_check(pool, &subject, &payment_intent_id).await {
+        Ok(Some(attempt)) => attempt,
+        Ok(None) => return not_found(ctx, "payment attempt was not found for this payment intent"),
+        Err(error) => return map_service_error(ctx, error),
+    };
+    if attempt.is_terminal() {
+        // Closing a closed trade is a successful no-op (idempotent command).
+        return success_item(
+            ctx,
+            test_payment_settle_payload(&attempt, attempt.status.clone(), None, None, None),
+        );
+    }
+    let account = match load_provider_account_for_attempt(pool, &attempt).await {
+        Ok(account) => account,
+        Err(error) => return map_service_error(ctx, error),
+    };
+    let registry = provider_registry_for_account(
+        &EnvPaymentCredentialResolver::load(),
+        account
+            .as_ref()
+            .map(|account| account.binding(account.environment.clone())),
+    );
+    if let Err(error) = cancel_provider_payment(
+        &registry,
+        &attempt.provider_code,
+        &attempt.out_trade_no,
+        attempt.provider_transaction_id.as_deref(),
+    )
+    .await
+    {
+        return validation(
+            ctx,
+            format!(
+                "the payment provider did not close the trade: {}; nothing was changed locally, retry after checking the provider state",
+                error.message()
+            ),
+        );
+    }
+    match apply_test_payment_event(pool, &attempt, "cancel-test-payment", "closed", "closed").await {
+        Some(result) => success_item(ctx, result),
+        None => map_service_error(
+            ctx,
+            storage("the local payment attempt state could not be closed"),
+        ),
+    }
+}
+
+/// Simulates the settlement of a one-cent test payment whose product cannot be
+/// completed from an admin browser (see [`TestPaymentSettleBody`]).
+///
+/// The event is ingested through the PSP webhook pipeline (event de-duplication,
+/// amount/currency integrity check, status machine), so everything downstream —
+/// webhook event record, refund eligibility, order-side settlement — sees the
+/// same state a real callback would produce. The capability is fail-closed on
+/// production-like deployments, matching the sandbox trigger it shares its
+/// permission with.
+async fn settle_test_payment(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<TestPaymentSettleBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    if !state.sandbox_trigger_enabled {
+        return forbidden(
+            ctx,
+            "simulated settlement is disabled on production-like deployments; pay through the provider instead",
+        );
+    }
+    if let Err(response) = validate_command(ctx, &headers, "settle-test-payment", &body) {
+        return response;
+    }
+    let payment_intent_id = match required_text(&body.payment_intent_id, "paymentIntentId", ctx) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let outcome = body
+        .outcome
+        .as_deref()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "success".to_owned());
+    let (event_status, event_type) = match outcome.as_str() {
+        "success" | "succeeded" => ("succeeded", "sdkwork.test.settled"),
+        "failed" | "failure" => ("failed", "sdkwork.test.failed"),
+        other => {
+            return validation(
+                ctx,
+                format!("outcome must be success or failed, got {other}"),
+            );
+        }
+    };
+    let IntegrationPool::Postgres(pool) = &state.pool;
+    let attempt = match load_test_attempt_for_check(pool, &subject, &payment_intent_id).await {
+        Ok(Some(attempt)) => attempt,
+        Ok(None) => return not_found(ctx, "payment attempt was not found for this payment intent"),
+        Err(error) => return map_service_error(ctx, error),
+    };
+    if !test_payment_settle_supported(&attempt.payment_method) {
+        return conflict(
+            ctx,
+            format!(
+                "payment method {} of attempt {} settles real money at the provider: pay it through the provider, or close it, instead of simulating settlement",
+                attempt.payment_method, attempt.attempt_id
+            ),
+        );
+    }
+    if attempt.is_terminal() {
+        return success_item(
+            ctx,
+            test_payment_settle_payload(&attempt, attempt.status.clone(), None, None, None),
+        );
+    }
+    match apply_test_payment_event(pool, &attempt, "settle-test-payment", event_status, event_type).await {        Some(result) => success_item(ctx, result),
+        None => map_service_error(
+            ctx,
+            storage("the simulated settlement could not be applied"),
+        ),
+    }
+}
+
+fn test_payment_settle_payload(
+    attempt: &TestAttemptForCheck,
+    local_status: String,
+    applied_status: Option<String>,
+    webhook_event_id: Option<String>,
+    event_id: Option<String>,
+) -> TestPaymentSettleResult {
+    TestPaymentSettleResult {
+        payment_intent_id: attempt.payment_intent_id.clone(),
+        attempt_id: attempt.attempt_id.clone(),
+        out_trade_no: attempt.out_trade_no.clone(),
+        previous_status: attempt.status.clone(),
+        local_status,
+        provider_code: attempt.provider_code.clone(),
+        applied_status,
+        webhook_event_id: webhook_event_id.unwrap_or_default(),
+        event_id: event_id.unwrap_or_default(),
+    }
+}
+
+/// Applies one simulated provider event to a pending test-payment attempt
+/// through the shared ingest pipeline and reports the resulting state.
+async fn apply_test_payment_event(
+    pool: &PgPool,
+    attempt: &TestAttemptForCheck,
+    scope: &str,
+    event_status: &str,
+    event_type: &str,
+) -> Option<TestPaymentSettleResult> {
+    let event_id = stable_id(
+        format!("test-payment-{scope}-event").as_str(),
+        &format!("{}:{}", attempt.attempt_id, event_status),
+    );
+    let payload = json!({
+        "id": event_id,
+        "type": event_type,
+        "providerCode": attempt.provider_code.clone(),
+        "outTradeNo": attempt.out_trade_no.clone(),
+        "paymentStatus": event_status,
+        "settledBy": scope,
+    });
+    let command = IngestProviderWebhookCommand {
+        provider_code: attempt.provider_code.clone(),
+        provider_event_id: event_id.clone(),
+        event_type: Some(event_type.to_owned()),
+        out_trade_no: Some(attempt.out_trade_no.clone()),
+        payment_status: Some(event_status.to_owned()),
+        payload,
+        tenant_id: Some(attempt.tenant_id.clone()),
+        organization_id: attempt.organization_id.clone(),
+    };
+    if let Err(error) = ingest_provider_webhook_postgres(pool, command).await {
+        // A state-machine refusal (the attempt was settled concurrently by a
+        // real callback) is a race, not a failure: the reload below reports the
+        // authoritative state. Any other storage failure is a real error.
+        let reloaded = load_test_attempt_by_id(pool, attempt).await.ok().flatten();
+        match reloaded {
+            Some(current) if current.status != attempt.status => {
+                return Some(test_payment_settle_payload(
+                    &current,
+                    current.status.clone(),
+                    None,
+                    None,
+                    Some(event_id),
+                ));
+            }
+            _ => {
+                tracing::warn!(
+                    error = %error.message(),
+                    attempt_id = %attempt.attempt_id,
+                    "test payment simulated event could not be applied"
+                );
+                return None;
+            }
+        }
+    }
+    let current = load_test_attempt_by_id(pool, attempt)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| attempt.clone());
+    Some(test_payment_settle_payload(
+        &current,
+        current.status.clone(),
+        None,
+        None,
+        Some(event_id),
+    ))
+}
+
+async fn load_test_attempt_by_id(
+    pool: &PgPool,
+    attempt: &TestAttemptForCheck,
+) -> Result<Option<TestAttemptForCheck>, sdkwork_contract_service::CommerceServiceError> {
+    let row = sqlx::query(
+        "SELECT a.id, a.payment_intent_id, i.payment_method, a.provider_code, a.out_trade_no, \
+                COALESCE(a.callback_payload->>'providerTransactionId', a.callback_payload->>'provider_transaction_id') AS provider_transaction_id, \
+                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id \
+         FROM commerce_payment_attempt a \
+         LEFT JOIN commerce_payment_intent i ON i.id = a.payment_intent_id AND i.tenant_id = a.tenant_id \
+         WHERE a.tenant_id = CAST($1 AS TEXT) AND a.id = CAST($2 AS TEXT) AND a.deleted_at IS NULL \
+         LIMIT 1",
+    )
+    .bind(&attempt.tenant_id)
+    .bind(&attempt.attempt_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage)?;
+    Ok(row.map(|row| TestAttemptForCheck {
+        attempt_id: row.try_get("id").unwrap_or_default(),
+        payment_intent_id: row.try_get("payment_intent_id").unwrap_or_default(),
+        payment_method: row.try_get("payment_method").ok().flatten().unwrap_or_default(),
+        provider_code: row.try_get("provider_code").unwrap_or_default(),
+        out_trade_no: row.try_get("out_trade_no").unwrap_or_default(),
+        provider_transaction_id: row.try_get("provider_transaction_id").ok().flatten(),
+        status: row.try_get("status").unwrap_or_default(),
+        channel_id: row.try_get("channel_id").ok().flatten(),
+        tenant_id: row.try_get("tenant_id").unwrap_or_default(),
+        organization_id: row.try_get("organization_id").ok().flatten(),
+        owner_user_id: row.try_get("owner_user_id").unwrap_or_default(),
+        order_id: row.try_get("order_id").unwrap_or_default(),
+    }))
 }
 
 async fn load_test_attempt_for_check(
@@ -1476,13 +2070,16 @@ async fn load_test_attempt_for_check(
         .filter(|value| !value.is_empty())
         .unwrap_or("0");
     let row = sqlx::query(
-        "SELECT id, payment_intent_id, provider_code, out_trade_no,                 COALESCE(callback_payload->>'providerTransactionId', callback_payload->>'provider_transaction_id') AS provider_transaction_id,                 status, channel_id, tenant_id, organization_id, owner_user_id, order_id \
-         FROM commerce_payment_attempt \
-         WHERE tenant_id = CAST($1 AS TEXT) \
-           AND ((organization_id = CAST($2 AS TEXT)) OR (organization_id = '0' AND $2::text IS NULL)) \
-           AND owner_user_id = CAST($3 AS TEXT) \
-           AND payment_intent_id = CAST($4 AS TEXT) AND deleted_at IS NULL \
-         ORDER BY created_at DESC, id DESC LIMIT 1",
+        "SELECT a.id, a.payment_intent_id, i.payment_method, a.provider_code, a.out_trade_no, \
+                COALESCE(a.callback_payload->>'providerTransactionId', a.callback_payload->>'provider_transaction_id') AS provider_transaction_id, \
+                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id \
+         FROM commerce_payment_attempt a \
+         LEFT JOIN commerce_payment_intent i ON i.id = a.payment_intent_id AND i.tenant_id = a.tenant_id \
+         WHERE a.tenant_id = CAST($1 AS TEXT) \
+           AND ((a.organization_id = CAST($2 AS TEXT)) OR (a.organization_id = '0' AND $2::text IS NULL)) \
+           AND a.owner_user_id = CAST($3 AS TEXT) \
+           AND a.payment_intent_id = CAST($4 AS TEXT) AND a.deleted_at IS NULL \
+         ORDER BY a.created_at DESC, a.id DESC LIMIT 1",
     )
     .bind(&subject.tenant_id)
     .bind(organization_id)
@@ -1494,6 +2091,7 @@ async fn load_test_attempt_for_check(
     Ok(row.map(|row| TestAttemptForCheck {
         attempt_id: row.try_get("id").unwrap_or_default(),
         payment_intent_id: row.try_get("payment_intent_id").unwrap_or_default(),
+        payment_method: row.try_get("payment_method").ok().flatten().unwrap_or_default(),
         provider_code: row.try_get("provider_code").unwrap_or_default(),
         out_trade_no: row.try_get("out_trade_no").unwrap_or_default(),
         provider_transaction_id: row.try_get("provider_transaction_id").ok().flatten(),
@@ -2556,6 +3154,137 @@ mod tests {
         TEST_PAYMENT_ORDER_TTL_MINUTES,
     };
     use crate::command_headers::AppWriteCommandHeaders;
+
+    #[test]
+    fn test_payment_launch_kind_reports_only_drivable_surfaces() {
+        use super::{test_payment_launch_kind, TestPaymentLaunchKind};
+        use std::collections::BTreeMap;
+
+        let params = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect::<BTreeMap<String, String>>()
+        };
+
+        // The sandbox has no PSP surface at all, whatever the channel recorded.
+        assert_eq!(
+            test_payment_launch_kind("sandbox", &params(&[("nextAction", "cashier")])),
+            TestPaymentLaunchKind::LocalSandbox
+        );
+        // Stripe is a Stripe.js card element, not a QR or a redirect.
+        assert_eq!(
+            test_payment_launch_kind("stripe", &params(&[("clientSecret", "pi_1_secret")])),
+            TestPaymentLaunchKind::Card
+        );
+        // A client payload is its own launch kind: rendering it as a web
+        // cashier page would hand the operator an unusable link.
+        assert_eq!(
+            test_payment_launch_kind(
+                "wechat_pay",
+                &params(&[("nextAction", "jsapi"), ("jsapiPayload", "{}")])
+            ),
+            TestPaymentLaunchKind::Jsapi
+        );
+        assert_eq!(
+            test_payment_launch_kind(
+                "alipay",
+                &params(&[("nextAction", "app"), ("orderStr", "app_id=1")])
+            ),
+            TestPaymentLaunchKind::App
+        );
+        // A hosted approve link (PayPal) and the Alipay H5 cashier redirect.
+        assert_eq!(
+            test_payment_launch_kind(
+                "paypal",
+                &params(&[("nextAction", "redirect"), ("payUrl", "https://paypal.test/approve")])
+            ),
+            TestPaymentLaunchKind::Redirect
+        );
+        // Alipay PC returns both a URL and an auto-submit form.
+        assert_eq!(
+            test_payment_launch_kind(
+                "alipay",
+                &params(&[
+                    ("nextAction", "redirect"),
+                    ("payUrl", "https://openapi.alipay.test"),
+                    ("payForm", "<form></form>"),
+                ])
+            ),
+            TestPaymentLaunchKind::FormRedirect
+        );
+        assert_eq!(
+            test_payment_launch_kind(
+                "wechat_pay",
+                &params(&[("nextAction", "qr_code"), ("qrCodeUrl", "weixin://wxpay/1")])
+            ),
+            TestPaymentLaunchKind::QrCode
+        );
+        // A channel that returned nothing launchable is reported, not masked.
+        assert_eq!(
+            test_payment_launch_kind("alipay", &params(&[("nextAction", "cashier")])),
+            TestPaymentLaunchKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn every_configured_product_class_reaches_the_test_surface() {
+        use super::{
+            test_payment_settle_supported, TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS,
+            TEST_PAYMENT_METHOD_KEYS,
+        };
+
+        // Service-provider × product coverage: every product each adapter
+        // declares must be testable, otherwise "configure the provider and the
+        // whole payment function works" cannot be verified from the admin.
+        for method_key in [
+            "stripe_card",
+            "stripe_apple_pay",
+            "stripe_google_pay",
+            "stripe_alipay",
+            "stripe_wechat_pay",
+            "alipay_qr",
+            "alipay_pc",
+            "alipay_wap",
+            "alipay_app",
+            "alipay_jsapi",
+            "wechat_native",
+            "wechat_jsapi",
+            "wechat_h5",
+            "wechat_app",
+            "paypal",
+            "sandbox_test",
+        ] {
+            assert!(
+                TEST_PAYMENT_METHOD_KEYS.contains(&method_key),
+                "{method_key} must be testable"
+            );
+        }
+        // Settlement simulation is limited to products that cannot settle a
+        // real payment from the dialog.
+        for method_key in TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS {
+            assert!(test_payment_settle_supported(method_key));
+        }
+        assert!(test_payment_settle_supported("sandbox_test"));
+        for method_key in [
+            "stripe_card",
+            "stripe_apple_pay",
+            "alipay_qr",
+            "alipay_pc",
+            "alipay_wap",
+            "wechat_native",
+            "wechat_h5",
+            "paypal",
+        ] {
+            assert!(
+                !test_payment_settle_supported(method_key),
+                "{method_key} moves real money and must not be settled by simulation"
+            );
+        }
+        // Case/whitespace tolerated, unknown keys fail closed.
+        assert!(test_payment_settle_supported(" WeChat_JSAPI "));
+        assert!(!test_payment_settle_supported("wechat_unknown"));
+    }
 
     #[test]
     fn decimal_amounts_convert_to_minor_units() {

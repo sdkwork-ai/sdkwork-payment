@@ -96,6 +96,11 @@ sdks/**/*-typescript/src/*.d.ts
 # --- SDKWork: gitignore completeness (2026-10-16) ---
 # Added by repo-commit task; targeted rules only, compliant with check-gitignore-standard
 __pycache__/
+*.py[cod]
+
+# Local sweep/repair scratch scripts used while reconciling generated SDK output
+.tmp-*
+.tmp_*
 
 # ---- auto-audited: local artifacts that must never be committed ----
 *.key

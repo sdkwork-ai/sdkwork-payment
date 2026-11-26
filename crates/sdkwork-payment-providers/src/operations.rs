@@ -20,6 +20,10 @@ pub async fn cancel_provider_payment(
     provider_transaction_id: Option<&str>,
 ) -> Result<(), CommerceServiceError> {
     let provider_code = normalize_provider_code(provider_code);
+    // The local sandbox performs no PSP calls at all (its adapter declares no
+    // payment operations), so closing a sandbox trade is already true: local
+    // state is the only state. Resolving the adapter here would report a
+    // provider outage that does not exist.
     if provider_code == "sandbox" || provider_code.is_empty() {
         return Ok(());
     }
@@ -243,7 +247,7 @@ pub async fn capture_provider_payment(
     provider_code: &str,
     provider_order_id: &str,
     idempotency_key: Option<&str>,
-) -> Result<ProviderPaymentQueryState, CommerceServiceError> {
+) -> Result<Option<String>, CommerceServiceError> {
     let provider_code = normalize_provider_code(provider_code);
     let adapter = registry.resolve(&provider_code).ok_or_else(|| {
         CommerceServiceError::provider_unavailable(format!(
@@ -259,17 +263,28 @@ pub async fn capture_provider_payment(
             "payment provider {provider_code} does not require a separate capture"
         )));
     }
+    // A caller without its own retry identity still gets one: the capture is
+    // the operation that moves money, so an un-keyed retry must be impossible.
+    let idempotency_key = idempotency_key
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            provider_operation_idempotency_key(
+                "capture",
+                &provider_code,
+                &[provider_order_id],
+            )
+        });
     let outcome = adapter
         .capture_payment_intent(crate::adapter::PaymentCapturePaymentIntentRequest {
             payment_intent_id: Some(provider_order_id.to_owned()),
-            idempotency_key: idempotency_key.map(str::to_owned),
+            idempotency_key: Some(idempotency_key),
             metadata: json!({ "source": "payment-compensation" }),
         })
         .await?;
-    Ok(provider_payment_query_state(
-        &provider_code,
-        outcome.raw_status.as_deref(),
-    ))
+    // The capture result keeps the provider's own status vocabulary (PayPal
+    // `COMPLETED`, ...) so the caller maps it exactly as it maps a query
+    // response: one status vocabulary, one mapping table.
+    Ok(outcome.raw_status)
 }
 
 fn provider_payment_query_state(
@@ -646,5 +661,35 @@ mod tests {
         for provider in ["stripe", "alipay", "wechat_pay", "sandbox"] {
             assert!(!super::provider_payment_awaits_capture(provider, Some("approved")));
         }
+    }
+
+    #[test]
+    fn capture_outcome_keeps_the_provider_status_vocabulary() {
+        // `capture_provider_payment` returns the provider's own raw status so a
+        // caller maps it with the same table it uses for query responses: an
+        // approved PayPal order needs a capture, a completed one is settled.
+        assert!(super::provider_payment_awaits_capture(
+            "paypal",
+            Some("APPROVED")
+        ));
+        assert!(!super::provider_payment_awaits_capture(
+            "paypal",
+            Some("COMPLETED")
+        ));
+    }
+
+    #[tokio::test]
+    async fn sandbox_cancel_is_a_local_no_op_instead_of_a_provider_outage() {
+        // The sandbox adapter declares no payment operations, so a resolved
+        // adapter would fail; the cancel must short-circuit before that.
+        let registry = std::sync::Arc::new(PaymentProviderRegistry::from_credentials(
+            crate::credentials::ProviderCredentialBundle::from_env(),
+        ));
+        super::cancel_provider_payment(&registry, "sandbox", "trade-1", None)
+            .await
+            .expect("sandbox cancel must be a no-op");
+        super::cancel_provider_payment(&registry, "  ", "trade-1", None)
+            .await
+            .expect("an empty provider code must not be cancelled against");
     }
 }

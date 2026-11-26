@@ -471,6 +471,26 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     )
     .with_required_permission("commerce.payments.dev.test_payments")
     .with_idempotent(true),
+    // Settlement of a one-cent test payment whose product cannot be completed
+    // from an admin browser (sandbox, wallet payloads). It shares the sandbox
+    // settlement permission family, so production-like deployments (where the
+    // family is not granted) cannot simulate a settlement.
+    HttpRoute::dual_token(
+        HttpMethod::Post,
+        "/backend/v3/api/payments/dev/settle_test_payment",
+        "payments",
+        "dev.settleTestPayment",
+    )
+    .with_required_permission("commerce.payments.dev.sandbox_trigger")
+    .with_idempotent(true),
+    HttpRoute::dual_token(
+        HttpMethod::Post,
+        "/backend/v3/api/payments/dev/cancel_test_payment",
+        "payments",
+        "dev.cancelTestPayment",
+    )
+    .with_required_permission("commerce.payments.dev.test_payments")
+    .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/dev/webhook_signature_test",

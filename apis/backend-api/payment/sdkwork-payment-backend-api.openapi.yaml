@@ -3644,6 +3644,14 @@
             "$ref": "#/components/responses/ServiceUnavailable"
           }
         },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
         "x-sdkwork-owner": "sdkwork-payment",
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
@@ -3709,6 +3717,14 @@
             "$ref": "#/components/responses/ServiceUnavailable"
           }
         },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
         "x-sdkwork-owner": "sdkwork-payment",
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
@@ -3787,6 +3803,14 @@
             "$ref": "#/components/responses/ServiceUnavailable"
           }
         },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
         "x-sdkwork-owner": "sdkwork-payment",
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
@@ -3842,6 +3866,14 @@
             "$ref": "#/components/responses/ServiceUnavailable"
           }
         },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
         "x-sdkwork-owner": "sdkwork-payment",
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
@@ -4457,6 +4489,168 @@
         "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
         "x-sdkwork-domain": "commerce",
         "x-sdkwork-resource": "devCheckAttemptStatus",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.test_payments",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/settle_test_payment": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Simulate settlement of a dev test payment (dev config).",
+        "description": "Dev config: settles a one-cent test payment whose product cannot be completed from an admin browser — the local sandbox provider and wallet payload products (wechat_jsapi, wechat_app, alipay_app, alipay_jsapi), whose launcher needs the payer's openid/buyer_id or the installed app. The event is ingested through the same PSP webhook pipeline as a real callback (event de-duplication, amount/currency integrity, status machine), so the webhook event record, refund eligibility, and order-side settlement all observe the state a real provider callback would produce. Refused for products that settle real money at the provider (card, QR, redirect, hosted checkout) and on production-like deployments.",
+        "operationId": "dev.settleTestPayment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentSettleCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentActionResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devSettleTestPayment",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.sandbox_trigger",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/cancel_test_payment": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Cancel a dev test payment (dev config).",
+        "description": "Dev config: closes a one-cent test payment's provider trade and closes the local payment attempt. The provider close runs first, so a provider refusal never leaves a locally closed trade open at the service provider; the local state is then driven through the same status machine as the webhook path with a closed event, which also records a webhook event like a real close notification. Already-terminal attempts are returned unchanged (idempotent command).",
+        "operationId": "dev.cancelTestPayment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentCancelCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentActionResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devCancelTestPayment",
         "x-sdkwork-request-context": "WebRequestContext",
         "x-sdkwork-api-surface": "backend-api",
         "x-sdkwork-server-request-id": true,
@@ -8525,6 +8719,32 @@
             "type": "string",
             "description": "Stripe publishable key for Stripe.js (stripe methods)"
           },
+          "launchKind": {
+            "type": "string",
+            "enum": [
+              "qr_code",
+              "redirect",
+              "form_redirect",
+              "card",
+              "jsapi",
+              "app",
+              "local_sandbox",
+              "unsupported"
+            ],
+            "description": "Normalized launch surface for the cashier, projected from the channel's nextAction plus provider semantics: qr_code shows the QR, redirect opens payUrl, form_redirect auto-submits payForm, card mounts the Stripe.js element, jsapi/app render the client invocation payload, local_sandbox has no PSP surface, unsupported means the channel returned nothing launchable (a configuration finding)"
+          },
+          "launchPayload": {
+            "type": "string",
+            "description": "Client invocation payload for jsapi/app launches (wx.requestPayment params, WeChat PayReq params, or the Alipay App SDK orderStr)"
+          },
+          "nextAction": {
+            "type": "string",
+            "description": "nextAction recorded by the checkout normalizer (diagnosis only)"
+          },
+          "settleSupported": {
+            "type": "boolean",
+            "description": "True when the operator can settle this test payment from the dialog through dev.settleTestPayment (sandbox and client-payload products) instead of paying for real"
+          },
           "expiresAt": {
             "type": "string",
             "format": "date-time"
@@ -8572,8 +8792,122 @@
             "type": "string",
             "minLength": 1,
             "description": "Payment intent id of the one-cent test payment to check"
+          },
+          "settleIfUnpaid": {
+            "type": "boolean",
+            "default": false,
+            "description": "Settle a sandbox or client-payload product the payer has not paid yet, in the same request (same gate as dev.settleTestPayment)"
           }
         }
+      },
+      "TestPaymentSettleCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the one-cent test payment to settle"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ],
+            "default": "success",
+            "description": "Simulated provider outcome: success settles the payment, failed exercises the failure branch"
+          }
+        }
+      },
+      "TestPaymentCancelCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the one-cent test payment to cancel"
+          }
+        }
+      },
+      "TestPaymentActionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId",
+          "attemptId",
+          "outTradeNo",
+          "previousStatus",
+          "localStatus",
+          "providerCode"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string"
+          },
+          "previousStatus": {
+            "type": "string",
+            "description": "Attempt status before the action"
+          },
+          "localStatus": {
+            "type": "string",
+            "description": "Attempt status after the action was applied"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "appliedStatus": {
+            "type": "string",
+            "description": "Status the simulated provider event mapped to (null when nothing was applied)"
+          },
+          "webhookEventId": {
+            "type": "string",
+            "description": "Webhook event record id created by the action (empty when no event was recorded)"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Provider event id used for de-duplication"
+          }
+        }
+      },
+      "TestPaymentActionResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/TestPaymentActionResult"
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "CheckAttemptStatusResult": {
         "type": "object",
