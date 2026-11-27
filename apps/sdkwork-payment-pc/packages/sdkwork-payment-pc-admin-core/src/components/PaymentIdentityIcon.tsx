@@ -9,6 +9,8 @@ import {
   Globe2,
   MessageCircle,
   Monitor,
+  CornerUpRight,
+  Wallet,
   QrCode,
   ScanLine,
   Smartphone,
@@ -49,6 +51,7 @@ const PROVIDER_TONE_CLASS: Record<AdminProviderCode, string> = {
   stripe: "border-[#635bff]/25 bg-[#635bff]/10 text-[#5145cd] dark:text-[#a9a4ff]",
   alipay: "border-[#1677ff]/25 bg-[#1677ff]/10 text-[#1169d8] dark:text-[#74adff]",
   wechat_pay: "border-[#07c160]/25 bg-[#07c160]/10 text-[#078b48] dark:text-[#45d88a]",
+  paypal: "border-[#003087]/25 bg-[#003087]/10 text-[#003087] dark:text-[#7aa8ff]",
   sandbox: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
 
@@ -56,6 +59,7 @@ const PROVIDER_ICON: Record<AdminProviderCode, LucideIcon> = {
   stripe: CreditCard,
   alipay: BadgeDollarSign,
   wechat_pay: MessageCircle,
+  paypal: CornerUpRight,
   sandbox: FlaskConical,
 };
 
@@ -74,6 +78,7 @@ const METHOD_ICON: Record<string, LucideIcon> = {
   wechat_jsapi: MessageCircle,
   wechat_h5: Globe2,
   wechat_app: Smartphone,
+  paypal: CornerUpRight,
   sandbox_test: FlaskConical,
 };
 
@@ -85,7 +90,7 @@ const SCENE_ICON: Record<string, LucideIcon> = {
 };
 
 function normalizeProviderCode(providerCode: string | undefined): AdminProviderCode | undefined {
-  if (providerCode === "stripe" || providerCode === "alipay" || providerCode === "wechat_pay" || providerCode === "sandbox") {
+  if (providerCode === "stripe" || providerCode === "alipay" || providerCode === "wechat_pay" || providerCode === "paypal" || providerCode === "sandbox") {
     return providerCode;
   }
   return undefined;

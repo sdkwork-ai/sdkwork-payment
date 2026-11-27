@@ -1,10 +1,32 @@
 import { backendApiPath } from './paths';
 import type { ApiRequestOptions, HttpClient } from '../http/client';
 
-import type { AuditEvent, CashierTokenKeySetCommand, CashierTokenSecretReveal, CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CheckoutScenePolicyItem, CheckoutScenePolicyUpsertRequest, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, TestPaymentActionResult, TestPaymentCancelCommand, TestPaymentSettleCommand, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
+import type { AuditEvent, CashierTokenKeySetCommand, CashierTokenSecretReveal, CashierTokenSetting, CashierTokenSettingRotateCommand, CashierTokenSettingUpdateCommand, Certificate, CheckAttemptStatusCommand, CheckAttemptStatusResult, CheckoutScenePolicyItem, CheckoutScenePolicyUpsertRequest, CreateCertificateCommand, CreatePaymentChannelCommand, CreatePaymentMethodCommand, CreateProviderAccountCommand, CreateReconciliationRunCommand, CreateRefundCommand, CreateRouteRuleCommand, CreateSubMerchantCommand, CreateTestPaymentCommand, CredentialRotateCommand, NotifyDomain, NotifyDomainCreateRequest, NotifyDomainUpdateRequest, PageInfo, PaymentAttempt, PaymentChannel, PaymentDomainSetting, PaymentIntent, PaymentIntentSummary, PaymentMethod, ProviderAccount, ProviderAccountTestCommand, ProviderAccountTestResult, ReconciliationRun, Refund, RefundSummary, RetryRefundCommand, RouteRule, SandboxTriggerCommand, SandboxTriggerResult, SdkWorkCommandData, SubMerchant, TestPayment, TestPaymentActionResult, TestPaymentCancelCommand, TestPaymentNotificationCommand, TestPaymentNotificationResult, TestPaymentProducts, TestPaymentRefundCommand, TestPaymentRefundResult, TestPaymentSettleCommand, UpdatePaymentChannelCommand, UpdatePaymentDomainSettingRequest, UpdatePaymentMethodCommand, UpdateProviderAccountCommand, UpdateRouteRuleCommand, UpdateSubMerchantCommand, WebhookEvent, WebhookEventsReplayRequest, WebhookSignatureTestCommand, WebhookSignatureTestResult } from '../types';
 
+
+export class PaymentsDevTestPaymentProductsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** List one-cent test coverage per provider product (dev config). */
+  async list(requestOptions?: ApiRequestOptions): Promise<TestPaymentProducts> {
+    return this.client.request<TestPaymentProducts>(backendApiPath(`/payments/dev/test_payment_products`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, sdkworkUnwrapKind: 'item' });
+  }
+}
 
 export interface PaymentsDevSandboxTriggerParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsDevRefundTestPaymentParams {
+  idempotencyKey: string;
+}
+
+export interface PaymentsDevNotificationTestParams {
   idempotencyKey: string;
 }
 
@@ -30,9 +52,11 @@ export interface PaymentsDevWebhookSignatureTestParams {
 
 export class PaymentsDevApi {
   private client: HttpClient;
+  public readonly testPaymentProducts: PaymentsDevTestPaymentProductsApi;
 
   constructor(client: HttpClient) {
     this.client = client;
+    this.testPaymentProducts = new PaymentsDevTestPaymentProductsApi(client);
   }
 
 
@@ -45,6 +69,28 @@ export class PaymentsDevApi {
       {}
     );
     return this.client.request<SandboxTriggerResult>(backendApiPath(`/payments/dev/sandbox_trigger`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
+  }
+
+/** Refund a settled dev test payment (dev config). */
+  async refundTestPayment(body: TestPaymentRefundCommand, params: PaymentsDevRefundTestPaymentParams, requestOptions?: ApiRequestOptions): Promise<TestPaymentRefundResult> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<TestPaymentRefundResult>(backendApiPath(`/payments/dev/refund_test_payment`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
+  }
+
+/** Deliver a self-signed provider notification (dev config). */
+  async notificationTest(body: TestPaymentNotificationCommand, params: PaymentsDevNotificationTestParams, requestOptions?: ApiRequestOptions): Promise<TestPaymentNotificationResult> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.request<TestPaymentNotificationResult>(backendApiPath(`/payments/dev/notification_test`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Create a test payment (dev config). */

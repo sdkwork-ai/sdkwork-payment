@@ -13,6 +13,23 @@ export const PAYMENT_PC_ADMIN_DEVCONFIG_ROUTES = {
   defaultPath: "/admin/payments/devconfig",
   permissionPrefix: "commerce.payments.devconfig",
   sections: {
+    /**
+     * One-cent test console. It creates a 0.01 payment, simulates settlement,
+     * refunds through the production path and delivers a self-signed
+     * notification, so it needs the whole dev-test permission family plus read
+     * access to the accounts/channels it reports on.
+     */
+    testPayments: {
+      path: "/admin/payments/devconfig/one-cent-test",
+      requiredPermissions: [
+        "commerce.payments.dev.test_payments",
+        "commerce.payments.dev.sandbox_trigger",
+        "commerce.payments.provider_accounts.read",
+        "commerce.payments.methods.read",
+        "commerce.payments.channels.read",
+        "commerce.payments.refunds.read",
+      ],
+    },
     environment: {
       path: "/admin/payments/devconfig/environments",
       requiredPermissions: [

@@ -27,7 +27,7 @@
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
 import type { SdkworkPaymentBackendService } from "@sdkwork/payment-service";
 
-export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "sandbox";
+export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "paypal" | "sandbox";
 
 export type PaymentProviderEnvironment = "development" | "sandbox" | "production";
 
@@ -246,10 +246,165 @@ export type PaymentDevConfigStatus =
   | "error";
 
 export type PaymentDevConfigAdminSection =
+  | "testpayments"
   | "environment"
   | "webhook"
   | "certificates"
   | "logs";
+
+// ---------------------------------------------------------------------------
+// One-cent test console
+// ---------------------------------------------------------------------------
+
+/** Payer identity a product addresses instead of "whoever scans this". */
+export interface PaymentTestPayerField {
+  readonly methodKey: string;
+  readonly field: "openid" | "client_ip" | "buyer_id" | string;
+  readonly label: string;
+}
+
+export type PaymentTestLaunchKind =
+  | "qr_code"
+  | "redirect"
+  | "form_redirect"
+  | "card"
+  | "jsapi"
+  | "app"
+  | "local_sandbox"
+  | "unsupported";
+
+/** One row of the service-provider × product coverage matrix. */
+export interface PaymentTestProductView {
+  readonly providerCode: PaymentProviderCode;
+  readonly providerLabel: string;
+  readonly methodKey: string;
+  readonly methodStatus: "active" | "inactive" | "missing" | string;
+  readonly launchKind: PaymentTestLaunchKind;
+  readonly settleSupported: boolean;
+  readonly refundSupported: boolean;
+  readonly testEnabled: boolean;
+  readonly requiredPayerFields: readonly PaymentTestPayerField[];
+  readonly activeProviderAccounts: number;
+  readonly activeChannelCount: number;
+  readonly readiness: readonly string[];
+  readonly ready: boolean;
+}
+
+export interface PaymentTestProductsView {
+  readonly products: readonly PaymentTestProductView[];
+  readonly unconfiguredProviders: readonly string[];
+  readonly readyCount: number;
+  readonly totalCount: number;
+  readonly checkedAt: string;
+}
+
+/** Result of creating one one-cent test payment. */
+export interface PaymentTestPaymentView {
+  readonly paymentId: string;
+  readonly paymentIntentId: string;
+  readonly paymentIntentNo?: string;
+  readonly attemptId: string;
+  readonly outTradeNo: string;
+  readonly methodKey: string;
+  readonly providerCode: string;
+  readonly amount: string;
+  readonly currencyCode: string;
+  readonly status: string;
+  readonly qrCodeUrl?: string;
+  readonly cashierUrl?: string;
+  readonly payUrl?: string;
+  readonly payForm?: string;
+  readonly clientSecret?: string;
+  readonly publishableKey?: string;
+  readonly launchKind: PaymentTestLaunchKind;
+  readonly launchPayload?: string;
+  readonly nextAction?: string;
+  readonly settleSupported: boolean;
+  readonly providerParamKeys: readonly string[];
+  readonly requiredPayerFields: readonly PaymentTestPayerField[];
+  readonly expiresAt?: string;
+  readonly createdAt: string;
+}
+
+export interface PaymentTestPaymentDraft {
+  readonly methodKey: string;
+  readonly amount?: string;
+  readonly currencyCode?: string;
+  readonly payerIdentity?: {
+    readonly openid?: string;
+    readonly clientIp?: string;
+    readonly buyerId?: string;
+    readonly buyerOpenId?: string;
+  };
+}
+
+/** Outcome of querying / settling / cancelling a test payment. */
+export interface PaymentTestPaymentActionView {
+  readonly paymentIntentId: string;
+  readonly attemptId: string;
+  readonly outTradeNo?: string;
+  readonly previousStatus?: string;
+  readonly localStatus: string;
+  readonly providerCode: string;
+  readonly appliedStatus?: string;
+  readonly webhookEventId?: string;
+  readonly eventId?: string;
+  /** Present on `checkAttemptStatus`. */
+  readonly providerStatus?: string;
+  readonly paid?: boolean;
+}
+
+/** Outcome of the refund entry for a settled test payment. */
+export interface PaymentTestRefundView {
+  readonly paymentIntentId: string;
+  readonly attemptId: string;
+  readonly refundId: string;
+  readonly refundNo: string;
+  readonly amount: string;
+  readonly currencyCode: string;
+  readonly status: string;
+  readonly providerCode: string;
+  readonly refunded: boolean;
+  readonly nextStep: string;
+}
+
+export type PaymentTestSigner = "hmac_sha256" | "wechat_pay_rsa_sha256" | "alipay_rsa_sha256" | "none";
+
+export interface PaymentTestNotificationDraft {
+  readonly providerAccountId: string;
+  readonly payload: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly signer?: PaymentTestSigner;
+}
+
+/** Outcome of the self-signed notification delivery test. */
+export interface PaymentTestNotificationView {
+  readonly providerAccountId: string;
+  readonly providerCode: string;
+  readonly verification: "verified" | "rejected";
+  readonly accepted: boolean;
+  readonly nativeSignature: string;
+  readonly documentSignature: string;
+  readonly signatureHeader?: string;
+  readonly providerEventId?: string;
+  readonly outTradeNo?: string;
+  readonly webhookEventId?: string;
+  readonly appliedStatus?: string;
+  readonly paymentAttemptId?: string;
+  readonly diagnostic?: string;
+  readonly deliveredAt: string;
+}
+
+/** Last outcome of each console action, kept side by side for one screen. */
+export interface PaymentTestConsoleResults {
+  readonly products?: PaymentTestProductsView;
+  readonly payment?: PaymentTestPaymentView;
+  readonly status?: PaymentTestPaymentActionView;
+  readonly settled?: PaymentTestPaymentActionView;
+  readonly cancelled?: PaymentTestPaymentActionView;
+  readonly refund?: PaymentTestRefundView;
+  readonly notification?: PaymentTestNotificationView;
+}
 
 export interface PaymentDevConfigAdminState {
   /** Lightweight provider account list for environment switcher + credential test. */
@@ -267,6 +422,8 @@ export interface PaymentDevConfigAdminState {
   readonly lastSandboxTriggerResult?: PaymentDevSandboxTriggerResult;
   readonly lastSignatureTestResult?: PaymentDevWebhookSignatureTestResult;
   readonly lastReplayResult?: PaymentWebhookReplayResult;
+  /** One-cent test console: service-provider × product coverage and outcomes. */
+  readonly testConsole: PaymentTestConsoleResults;
   readonly selectedProviderAccountId?: string;
   readonly selectedCertificateId?: string;
 }
@@ -318,6 +475,29 @@ export interface PaymentDevConfigAdminController {
    * `WEBHOOK_STORED_REPLAY_MAX_RETRIES` (5); returns 409 when exceeded.
    */
   replayWebhookEvent(eventId: string): Promise<PaymentWebhookReplayResult>;
+  /**
+   * Loads the service-provider × product coverage matrix: every product the
+   * shipped adapters declare plus the configuration still missing for it.
+   */
+  loadTestProducts(): Promise<PaymentTestProductsView>;
+  /** Creates one one-cent test payment for `methodKey`. */
+  createTestPayment(draft: PaymentTestPaymentDraft): Promise<PaymentTestPaymentView>;
+  /** Queries the provider for the current state of the test payment. */
+  checkTestPaymentStatus(paymentIntentId: string): Promise<PaymentTestPaymentActionView>;
+  /** Simulates settlement for sandbox / client-payload products. */
+  settleTestPayment(
+    paymentIntentId: string,
+    outcome?: "success" | "failed",
+  ): Promise<PaymentTestPaymentActionView>;
+  /** Closes the provider trade and the local attempt. */
+  cancelTestPayment(paymentIntentId: string): Promise<PaymentTestPaymentActionView>;
+  /** Refunds a settled test payment through the production refund path. */
+  refundTestPayment(
+    paymentIntentId: string,
+    options?: { amount?: string; reasonCode?: string },
+  ): Promise<PaymentTestRefundView>;
+  /** Delivers a self-signed notification through the real pipeline. */
+  testNotification(draft: PaymentTestNotificationDraft): Promise<PaymentTestNotificationView>;
 }
 
 export interface CreatePaymentDevConfigAdminControllerInput {

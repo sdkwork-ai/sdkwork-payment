@@ -28,6 +28,10 @@ const PAYPAL_TOKEN_PATH: &str = "/v1/oauth2/token";
 /// landing exactly at the boundary never sends a just-expired bearer token.
 const TOKEN_REFRESH_SKEW_SECONDS: u64 = 60;
 
+pub(crate) fn paypal_capabilities() -> &'static PaymentProviderCapabilities {
+    &PAYPAL_CAPABILITIES
+}
+
 static PAYPAL_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: PAYPAL_PROVIDER_CODE,
     operations: &[

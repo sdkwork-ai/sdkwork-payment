@@ -18,7 +18,7 @@
 // Shared enums (mirrors backend OpenAPI schemas)
 // ---------------------------------------------------------------------------
 
-export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "sandbox";
+export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "paypal" | "sandbox";
 
 /**
  * Payment status per backend OpenAPI `PaymentIntent.status` /

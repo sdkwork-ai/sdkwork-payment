@@ -1,3 +1,5 @@
+import type { TestPaymentPayerField } from './test-payment-payer-field';
+
 export interface TestPayment {
   paymentId: string;
   paymentIntentId: string;
@@ -30,6 +32,10 @@ export interface TestPayment {
   nextAction?: string;
   /** True when the operator can settle this test payment from the dialog through dev.settleTestPayment (sandbox and client-payload products) instead of paying for real */
   settleSupported?: boolean;
+  /** Provider parameter keys the checkout returned, for diagnosis when the launch surface is unexpected */
+  providerParamKeys?: string[];
+  /** Payer inputs the product addresses; empty for products open to whoever scans */
+  requiredPayerFields?: TestPaymentPayerField[];
   expiresAt?: string;
   createdAt: string;
 }

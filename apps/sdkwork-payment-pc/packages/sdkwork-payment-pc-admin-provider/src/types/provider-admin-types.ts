@@ -17,7 +17,7 @@
 import type { SdkWorkPageInfo } from "@sdkwork/payment-contracts";
 import type { SdkworkPaymentBackendService } from "@sdkwork/payment-service";
 
-export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "sandbox";
+export type PaymentProviderCode = "stripe" | "alipay" | "wechat_pay" | "paypal" | "sandbox";
 
 export type PaymentProviderAccountMode = "direct" | "partner";
 

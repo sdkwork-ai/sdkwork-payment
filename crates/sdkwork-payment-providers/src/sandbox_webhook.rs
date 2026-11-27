@@ -26,6 +26,10 @@ const SANDBOX_WEBHOOK_OPERATIONS: &[PaymentAdapterOperation] = &[
     PaymentAdapterOperation::NormalizeWebhook,
 ];
 
+pub(crate) fn sandbox_capabilities() -> &'static PaymentProviderCapabilities {
+    &SANDBOX_CAPABILITIES
+}
+
 static SANDBOX_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: "sandbox",
     operations: SANDBOX_WEBHOOK_OPERATIONS,

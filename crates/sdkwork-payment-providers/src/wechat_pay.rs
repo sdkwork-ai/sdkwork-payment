@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rsa::pkcs1v15::{Signature, SigningKey, VerifyingKey};
 use rsa::pkcs8::DecodePublicKey;
 use rsa::signature::{SignatureEncoding, Signer, Verifier};
-use rsa::RsaPublicKey;
+use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use x509_parser::parse_x509_certificate;
@@ -29,6 +29,10 @@ use crate::http::ReqwestHttpClient;
 const WECHAT_PAY_PROVIDER_CODE: &str = "wechat_pay";
 const WECHAT_PAY_API_BASE_URL: &str = "https://api.mch.weixin.qq.com";
 const WECHAT_PAY_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: u64 = 300;
+
+pub(crate) fn wechat_pay_capabilities() -> &'static PaymentProviderCapabilities {
+    &WECHAT_PAY_CAPABILITIES
+}
 
 static WECHAT_PAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: WECHAT_PAY_PROVIDER_CODE,
@@ -1115,6 +1119,35 @@ fn wechat_pay_path_for_key(method_key: &str) -> Option<&'static str> {
     }
 }
 
+
+
+/// Signs a WeChat Pay API v3 message with the merchant private key.
+///
+/// The canonical message is `<timestamp>\n<nonce>\n<body>\n` — exactly what
+/// [`WeChatPayProviderAdapter::verify_webhook`] reconstructs. Exposed so the
+/// payment centre's notification test can produce a delivery its own verifier
+/// must accept, using the merchant key the provider account already stores.
+pub(crate) fn sign_wechat_pay_message(
+    merchant_private_key_pem: &str,
+    message: &[u8],
+) -> ProviderResult<String> {
+    let payload = std::str::from_utf8(message).map_err(|error| {
+        ProviderError::invalid_request(
+            PaymentAdapterOperation::VerifyWebhook,
+            format!("WeChat Pay signed message must be UTF-8: {error}"),
+        )
+    })?;
+    let private_key =
+        crate::rsa_pem::parse_rsa_private_key_pem("WeChat Pay", merchant_private_key_pem)?;
+    Ok(sign_rsa_sha256(&private_key, payload))
+}
+
+fn sign_rsa_sha256(private_key: &RsaPrivateKey, payload: &str) -> String {
+    let signature: Signature =
+        SigningKey::<Sha256>::new(private_key.clone()).sign(payload.as_bytes());
+    BASE64.encode(signature.to_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1122,7 +1155,7 @@ mod tests {
         unix_timestamp, verify_wechat_pay_response_signature, wechat_app_sign_payload,
         wechat_jsapi_sign_payload, wechat_pay_operation_outcome, wechat_pay_path_for_key,
         wechat_webhook_timestamp_is_fresh, WeChatPayProviderAdapter, WeChatPayProviderConfig,
-        WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
+        sign_rsa_sha256, WeChatPayRsaCrypto, WeChatPaySignVerifyMode,
     };
     use crate::error::ProviderError;
     use crate::adapter::{
@@ -1149,11 +1182,7 @@ mod tests {
         (private_pem, public_pem)
     }
 
-    fn sign_rsa_sha256(private_key: &RsaPrivateKey, payload: &str) -> String {
-        let signature: Signature =
-            SigningKey::<Sha256>::new(private_key.clone()).sign(payload.as_bytes());
-        BASE64.encode(signature.to_bytes())
-    }
+
 
     /// Generates a self-signed RSA-2048 X.509 certificate (wechatpay_cert.pem
     /// shape) plus its PKCS#8 private key PEM. The key is generated with the

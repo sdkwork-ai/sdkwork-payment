@@ -463,6 +463,15 @@ const HTTP_ROUTES: &[HttpRoute] = &[
     )
     .with_required_permission("commerce.payments.dev.test_payments")
     .with_idempotent(true),
+    // Service-provider × product coverage matrix: every declared product with
+    // the configuration still missing for a one-cent test.
+    HttpRoute::dual_token(
+        HttpMethod::Get,
+        "/backend/v3/api/payments/dev/test_payment_products",
+        "payments",
+        "dev.testPaymentProducts.list",
+    )
+    .with_required_permission("commerce.payments.dev.test_payments"),
     HttpRoute::dual_token(
         HttpMethod::Post,
         "/backend/v3/api/payments/dev/check_attempt_status",
@@ -490,6 +499,26 @@ const HTTP_ROUTES: &[HttpRoute] = &[
         "dev.cancelTestPayment",
     )
     .with_required_permission("commerce.payments.dev.test_payments")
+    .with_idempotent(true),
+    // Refund a settled one-cent test payment through the production refund
+    // path (amount cap, eligibility, provider submission, status machine).
+    HttpRoute::dual_token(
+        HttpMethod::Post,
+        "/backend/v3/api/payments/dev/refund_test_payment",
+        "payments",
+        "dev.refundTestPayment",
+    )
+    .with_required_permission("commerce.payments.dev.test_payments")
+    .with_idempotent(true),
+    // Deliver a notification the deployment signed with the account's own
+    // credentials so verification AND the ingest pipeline run end to end.
+    HttpRoute::dual_token(
+        HttpMethod::Post,
+        "/backend/v3/api/payments/dev/notification_test",
+        "payments",
+        "dev.notificationTest",
+    )
+    .with_required_permission("commerce.payments.dev.sandbox_trigger")
     .with_idempotent(true),
     HttpRoute::dual_token(
         HttpMethod::Post,

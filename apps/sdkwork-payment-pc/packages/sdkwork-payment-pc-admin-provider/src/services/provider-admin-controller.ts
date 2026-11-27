@@ -50,7 +50,7 @@ function cloneSnapshot(snapshot: Snapshot): Snapshot {
   };
 }
 
-const PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "sandbox"] as const;
+const PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "paypal", "sandbox"] as const;
 const ACCOUNT_MODES = ["direct", "partner"] as const;
 const ENVIRONMENTS = ["development", "sandbox", "production"] as const;
 const PROVIDER_ACCOUNT_STATUSES = ["active", "inactive", "suspended", "deprecated"] as const;

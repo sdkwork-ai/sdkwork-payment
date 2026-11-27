@@ -195,6 +195,52 @@ struct CreateTestPaymentBody {
     method_key: String,
     amount: Option<String>,
     currency_code: Option<String>,
+    /// Payer identity a product addresses directly instead of "whoever scans
+    /// this": `openid` for `wechat_jsapi`, `client_ip` for `wechat_h5`,
+    /// `buyer_id`/`buyer_open_id` for `alipay_jsapi`. Values are validated by
+    /// the provider request itself; the server only requires the key when the
+    /// product declares it, so the operator sees a configuration finding
+    /// instead of an opaque provider rejection.
+    payer_identity: Option<PayerIdentityBody>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PayerIdentityBody {
+    openid: Option<String>,
+    client_ip: Option<String>,
+    buyer_id: Option<String>,
+    buyer_open_id: Option<String>,
+}
+
+impl PayerIdentityBody {
+    fn into_value(self) -> Value {
+        let mut object = serde_json::Map::new();
+        for (key, value) in [
+            ("openid", self.openid),
+            ("client_ip", self.client_ip),
+            ("buyer_id", self.buyer_id),
+            ("buyer_open_id", self.buyer_open_id),
+        ] {
+            if let Some(value) = normalized(value) {
+                object.insert(key.to_owned(), Value::String(value));
+            }
+        }
+        Value::Object(object)
+    }
+
+    fn has(&self, metadata_key: &str) -> bool {
+        let value = match metadata_key {
+            "openid" => self.openid.as_deref(),
+            "client_ip" => self.client_ip.as_deref(),
+            "buyer_id" => self
+                .buyer_id
+                .as_deref()
+                .or(self.buyer_open_id.as_deref()),
+            _ => None,
+        };
+        value.is_some_and(|value| !value.trim().is_empty())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -240,8 +286,22 @@ struct TestPaymentResult {
     /// True when the operator can settle this test payment from the dialog
     /// (sandbox / client-payload products) instead of paying for real.
     settle_supported: bool,
+    provider_param_keys: Vec<String>,
+    /// Payer inputs the product's checkout cannot be created without
+    /// (`openid` / `client_ip` / `buyer_id`), declared by the provider adapter.
+    required_payer_fields: Vec<TestPaymentPayerField>,
     expires_at: Option<String>,
     created_at: String,
+}
+
+/// One payer input a test payment needs before the provider checkout exists.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentPayerField {
+    method_key: String,
+    /// Metadata key the provider adapter reads (`openid`, `client_ip`, `buyer_id`).
+    field: String,
+    label: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -378,6 +438,10 @@ fn build_router(state: IntegrationState) -> Router {
             post(trigger_sandbox_event),
         )
         .route(
+            "/backend/v3/api/payments/dev/test_payment_products",
+            get(list_test_payment_products),
+        )
+        .route(
             "/backend/v3/api/payments/dev/test_payments",
             post(create_test_payment),
         )
@@ -392,6 +456,14 @@ fn build_router(state: IntegrationState) -> Router {
         .route(
             "/backend/v3/api/payments/dev/cancel_test_payment",
             post(cancel_test_payment),
+        )
+        .route(
+            "/backend/v3/api/payments/dev/refund_test_payment",
+            post(refund_test_payment),
+        )
+        .route(
+            "/backend/v3/api/payments/dev/notification_test",
+            post(test_payment_notification),
         )
         .route(
             "/backend/v3/api/payments/dev/webhook_signature_test",
@@ -1171,6 +1243,37 @@ async fn create_test_payment(
             ),
         );
     }
+    // Products that address a specific payer (`wechat_jsapi` openid,
+    // `wechat_h5` client IP, `alipay_jsapi` buyer id) fail here, before an
+    // order/intent exists, when the identity is missing. Otherwise the
+    // provider rejection would only appear after the test order was written
+    // and leave a half-created test behind.
+    let payer_identity = body.payer_identity.clone().unwrap_or_default();
+    let missing_payer_fields: Vec<&'static sdkwork_payment_providers::PaymentProductRequirement> =
+        sdkwork_payment_providers::product_payer_requirements(&method.method_key)
+            .iter()
+            .filter(|requirement| !payer_identity.has(requirement.metadata_key))
+            .collect();
+    if !missing_payer_fields.is_empty() {
+        let missing = missing_payer_fields
+            .iter()
+            .map(|requirement| {
+                format!(
+                    "{} ({})",
+                    requirement.metadata_key,
+                    requirement.label
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return validation(
+            ctx,
+            format!(
+                "payment method {} addresses a specific payer and needs: {missing}. Fill the payer identity fields in the test console and retry",
+                method.method_key
+            ),
+        );
+    }
 
     // The test payment must hang off a payable order (the payment executor
     // reads the amount from the order), so an internal test order is created
@@ -1201,6 +1304,7 @@ async fn create_test_payment(
         &subject,
         &order_id,
         &method_key,
+        &payer_identity.clone().into_value(),
         &write,
     )
     .await
@@ -1319,6 +1423,17 @@ async fn create_test_payment(
                 .cloned(),
             next_action: attempt.payment_params.get("nextAction").cloned(),
             settle_supported: test_payment_settle_supported(&attempt.payment_method),
+            provider_param_keys: attempt.payment_params.keys().cloned().collect(),
+            required_payer_fields: sdkwork_payment_providers::product_payer_requirements(
+                &attempt.payment_method,
+            )
+            .iter()
+            .map(|requirement| TestPaymentPayerField {
+                method_key: requirement.method_key.to_owned(),
+                field: requirement.metadata_key.to_owned(),
+                label: requirement.label.to_owned(),
+            })
+            .collect(),
             expires_at: attempt.payment_params.get("expiresAt").cloned(),
             created_at: now,
         },
@@ -1394,11 +1509,54 @@ impl TestPaymentLaunchKind {
     }
 }
 
+/// Persists the payer metadata of a one-cent test payment on its attempt.
+///
+/// The attempt row records payer input inside `callback_payload.paymentMetadata`
+/// (the same place `POST /orders/{orderId}/payment` writes it), and the provider
+/// enrichment reader in `sdkwork_payment_repository_sqlx` falls back to the
+/// object itself when that key is absent. The write therefore merges
+/// `{ paymentMetadata: <payer identity> }` into the existing snapshot instead of
+/// replacing it, so the provider account / transaction id already recorded for
+/// the attempt survive.
+async fn persist_test_attempt_payment_metadata_postgres(
+    pool: &PgPool,
+    tenant_id: &str,
+    attempt_id: &str,
+    payer_identity: &Value,
+) -> Result<(), sdkwork_contract_service::CommerceServiceError> {
+    let patch = json!({ "paymentMetadata": payer_identity }).to_string();
+    let update = sqlx::query(
+        r#"
+        UPDATE commerce_payment_attempt
+        SET callback_payload = COALESCE(callback_payload, '{}'::jsonb) || $1::jsonb,
+            updated_at = CAST($2 AS timestamptz)
+        WHERE id = CAST($3 AS TEXT)
+          AND tenant_id = CAST($4 AS TEXT)
+          AND deleted_at IS NULL
+        "#,
+    )
+    .bind(&patch)
+    .bind(now_string())
+    .bind(attempt_id)
+    .bind(tenant_id)
+    .execute(pool)
+    .await
+    .map_err(storage)?;
+    if update.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(sdkwork_contract_service::CommerceServiceError::conflict(
+            "the test payment attempt disappeared before its payer identity was recorded",
+        ))
+    }
+}
+
 async fn create_test_payment_checkout(
     pool: &IntegrationPool,
     subject: &AppRuntimeSubject,
     order_id: &str,
     method_key: &str,
+    payer_identity: &Value,
     write: &crate::command_headers::AppWriteCommandHeaders,
 ) -> Result<
     (PaymentIntentView, CreateOwnerPaymentAttemptOutcome),
@@ -1439,6 +1597,18 @@ async fn create_test_payment_checkout(
             let attempt = store
                 .create_owner_payment_attempt(build_attempt(&intent.payment_intent_id)?)
                 .await?;
+            // The order checkout path persists payer metadata (openid,
+            // client_ip, buyer_id, return_url, …) on the attempt so the
+            // provider enrichment can read it. The admin test payment has no
+            // app checkout behind it, so the same snapshot is written here
+            // and merged with the provider enrichment already recorded.
+            persist_test_attempt_payment_metadata_postgres(
+                pool,
+                &subject.tenant_id,
+                &attempt.attempt_id,
+                payer_identity,
+            )
+            .await?;
             Ok((intent, attempt))
         }
     }
@@ -1745,6 +1915,10 @@ struct TestAttemptForCheck {
     organization_id: Option<String>,
     owner_user_id: String,
     order_id: String,
+    /// Captured amount in major units (`0.01`), used as the refund cap.
+    amount: Option<String>,
+    /// Attempt currency, passed to the refund command.
+    currency_code: Option<String>,
 }
 
 impl TestAttemptForCheck {
@@ -1773,6 +1947,8 @@ impl Clone for TestAttemptForCheck {
             organization_id: self.organization_id.clone(),
             owner_user_id: self.owner_user_id.clone(),
             order_id: self.order_id.clone(),
+            amount: self.amount.clone(),
+            currency_code: self.currency_code.clone(),
         }
     }
 }
@@ -1855,8 +2031,1089 @@ async fn cancel_test_payment(
     }
 }
 
-/// Simulates the settlement of a one-cent test payment whose product cannot be
-/// completed from an admin browser (see [`TestPaymentSettleBody`]).
+// ===========================================================================
+// One-cent test coverage matrix
+// ===========================================================================
+
+/// One row of the service-provider × product coverage matrix.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentProductView {
+    provider_code: String,
+    provider_label: String,
+    method_key: String,
+    /// `active` | `inactive` | `missing` — the tenant's method-catalog row.
+    method_status: String,
+    /// How the cashier launches the product, decided from the declaration.
+    launch_kind: String,
+    /// True when the operator can settle it from the console (sandbox and
+    /// client-payload products) instead of paying for real.
+    settle_supported: bool,
+    /// True when a refund can be driven from the console (the product and its
+    /// provider declare a refund operation).
+    refund_supported: bool,
+    /// True when the product is part of the admin test surface.
+    test_enabled: bool,
+    /// Every payer input the product's checkout requires (empty for products
+    /// that address "whoever scans this").
+    required_payer_fields: Vec<TestPaymentPayerField>,
+    /// Active, non-deleted provider accounts serving this provider code.
+    active_provider_accounts: i64,
+    /// Active channels whose method resolves to this product.
+    active_channel_count: i64,
+    /// Ordered, human-readable findings: what still has to be configured, or
+    /// `ready` when the product can be exercised now.
+    readiness: Vec<String>,
+    ready: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentProductsResult {
+    products: Vec<TestPaymentProductView>,
+    /// Provider codes that declared no product at all (diagnosis only).
+    unconfigured_providers: Vec<String>,
+    ready_count: i64,
+    total_count: i64,
+    checked_at: String,
+}
+
+/// Product surfaces each provider code serves when the catalog row is missing.
+///
+/// The admin matrix must still describe a product a method-catalog row has not
+/// been created for yet, otherwise "configure the provider" cannot be verified
+/// before the catalog is seeded. The keys come from the provider declarations.
+fn provider_product_label(provider_code: &str) -> &'static str {
+    match provider_code {
+        "stripe" => "Stripe",
+        "alipay" => "Alipay",
+        "wechat_pay" => "WeChat Pay",
+        "paypal" => "PayPal",
+        "sandbox" => "Sandbox",
+        _ => "Unknown provider",
+    }
+}
+
+/// The launch surface a product produces once the checkout resolves.
+///
+/// The declaration decides this, not a per-provider match: every product is
+/// classified by the wire payload it is known to return, so the console can
+/// label each row before any money moves. This mirrors
+/// [`test_payment_launch_kind`]'s payload projection.
+fn declared_launch_kind(provider_code: &str, method_key: &str) -> &'static str {
+    let method_key = method_key.trim().to_ascii_lowercase();
+    match (provider_code, method_key.as_str()) {
+        ("sandbox", _) => "local_sandbox",
+        ("stripe", _) => "card",
+        ("paypal", _) => "redirect",
+        (_, "wechat_native") | (_, "wechat_pay") | (_, "alipay_qr") => "qr_code",
+        (_, "wechat_h5") | (_, "alipay_wap") | (_, "alipay_pc") => "redirect",
+        (_, "wechat_jsapi") | (_, "alipay_jsapi") => "jsapi",
+        (_, "wechat_app") | (_, "alipay_app") => "app",
+        _ => "unsupported",
+    }
+}
+
+/// True when the product hands the payer a client invocation payload, which an
+/// admin browser cannot present (see [`TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS`]).
+fn is_client_only_product(method_key: &str) -> bool {
+    let normalized = method_key.trim().to_ascii_lowercase();
+    TEST_PAYMENT_CLIENT_ONLY_METHOD_KEYS.contains(&normalized.as_str())
+        || normalized.starts_with("stripe_")
+}
+
+/// The refund capability of a product, read from its provider declaration.
+fn product_refund_supported(provider_code: &str, method_key: &str) -> bool {
+    let Some(capabilities) =
+        sdkwork_payment_providers::declared_provider_capabilities(provider_code)
+    else {
+        return false;
+    };
+    let declares_refund = capabilities.supports_operation(
+        sdkwork_payment_providers::PaymentAdapterOperation::CreateRefund,
+    );
+    // The local sandbox declares no PSP refund, but a sandbox payment is
+    // refunded locally, so the console can still prove the refund state
+    // machine through it.
+    (declares_refund && capabilities.supports_product(method_key))
+        || provider_code == "sandbox"
+}
+
+/// Lists every provider product with its one-cent test readiness.
+///
+/// "Configure the provider account and the whole payment function works" is
+/// only verifiable from the outside if the console can enumerate the whole
+/// matrix. This endpoint joins the provider declarations (which products exist
+/// and how they launch), the tenant's method catalog (which products are
+/// active for this tenant) and the tenant's channels/accounts (which products
+/// have a live route), so each row states exactly what is missing.
+async fn list_test_payment_products(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    let IntegrationPool::Postgres(pool) = &state.pool;
+
+    let method_rows = match load_testable_method_catalog(pool, &subject).await {
+        Ok(rows) => rows,
+        Err(error) => return map_service_error(ctx, error),
+    };
+    let channel_rows = match load_testable_channel_catalog(pool, &subject).await {
+        Ok(rows) => rows,
+        Err(error) => return map_service_error(ctx, error),
+    };
+
+    let mut products = Vec::new();
+    let mut unconfigured_providers = Vec::new();
+    for provider_code in sdkwork_payment_providers::declared_provider_codes() {
+        let Some(capabilities) =
+            sdkwork_payment_providers::declared_provider_capabilities(provider_code)
+        else {
+            continue;
+        };
+        if capabilities.products.is_empty() {
+            unconfigured_providers.push(provider_code.to_owned());
+            continue;
+        }
+        for method_key in capabilities.products {
+            let test_enabled = TEST_PAYMENT_METHOD_KEYS.contains(method_key);
+            let method_status = method_rows
+                .iter()
+                .find(|row| row.method_key.eq_ignore_ascii_case(method_key))
+                .map(|row| row.status.clone())
+                .unwrap_or_else(|| "missing".to_owned());
+            let active_channels = channel_rows
+                .iter()
+                .filter(|row| row.channel_method_key.eq_ignore_ascii_case(method_key))
+                .count() as i64;
+            let active_accounts = channel_rows
+                .iter()
+                .filter(|row| {
+                    row.channel_method_key.eq_ignore_ascii_case(method_key)
+                        && row.account_status == "active"
+                })
+                .count() as i64;
+            let settle_supported = test_payment_settle_supported(method_key);
+            let refund_supported = product_refund_supported(provider_code, method_key);
+            let required_payer_fields: Vec<TestPaymentPayerField> =
+                sdkwork_payment_providers::product_payer_requirements(method_key)
+                    .iter()
+                    .map(|requirement| TestPaymentPayerField {
+                        method_key: requirement.method_key.to_owned(),
+                        field: requirement.metadata_key.to_owned(),
+                        label: requirement.label.to_owned(),
+                    })
+                    .collect();
+
+            let mut readiness = Vec::new();
+            if method_status == "missing" {
+                readiness.push(format!(
+                    "the method {} is not in this tenant's payment-method catalog yet; create it in the payment-methods workspace",
+                    method_key
+                ));
+            } else if method_status != "active" {
+                readiness.push(format!(
+                    "the method {} is {method_status}; enable it in the payment-methods workspace",
+                    method_key
+                ));
+            }
+            if active_channels == 0 {
+                readiness.push(format!(
+                    "no active payment channel routes {} to a provider account; create a channel in the channel workspace",
+                    method_key
+                ));
+            } else if active_accounts == 0 {
+                readiness.push(format!(
+                    "the channel routing {} points at a provider account that is not active; activate the account or repoint the channel",
+                    method_key
+                ));
+            }
+            if provider_code != "sandbox"
+                && method_status == "active"
+                && active_channels > 0
+                && !has_deployable_account_for_provider(&channel_rows, provider_code)
+            {
+                readiness.push(format!(
+                    "no active provider account for {} exists in this tenant; create one in Provider Accounts and test its credentials",
+                    provider_code
+                ));
+            }
+            if !test_enabled {
+                readiness.push(format!(
+                    "{} is declared by the adapter but is not part of the admin test surface yet",
+                    method_key
+                ));
+            }
+            let provider_declared = capabilities.supports_product(method_key);
+            if !provider_declared {
+                readiness.push(format!(
+                    "{} is not declared by the {} adapter in this build; the catalog row cannot be exercised",
+                    method_key, provider_code
+                ));
+            }
+            let ready = readiness.is_empty();
+            if ready {
+                readiness.push("ready".to_owned());
+            }
+            products.push(TestPaymentProductView {
+                provider_code: provider_code.to_owned(),
+                provider_label: provider_product_label(provider_code).to_owned(),
+                method_key: (*method_key).to_owned(),
+                method_status,
+                launch_kind: declared_launch_kind(provider_code, method_key).to_owned(),
+                settle_supported,
+                refund_supported,
+                test_enabled,
+                required_payer_fields,
+                active_provider_accounts: active_accounts,
+                active_channel_count: active_channels,
+                readiness,
+                ready,
+            });
+        }
+    }
+    // Deterministic order for the console: providers in declaration order, then
+    // the products as declared.
+    products.sort_by_key(|product| {
+        (
+            sdkwork_payment_providers::declared_provider_codes()
+                .iter()
+                .position(|code| *code == product.provider_code)
+                .unwrap_or(usize::MAX),
+            product.method_key.clone(),
+        )
+    });
+    let ready_count = products.iter().filter(|product| product.ready).count() as i64;
+    let total_count = products.len() as i64;
+    success_item(
+        ctx,
+        TestPaymentProductsResult {
+            products,
+            unconfigured_providers,
+            ready_count,
+            total_count,
+            checked_at: now_string(),
+        },
+    )
+}
+
+#[derive(Debug, Clone)]
+struct TestableMethodRow {
+    method_key: String,
+    status: String,
+}
+
+#[derive(Debug, Clone)]
+struct TestableChannelRow {
+    channel_method_key: String,
+    account_status: String,
+}
+
+fn has_deployable_account_for_provider(rows: &[TestableChannelRow], provider_code: &str) -> bool {
+    // The channel catalog carries the provider account status per method; an
+    // account is deployable when at least one channel of a product served by
+    // that provider resolves to an active account.
+    rows.iter().any(|row| {
+        row.account_status == "active"
+            && sdkwork_payment_providers::declared_provider_capabilities(provider_code)
+                .is_some_and(|capabilities| capabilities.supports_product(&row.channel_method_key))
+    })
+}
+
+async fn load_testable_method_catalog(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+) -> Result<Vec<TestableMethodRow>, sdkwork_contract_service::CommerceServiceError> {
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
+    let rows = sqlx::query(
+        "SELECT method_key, status FROM commerce_payment_method \
+         WHERE tenant_id = CAST($1 AS TEXT) \
+           AND (organization_id = CAST($2 AS TEXT) OR organization_id = '0') \
+           AND deleted_at IS NULL",
+    )
+    .bind(&subject.tenant_id)
+    .bind(organization_id)
+    .fetch_all(pool)
+    .await
+    .map_err(storage)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| TestableMethodRow {
+            method_key: row.try_get("method_key").unwrap_or_default(),
+            status: row.try_get("status").unwrap_or_default(),
+        })
+        .collect())
+}
+
+async fn load_testable_channel_catalog(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+) -> Result<Vec<TestableChannelRow>, sdkwork_contract_service::CommerceServiceError> {
+    let organization_id = subject
+        .organization_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("0");
+    let rows = sqlx::query(
+        "SELECT COALESCE(m.method_key, c.metadata->>'methodKey') AS channel_method_key, \
+                COALESCE(a.status, '') AS account_status \
+         FROM commerce_payment_channel c \
+         LEFT JOIN commerce_payment_method m ON m.id = c.method_id AND m.tenant_id = c.tenant_id AND m.deleted_at IS NULL \
+         LEFT JOIN commerce_payment_provider_account a ON a.id = c.provider_account_id AND a.deleted_at IS NULL \
+         WHERE c.tenant_id = CAST($1 AS TEXT) \
+           AND (c.organization_id = CAST($2 AS TEXT) OR c.organization_id = '0') \
+           AND c.deleted_at IS NULL \
+           AND c.status = 'active'",
+    )
+    .bind(&subject.tenant_id)
+    .bind(organization_id)
+    .fetch_all(pool)
+    .await
+    .map_err(storage)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let method_key: Option<String> = row.try_get("channel_method_key").ok();
+            let method_key = method_key.filter(|value| !value.trim().is_empty())?;
+            Some(TestableChannelRow {
+                channel_method_key: method_key,
+                account_status: row.try_get("account_status").unwrap_or_default(),
+            })
+        })
+        .collect())
+}
+
+/// Refund command for a one-cent test payment.
+///
+/// A one-cent test must prove the WHOLE chain, and refund is the last link: a
+/// settled test payment that cannot be refunded leaves the admin unable to tell
+/// a refund regression from an environment difference. The refund goes through
+/// the same `CreateOwnerRefundCommand` the app surface uses (amount cap,
+/// eligibility, provider submission, status machine), so the console exercises
+/// production behaviour rather than a test-only shortcut.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentRefundBody {
+    payment_intent_id: String,
+    /// Refund amount; defaults to the full test amount (one cent).
+    amount: Option<String>,
+    reason_code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentRefundResult {
+    payment_intent_id: String,
+    attempt_id: String,
+    refund_id: String,
+    refund_no: String,
+    amount: String,
+    currency_code: String,
+    /// Refund status after the provider submission attempt was applied
+    /// (`succeeded`, `processing`, `failed`).
+    status: String,
+    provider_code: String,
+    /// True when the provider submission produced a terminal success.
+    refunded: bool,
+    /// Next step for the operator, derived from the resulting status.
+    next_step: String,
+}
+
+/// Refunds a settled one-cent test payment through the production refund path.
+async fn refund_test_payment(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<TestPaymentRefundBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    let write = match validate_command(ctx, &headers, "refund-test-payment", &body) {
+        Ok(write) => write,
+        Err(response) => return response,
+    };
+    let payment_intent_id = match required_text(&body.payment_intent_id, "paymentIntentId", ctx) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let refund_amount = match normalized(body.amount.clone()) {
+        Some(amount) => {
+            if !is_money_amount(&amount) {
+                return validation(ctx, "amount must match ^[0-9]+(\\.[0-9]{1,2})?$");
+            }
+            Some(amount)
+        }
+        None => None,
+    };
+    let IntegrationPool::Postgres(pool) = &state.pool;
+    let attempt = match load_test_attempt_for_check(pool, &subject, &payment_intent_id).await {
+        Ok(Some(attempt)) => attempt,
+        Ok(None) => return not_found(ctx, "payment attempt was not found for this payment intent"),
+        Err(error) => return map_service_error(ctx, error),
+    };
+    if attempt.status != "succeeded" {
+        return conflict(
+            ctx,
+            format!(
+                "attempt {} is {} and cannot be refunded; settle the test payment first (or pay it through the provider), then refund it",
+                attempt.attempt_id, attempt.status
+            ),
+        );
+    }
+    let total_amount = match decimal_amount_minor_units(
+        attempt
+            .amount
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("0.01"),
+    ) {
+        Some(minor) => minor,
+        None => {
+            return validation(
+                ctx,
+                "the attempt amount could not be read; refund through the refunds workspace instead",
+            )
+        }
+    };
+    // The refund may not exceed the captured total: rebinding the same cap the
+    // domain applies keeps the test from creating a provider request the PSP
+    // would reject and that the status machine would then leave in limbo.
+    if let Some(amount) = refund_amount.as_deref() {
+        match decimal_amount_minor_units(amount) {
+            Some(minor) if minor > 0 && minor <= total_amount => {}
+            Some(_) => {
+                return validation(
+                    ctx,
+                    format!(
+                        "refund amount {} must be between 0.01 and the captured total ({})",
+                        amount,
+                        minor_units_to_decimal_string(total_amount)
+                    ),
+                )
+            }
+            None => return validation(ctx, "amount overflows the supported range"),
+        }
+    }
+    let store = sdkwork_payment_repository_sqlx::PostgresCommerceRefundStore::new(pool.clone());
+    let command = match sdkwork_payment_service::CreateOwnerRefundCommand::new_with_currency(
+        &subject.tenant_id,
+        subject.organization_id.as_deref(),
+        &subject.user_id,
+        &attempt.order_id,
+        Some(&attempt.attempt_id),
+        refund_amount.as_deref(),
+        attempt
+            .currency_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        body.reason_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        &write.request_no,
+        &format!("refund-test-payment-{}", write.idempotency_key),
+    ) {
+        Ok(command) => match command.requested_by_operator(&subject.user_id) {
+            Ok(command) => command,
+            Err(error) => return map_service_error(ctx, error),
+        },
+        Err(error) => return map_service_error(ctx, error),
+    };
+    let mut refund = match store.create_owner_refund(command).await {
+        Ok(refund) => refund,
+        Err(error) => return map_service_error(ctx, error),
+    };
+    // A refund created in `submitted` has NOT reached the PSP yet: the
+    // submission (claim → provider call → terminal status) is what the admin
+    // refund path runs explicitly, so the test console must run the same
+    // sequence instead of reporting a `submitted` refund as if it moved money.
+    let mut submission_error = None;
+    if refund_requires_provider_submission(&refund.status) {
+        if refund_requires_processing_claim(&refund.status) {
+            refund = match store
+                .mark_owner_refund_provider_submission_processing(
+                    &subject.tenant_id,
+                    subject.organization_id.as_deref(),
+                    &refund.refund_id,
+                    "operator",
+                    Some(&subject.user_id),
+                    &write.request_no,
+                    &format!("refund-test-payment-{}", write.idempotency_key),
+                )
+                .await
+            {
+                Ok(refund) => refund,
+                Err(error) => return map_service_error(ctx, error),
+            };
+        }
+        let submission_key = format!("refund-test-payment-{}", write.idempotency_key);
+        match submit_test_payment_refund_with_retry(
+            pool,
+            &subject,
+            &refund,
+            body.reason_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+        )
+        .await
+        {
+            Ok(sdkwork_payment_providers::ProviderRefundSubmissionState::Processing) => {}
+            Ok(sdkwork_payment_providers::ProviderRefundSubmissionState::Succeeded) => {
+                refund = match store
+                    .mark_owner_refund_provider_submission_succeeded(
+                        &subject.tenant_id,
+                        subject.organization_id.as_deref(),
+                        &refund.refund_id,
+                        "operator",
+                        Some(&subject.user_id),
+                        &write.request_no,
+                        &submission_key,
+                    )
+                    .await
+                {
+                    Ok(refund) => refund,
+                    Err(error) => return map_service_error(ctx, error),
+                };
+            }
+            Ok(sdkwork_payment_providers::ProviderRefundSubmissionState::Failed) => {
+                refund = match store
+                    .mark_owner_refund_provider_submission_failed(
+                        &subject.tenant_id,
+                        subject.organization_id.as_deref(),
+                        &refund.refund_id,
+                        "operator",
+                        Some(&subject.user_id),
+                        &write.request_no,
+                        &submission_key,
+                    )
+                    .await
+                {
+                    Ok(refund) => refund,
+                    Err(error) => return map_service_error(ctx, error),
+                };
+            }
+            Err(error) => {
+                if !refund_submission_retryable(&error) {
+                    let _ = store
+                        .mark_owner_refund_provider_submission_failed(
+                            &subject.tenant_id,
+                            subject.organization_id.as_deref(),
+                            &refund.refund_id,
+                            "operator",
+                            Some(&subject.user_id),
+                            &write.request_no,
+                            &submission_key,
+                        )
+                        .await;
+                }
+                submission_error = Some(error.message().to_owned());
+            }
+        }
+    }
+    let refunded = refund.status == "succeeded";
+    let next_step = match (refund.status.as_str(), submission_error.as_deref()) {
+        (_, Some(_)) => "the refund was recorded but the provider submission failed; open the refunds workspace, inspect the provider response and retry",
+        ("succeeded", _) => "the refund reached a terminal success; verify it in the refund records and the payment's refund summary",
+        ("processing", _) => "the provider accepted the refund asynchronously; poll it with the refund retry action or wait for the refund callback",
+        _ => "the refund did not succeed; open the refunds workspace to inspect the provider response and retry",
+    };
+    success_item(
+        ctx,
+        TestPaymentRefundResult {
+            payment_intent_id,
+            attempt_id: attempt.attempt_id,
+            refund_id: refund.refund_id,
+            refund_no: refund.refund_no,
+            amount: refund.amount.as_str().to_owned(),
+            currency_code: refund.currency_code,
+            status: refund.status,
+            provider_code: attempt.provider_code,
+            refunded,
+            next_step: next_step.to_owned(),
+        },
+    )
+}
+
+/// Provider submission for a test refund, retried on transport-class failures
+/// only — the same bounded backoff the admin refund router applies.
+async fn submit_test_payment_refund_with_retry(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+    refund: &sdkwork_payment_service::RefundView,
+    reason_code: Option<String>,
+) -> Result<
+    sdkwork_payment_providers::ProviderRefundSubmissionState,
+    sdkwork_contract_service::CommerceServiceError,
+> {
+    const ATTEMPTS: u32 = 3;
+    let mut last_error = None;
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(150 * (1 << (attempt - 1))))
+                .await;
+        }
+        match submit_test_payment_refund(pool, subject, refund, reason_code.clone()).await {
+            Ok(state) => return Ok(state),
+            Err(error) if refund_submission_retryable(&error) => last_error = Some(error),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.expect("refund submission attempted at least once"))
+}
+
+/// Submits one refund to the provider through the shared operations layer so
+/// the test console exercises the same credentials, trade reference and
+/// idempotency key a production refund uses.
+async fn submit_test_payment_refund(
+    pool: &PgPool,
+    subject: &AppRuntimeSubject,
+    refund: &sdkwork_payment_service::RefundView,
+    reason_code: Option<String>,
+) -> Result<
+    sdkwork_payment_providers::ProviderRefundSubmissionState,
+    sdkwork_contract_service::CommerceServiceError,
+> {
+    let Some(context) =
+        sdkwork_payment_repository_sqlx::load_payment_attempt_provider_context_by_id_postgres(
+            pool,
+            &refund.payment_attempt_id,
+        )
+        .await?
+    else {
+        return Err(sdkwork_contract_service::CommerceServiceError::not_found(
+            "payment attempt provider context was not found for refund submission",
+        ));
+    };
+    let account = match context.provider_account_id.as_deref() {
+        Some(provider_account_id) => sdkwork_payment_repository_sqlx::
+            load_provider_account_for_existing_payment_postgres(
+                pool,
+                &subject.tenant_id,
+                subject.organization_id.as_deref(),
+                provider_account_id,
+            )
+            .await?
+            .map(Some)
+            .ok_or_else(|| {
+                sdkwork_contract_service::CommerceServiceError::conflict(
+                    "the original payment provider account is unavailable for this refund",
+                )
+            })?,
+        None => {
+            sdkwork_payment_repository_sqlx::load_active_provider_account_postgres(
+                pool,
+                &subject.tenant_id,
+                subject.organization_id.as_deref(),
+                &context.provider_code,
+            )
+            .await?
+        }
+    };
+    let credentials = EnvPaymentCredentialResolver::load();
+    let registry = provider_registry_for_account(
+        &credentials,
+        account.map(|record| {
+            sdkwork_payment_providers::ProviderAccountBinding {
+                provider_code: record.provider_code.clone(),
+                merchant_id: record.merchant_id.clone(),
+                environment: record.environment.clone(),
+                secret_ref: record.secret_ref.clone(),
+                webhook_secret_ref: record.webhook_secret_ref.clone(),
+                certificate_ref: record.certificate_ref.clone(),
+                primary_secret: record.primary_secret.clone(),
+                webhook_secret: record.webhook_secret.clone(),
+                certificate: record.certificate.clone(),
+                metadata: record.metadata.clone(),
+            }
+        }),
+    );
+    let total_amount = sdkwork_contract_service::CommerceMoney::new(&context.amount)
+        .map_err(|error| sdkwork_contract_service::CommerceServiceError::storage(error.to_string()))?;
+    // A refund the console re-attempts while the provider is still working is
+    // polled rather than resubmitted, so a duplicate PSP refund is impossible.
+    if refund.status == "processing" {
+        if let Some(state) = sdkwork_payment_providers::query_provider_refund(
+            &registry,
+            &context.provider_code,
+            &context.out_trade_no,
+            context.provider_transaction_id.as_deref(),
+            &refund.refund_no,
+        )
+        .await?
+        {
+            return Ok(state);
+        }
+    }
+    let refund_notify_url =
+        sdkwork_payment_repository_sqlx::resolve_refund_notify_url_postgres(
+            pool,
+            &subject.tenant_id,
+            subject.organization_id.as_deref(),
+            &context.provider_code,
+            credentials.webhook_base_url.as_deref(),
+        )
+        .await?;
+    sdkwork_payment_providers::create_provider_refund(
+        &registry,
+        &context.provider_code,
+        &context.out_trade_no,
+        context.provider_transaction_id.as_deref(),
+        &refund.refund_no,
+        &refund.amount,
+        &total_amount,
+        reason_code,
+        refund_notify_url.as_deref(),
+    )
+    .await
+}
+
+fn refund_submission_retryable(error: &sdkwork_contract_service::CommerceServiceError) -> bool {
+    !matches!(
+        error.code(),
+        "not-found" | "validation" | "validation-failed" | "forbidden" | "conflict"
+    )
+}
+
+fn refund_requires_provider_submission(status: &str) -> bool {
+    matches!(status, "submitted" | "processing" | "failed")
+}
+
+fn refund_requires_processing_claim(status: &str) -> bool {
+    matches!(status, "submitted" | "failed")
+}
+
+/// A notification sample: the raw payload and headers a PSP would POST.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentNotificationBody {
+    /// Provider account whose stored credentials sign/verify the notification.
+    provider_account_id: String,
+    /// Raw notification body. It is signed by the deployment (see
+    /// `signer`) when it carries no signature header of its own.
+    payload: String,
+    /// Extra request headers to send verbatim (`stripe-signature`, …).
+    #[serde(default)]
+    headers: std::collections::BTreeMap<String, String>,
+    /// `hmac_sha256` (Stripe) or `none` (unsigned, sandbox only). When
+    /// omitted it is derived from the provider code.
+    #[serde(default)]
+    signer: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestPaymentNotificationResult {
+    provider_account_id: String,
+    provider_code: String,
+    /// `verified` | `rejected`.
+    verification: String,
+    /// True when the delivery passed verification and the event was ingested.
+    accepted: bool,
+    /// Native and document-signature verification results, side by side, so a
+    /// header/config mismatch is visible instead of a single opaque verdict.
+    native_signature: String,
+    document_signature: String,
+    signature_header: Option<String>,
+    /// Provider event id resolved by the notification reader.
+    provider_event_id: Option<String>,
+    /// Merchant trade number the notification resolves to.
+    out_trade_no: Option<String>,
+    /// Webhook event row created by the delivery.
+    webhook_event_id: Option<String>,
+    applied_status: Option<String>,
+    payment_attempt_id: Option<String>,
+    diagnostic: Option<String>,
+    delivered_at: String,
+}
+
+/// Builds the notification test entry: it acts as the PSP calling the deployment
+/// webhook, so both notification verification and the ingest pipeline
+/// (event de-duplication, trade resolution, status machine) are exercised in one
+/// round trip — no PSP account, no public URL and no local tunnel needed.
+async fn test_payment_notification(
+    State(state): State<IntegrationState>,
+    runtime_context: Option<Extension<IamAppContext>>,
+    request_context: Option<Extension<WebRequestContext>>,
+    headers: HeaderMap,
+    Json(body): Json<TestPaymentNotificationBody>,
+) -> Response {
+    let ctx = request_context.as_ref().map(|Extension(value)| value);
+    let subject = match require_subject(runtime_context, ctx) {
+        Ok(subject) => subject,
+        Err(response) => return response,
+    };
+    if !state.sandbox_trigger_enabled {
+        return forbidden(
+            ctx,
+            "simulated provider notifications are disabled on production-like deployments; the provider calls the webhook instead",
+        );
+    }
+    if let Err(response) = validate_command(ctx, &headers, "test-payment-notification", &body) {
+        return response;
+    }
+    let payload = match normalized(Some(body.payload.clone())) {
+        Some(payload) => payload,
+        None => return validation(ctx, "payload must be a non-empty notification body"),
+    };
+    let account =
+        match load_provider_account(&state.pool, &subject, &body.provider_account_id).await {
+            Ok(Some(account)) => account,
+            Ok(None) => return not_found(ctx, "payment provider account was not found"),
+            Err(error) => return map_service_error(ctx, error),
+        };
+    let provider_code =
+        sdkwork_payment_providers::normalize_provider_code(&account.provider_code);
+    let scheme = match body.signer.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => match sdkwork_payment_providers::NotificationSignScheme::parse(value) {
+            Some(scheme) => scheme,
+            None => {
+                return validation(
+                    ctx,
+                    "signer must be one of hmac_sha256, wechat_pay_rsa_sha256, alipay_rsa_sha256, none",
+                )
+            }
+        },
+        None => match sdkwork_payment_providers::default_sign_scheme(&provider_code) {
+            Some(scheme) => scheme,
+            None => {
+                return validation(
+                    ctx,
+                    format!(
+                        "provider {provider_code} does not define a signed notification contract in this build; pass signer explicitly"
+                    ),
+                )
+            }
+        },
+    };
+    // The unsigned scheme carries unsigned bodies into the ingest pipeline; it
+    // is only meaningful for the local sandbox adapter, never for a real PSP
+    // whose verifier would reject them anyway.
+    if scheme == sdkwork_payment_providers::NotificationSignScheme::Unsigned
+        && provider_code != "sandbox"
+    {
+        return validation(
+            ctx,
+            format!(
+                "provider {provider_code} requires a signed notification; the unsigned scheme is only available for the sandbox provider"
+            ),
+        );
+    }
+    let registry = provider_registry_for_account(
+        &EnvPaymentCredentialResolver::load(),
+        Some(account.binding(account.environment.clone())),
+    );
+    let Some(adapter) = registry.resolve(&provider_code) else {
+        return validation(
+            ctx,
+            format!(
+                "provider {provider_code} could not initialize its adapter; check the provider account credentials before testing notifications"
+            ),
+        );
+    };
+    let timestamp = sqlx::types::chrono::Utc::now().timestamp();
+    let nonce = sdkwork_utils_rust::uuid().replace('-', "");
+    let sign_inputs = sdkwork_payment_providers::ProviderNotificationSignInputs {
+        webhook_secret: account.webhook_secret.clone(),
+        private_key_pem: account
+            .certificate
+            .clone()
+            .or_else(|| account.primary_secret.clone()),
+        api_v3_key: account.webhook_secret.clone(),
+        serial_no: metadata_text(&account.metadata, "verificationSerialNo")
+            .or_else(|| metadata_text(&account.metadata, "verification_serial_no"))
+            .or_else(|| metadata_text(&account.metadata, "publishKeyId")),
+        merchant_id: account.merchant_id.clone(),
+    };
+    let signed = match sdkwork_payment_providers::sign_provider_notification(
+        &provider_code,
+        scheme,
+        &payload,
+        timestamp,
+        &nonce,
+        &sign_inputs,
+    ) {
+        Ok(signed) => signed,
+        Err(error) => {
+            let message = sdkwork_contract_service::CommerceServiceError::from(error)
+                .message()
+                .to_owned();
+            return validation(
+                ctx,
+                format!("this delivery cannot be signed with the stored credential: {message}; rotate the provider account credential and retry"),
+            );
+        }
+    };
+    // Extra headers from the request are appended after the signed ones so an
+    // operator can add a `Wechatpay-Serial` or a custom header without losing
+    // the signature set.
+    let mut provider_headers = signed.headers.clone();
+    for (name, value) in &body.headers {
+        if !provider_headers
+            .iter()
+            .any(|(existing, _)| existing.eq_ignore_ascii_case(name))
+        {
+            provider_headers.push((name.clone(), value.clone()));
+        }
+    }
+    let verify_request = PaymentVerifyWebhookRequest {
+        headers: provider_headers.clone(),
+        body: signed.body.clone(),
+        metadata: json!({ "notificationTest": true }),
+    };
+    let (native_signature, document_signature) = match adapter.verify_webhook(verify_request).await
+    {
+        Ok(outcome) if outcome.verified => ("verified", "verified"),
+        Ok(_) => ("rejected", "rejected"),
+        Err(error) => {
+            let message = sdkwork_contract_service::CommerceServiceError::from(error)
+                .message()
+                .to_owned();
+            return success_item(
+                ctx,
+                TestPaymentNotificationResult {
+                    provider_account_id: account.id.clone(),
+                    provider_code: provider_code.clone(),
+                    verification: "rejected".to_owned(),
+                    accepted: false,
+                    native_signature: "error".to_owned(),
+                    document_signature: "error".to_owned(),
+                    signature_header: signed
+                        .headers
+                        .first()
+                        .map(|(name, _)| name.clone()),
+                    provider_event_id: None,
+                    out_trade_no: None,
+                    webhook_event_id: None,
+                    applied_status: None,
+                    payment_attempt_id: None,
+                    diagnostic: Some(format!(
+                        "the notification could not be verified with the stored credential: {message}"
+                    )),
+                    delivered_at: now_string(),
+                },
+            );
+        }
+    };
+    if native_signature != "verified" {
+        return success_item(
+            ctx,
+            TestPaymentNotificationResult {
+                provider_account_id: account.id.clone(),
+                provider_code: provider_code.clone(),
+                verification: "rejected".to_owned(),
+                accepted: false,
+                native_signature: native_signature.to_owned(),
+                document_signature: document_signature.to_owned(),
+                signature_header: signed.headers.first().map(|(name, _)| name.clone()),
+                provider_event_id: None,
+                out_trade_no: None,
+                webhook_event_id: None,
+                applied_status: None,
+                payment_attempt_id: None,
+                diagnostic: Some(
+                    "the deployment accepted the body but its own verifier rejected the signature; check that the stored webhook secret / merchant key / API v3 key matches the one this account was signed with"
+                        .to_owned(),
+                ),
+                delivered_at: now_string(),
+            },
+        );
+    }
+    let normalize_request = sdkwork_payment_providers::PaymentNormalizeWebhookRequest {
+        headers: provider_headers,
+        body: signed.body.clone(),
+        metadata: json!({ "notificationTest": true }),
+    };
+    let event = match adapter.normalize_webhook(normalize_request).await {
+        Ok(event) => event,
+        Err(error) => {
+            let message = sdkwork_contract_service::CommerceServiceError::from(error)
+                .message()
+                .to_owned();
+            return success_item(
+                ctx,
+                TestPaymentNotificationResult {
+                    provider_account_id: account.id.clone(),
+                    provider_code: provider_code.clone(),
+                    verification: "verified".to_owned(),
+                    accepted: false,
+                    native_signature: native_signature.to_owned(),
+                    document_signature: document_signature.to_owned(),
+                    signature_header: signed.headers.first().map(|(name, _)| name.clone()),
+                    provider_event_id: None,
+                    out_trade_no: None,
+                    webhook_event_id: None,
+                    applied_status: None,
+                    payment_attempt_id: None,
+                    diagnostic: Some(format!(
+                        "the signature verified but the body could not be normalized: {message}"
+                    )),
+                    delivered_at: now_string(),
+                },
+            );
+        }
+    };
+    // Delivery runs the ingest pipeline with the tenant scope the admin session
+    // proved, so an unmatched trade number is still recorded against this tenant
+    // instead of being dropped.
+    let IntegrationPool::Postgres(pool) = &state.pool;
+    let command = IngestProviderWebhookCommand {
+        provider_code: event.provider_code.clone(),
+        provider_event_id: event.provider_event_id.clone().unwrap_or_default(),
+        event_type: event.event_type.clone(),
+        out_trade_no: event.out_trade_no.clone(),
+        payment_status: event.payment_status.clone(),
+        payload: event.payload.clone(),
+        tenant_id: Some(subject.tenant_id.clone()),
+        organization_id: subject.organization_id.clone(),
+    };
+    match ingest_provider_webhook_postgres(pool, command).await {
+        Ok(outcome) => success_item(
+            ctx,
+            TestPaymentNotificationResult {
+                provider_account_id: account.id.clone(),
+                provider_code: provider_code.clone(),
+                verification: "verified".to_owned(),
+                accepted: true,
+                native_signature: native_signature.to_owned(),
+                document_signature: document_signature.to_owned(),
+                signature_header: signed.headers.first().map(|(name, _)| name.clone()),
+                provider_event_id: event.provider_event_id.clone(),
+                out_trade_no: event.out_trade_no.clone(),
+                webhook_event_id: Some(outcome.webhook_event_id),
+                applied_status: outcome.applied_status,
+                payment_attempt_id: outcome.payment_attempt_id,
+                diagnostic: Some(if outcome.applied {
+                    "delivered: the event was verified, recorded and applied"
+                        .to_owned()
+                } else {
+                    "delivered: the event was verified and recorded, but the status machine did not transition (a terminal attempt or a stale status)"
+                        .to_owned()
+                }),
+                delivered_at: now_string(),
+            },
+        ),
+        Err(error) => map_service_error(ctx, error),
+    }
+}
 ///
 /// The event is ingested through the PSP webhook pipeline (event de-duplication,
 /// amount/currency integrity check, status machine), so everything downstream —
@@ -2031,7 +3288,8 @@ async fn load_test_attempt_by_id(
     let row = sqlx::query(
         "SELECT a.id, a.payment_intent_id, i.payment_method, a.provider_code, a.out_trade_no, \
                 COALESCE(a.callback_payload->>'providerTransactionId', a.callback_payload->>'provider_transaction_id') AS provider_transaction_id, \
-                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id \
+                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id, \
+                CAST(a.amount AS BIGINT)::TEXT AS amount_minor, a.currency_code \
          FROM commerce_payment_attempt a \
          LEFT JOIN commerce_payment_intent i ON i.id = a.payment_intent_id AND i.tenant_id = a.tenant_id \
          WHERE a.tenant_id = CAST($1 AS TEXT) AND a.id = CAST($2 AS TEXT) AND a.deleted_at IS NULL \
@@ -2055,6 +3313,18 @@ async fn load_test_attempt_by_id(
         organization_id: row.try_get("organization_id").ok().flatten(),
         owner_user_id: row.try_get("owner_user_id").unwrap_or_default(),
         order_id: row.try_get("order_id").unwrap_or_default(),
+        amount: row
+            .try_get::<Option<String>, _>("amount_minor")
+            .ok()
+            .flatten()
+            .and_then(|minor| minor.trim().parse::<i64>().ok())
+            .map(minor_units_to_decimal_string),
+        currency_code: row
+            .try_get::<Option<String>, _>("currency_code")
+            .ok()
+            .flatten()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
     }))
 }
 
@@ -2072,7 +3342,8 @@ async fn load_test_attempt_for_check(
     let row = sqlx::query(
         "SELECT a.id, a.payment_intent_id, i.payment_method, a.provider_code, a.out_trade_no, \
                 COALESCE(a.callback_payload->>'providerTransactionId', a.callback_payload->>'provider_transaction_id') AS provider_transaction_id, \
-                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id \
+                a.status, a.channel_id, a.tenant_id, a.organization_id, a.owner_user_id, a.order_id, \
+                CAST(a.amount AS BIGINT)::TEXT AS amount_minor, a.currency_code \
          FROM commerce_payment_attempt a \
          LEFT JOIN commerce_payment_intent i ON i.id = a.payment_intent_id AND i.tenant_id = a.tenant_id \
          WHERE a.tenant_id = CAST($1 AS TEXT) \
@@ -2101,6 +3372,18 @@ async fn load_test_attempt_for_check(
         organization_id: row.try_get("organization_id").ok().flatten(),
         owner_user_id: row.try_get("owner_user_id").unwrap_or_default(),
         order_id: row.try_get("order_id").unwrap_or_default(),
+        amount: row
+            .try_get::<Option<String>, _>("amount_minor")
+            .ok()
+            .flatten()
+            .and_then(|minor| minor.trim().parse::<i64>().ok())
+            .map(minor_units_to_decimal_string),
+        currency_code: row
+            .try_get::<Option<String>, _>("currency_code")
+            .ok()
+            .flatten()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty()),
     }))
 }
 
@@ -3151,9 +4434,10 @@ mod tests {
     use super::{
         create_test_payment_checkout, decimal_amount_minor_units, insert_test_order,
         now_plus_minutes, now_string, stable_id, AppRuntimeSubject, IntegrationPool,
-        TEST_PAYMENT_ORDER_TTL_MINUTES,
+        PayerIdentityBody, TEST_PAYMENT_ORDER_TTL_MINUTES,
     };
     use crate::command_headers::AppWriteCommandHeaders;
+    use serde_json::json;
 
     #[test]
     fn test_payment_launch_kind_reports_only_drivable_surfaces() {
@@ -3287,6 +4571,101 @@ mod tests {
     }
 
     #[test]
+    fn payer_identity_round_trips_into_provider_metadata() {
+        // The console collects what the product addresses; the value handed to
+        // the attempt snapshot must use the metadata keys the adapters read.
+        let identity = PayerIdentityBody {
+            openid: Some("  o-payer-1 ".to_owned()),
+            client_ip: Some("203.0.113.7".to_owned()),
+            buyer_id: None,
+            buyer_open_id: None,
+        };
+        assert!(identity.has("openid"));
+        assert!(identity.has("client_ip"));
+        assert!(!identity.has("buyer_id"));
+        let value = identity.into_value();
+        assert_eq!(value["openid"], json!("o-payer-1"));
+        assert_eq!(value["client_ip"], json!("203.0.113.7"));
+        assert!(value.get("buyer_id").is_none());
+        assert!(value.get("buyer_open_id").is_none());
+
+        // `buyer_open_id` is the alternate Alipay key the adapter accepts, so
+        // filling only it still satisfies the `buyer_id` requirement.
+        let alipay = PayerIdentityBody {
+            buyer_open_id: Some("alipay-open-1".to_owned()),
+            ..PayerIdentityBody::default()
+        };
+        assert!(alipay.has("buyer_id"));
+        assert_eq!(alipay.into_value()["buyer_open_id"], json!("alipay-open-1"));
+
+        // Blank input never counts as satisfied.
+        let blank = PayerIdentityBody {
+            openid: Some("   ".to_owned()),
+            ..PayerIdentityBody::default()
+        };
+        assert!(!blank.has("openid"));
+        assert_eq!(blank.into_value(), json!({}));
+    }
+
+    #[test]
+    fn test_payment_methods_match_the_provider_adapter_declarations() {
+        use super::TEST_PAYMENT_METHOD_KEYS;
+
+        // Every product an adapter declares must be reachable from the admin
+        // test surface: "configure the provider, then exercise the whole
+        // payment function" is a coverage guarantee, not a curated list. The
+        // declaration is read statically so the check also runs on deployments
+        // that have no PSP credentials configured yet.
+        let mut declared = std::collections::BTreeSet::new();
+        for provider_code in sdkwork_payment_providers::declared_provider_codes() {
+            let capabilities = sdkwork_payment_providers::declared_provider_capabilities(provider_code)
+                .expect("declared provider must resolve its capabilities");
+            for product in capabilities.products {
+                declared.insert((*product).to_owned());
+            }
+        }
+        for product in &declared {
+            // `wechat_pay` is the legacy alias of `wechat_native`; it stays
+            // testable for pre-existing method rows.
+            assert!(
+                TEST_PAYMENT_METHOD_KEYS.contains(&product.as_str()),
+                "{product} is declared by an adapter but the admin test surface cannot reach it"
+            );
+        }
+        // And the reverse: a key the console offers must belong to a real
+        // declaration, so a removed product cannot linger as a dead button.
+        for product in TEST_PAYMENT_METHOD_KEYS {
+            assert!(
+                declared.contains(product),
+                "{product} is offered by the test surface but no adapter declares it"
+            );
+        }
+    }
+
+    #[test]
+    fn registered_adapters_share_the_static_declarations() {
+        // A registered adapter and the static table must agree, otherwise the
+        // console would report capabilities the checkout does not honour.
+        let credentials = sdkwork_payment_providers::ProviderCredentialBundle::from_env();
+        let registry =
+            sdkwork_payment_providers::PaymentProviderRegistry::from_credentials(credentials);
+        for provider_code in sdkwork_payment_providers::declared_provider_codes() {
+            let declared =
+                sdkwork_payment_providers::declared_provider_capabilities(provider_code)
+                    .expect("declared capabilities");
+            assert_eq!(
+                registry.capabilities(provider_code).map(|item| item.provider_code),
+                Some(declared.provider_code)
+            );
+            if let Some(adapter) = registry.resolve(provider_code) {
+                assert_eq!(adapter.capabilities().products, declared.products);
+                assert_eq!(adapter.capabilities().operations, declared.operations);
+            }
+        }
+        assert!(registry.capabilities("unknown_provider").is_none());
+    }
+
+    #[test]
     fn decimal_amounts_convert_to_minor_units() {
         assert_eq!(decimal_amount_minor_units("0.01"), Some(1));
         assert_eq!(decimal_amount_minor_units("12.50"), Some(1250));
@@ -3388,8 +4767,15 @@ mod tests {
             request_hash: "hash".to_owned(),
             request_no: "request-regression-checkout".to_owned(),
         };
-        match create_test_payment_checkout(&pool, &subject, &order_id, "wechat_native", &write)
-            .await
+        match create_test_payment_checkout(
+            &pool,
+            &subject,
+            &order_id,
+            "wechat_native",
+            &json!({}),
+            &write,
+        )
+        .await
         {
             Ok(_) => eprintln!("test payment checkout succeeded"),
             Err(error) => {

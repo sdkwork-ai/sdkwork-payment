@@ -512,6 +512,33 @@
       }
     },
     {
+      "method": "GET",
+      "path": "/backend/v3/api/payments/dev/test_payment_products",
+      "operationId": "dev.testPaymentProducts.list",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/dev/refund_test_payment",
+      "operationId": "dev.refundTestPayment",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend/v3/api/payments/dev/notification_test",
+      "operationId": "dev.notificationTest",
+      "source": {
+        "routeCrate": "sdkwork-routes-payment-backend-api",
+        "openApiAuthority": "apis/backend-api/payment/sdkwork-payment-backend-api.openapi.yaml"
+      }
+    },
+    {
       "method": "POST",
       "path": "/backend/v3/api/payments/dev/test_payments",
       "operationId": "dev.testPayments",

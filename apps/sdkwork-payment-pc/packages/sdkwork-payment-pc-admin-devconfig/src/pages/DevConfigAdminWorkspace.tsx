@@ -1,10 +1,13 @@
 /**
  * Dev config admin workspace.
  *
- * Four-tab workspace aligned with industry PSP admin consoles (Stripe
+ * Five-tab workspace aligned with industry PSP admin consoles (Stripe
  * Dashboard → Developers, Alipay open platform → Dev config, WeChat Pay
  * merchant platform → Dev center):
  *
+ *   0. One-cent test — provider × product coverage, a 0.01 wallet test for any
+ *      configured product, settlement / status / close, refund and a
+ *      self-signed notification delivery through the real pipeline
  *   1. Environment Switcher — switch provider account environments
  *      (development/sandbox/production) + credential test
  *   2. Webhook Debugger — sandbox trigger + signature verification
@@ -34,6 +37,7 @@ import { useDevConfigMessages } from "../i18n";
 import { CertificateManager } from "../components/CertificateManager";
 import { EnvironmentSwitcher } from "../components/EnvironmentSwitcher";
 import { IntegrationLogs } from "../components/IntegrationLogs";
+import { TestPaymentConsole } from "../components/TestPaymentConsole";
 import { WebhookDebugger } from "../components/WebhookDebugger";
 import type {
   PaymentCertificateDraft,
@@ -43,6 +47,8 @@ import type {
   PaymentDevSandboxTriggerDraft,
   PaymentDevWebhookSignatureTestDraft,
   PaymentProviderEnvironment,
+  PaymentTestNotificationDraft,
+  PaymentTestPaymentDraft,
   PaymentWebhookEventListFilter,
 } from "../types/devconfig-admin-types";
 
@@ -63,7 +69,7 @@ export function PaymentDevConfigAdminWorkspace(
   const [state, setState] = React.useState<PaymentDevConfigAdminState>(() =>
     controller.getState(),
   );
-  const [tab, setTab] = React.useState<PaymentDevConfigAdminSection>("environment");
+  const [tab, setTab] = React.useState<PaymentDevConfigAdminSection>("testpayments");
 
   React.useEffect(() => {
     return controller.subscribe(() => {
@@ -73,6 +79,18 @@ export function PaymentDevConfigAdminWorkspace(
 
   React.useEffect(() => {
     void controller.load(props.section).then(setState).catch(() => {
+      // error already surfaced via controller state.lastError
+    });
+  }, [controller, props.section]);
+
+  // The test console needs the live coverage matrix; it is loaded once per
+  // mount and refreshed explicitly after a checkout so configuration changes
+  // show up without leaving the tab.
+  React.useEffect(() => {
+    if (props.section !== undefined && props.section !== "testpayments") {
+      return;
+    }
+    void controller.loadTestProducts().catch(() => {
       // error already surfaced via controller state.lastError
     });
   }, [controller, props.section]);
@@ -140,7 +158,50 @@ export function PaymentDevConfigAdminWorkspace(
     await controller.replayWebhookEvent(eventId);
   }
 
+  async function handleReloadCoverage() {
+    await controller.loadTestProducts();
+  }
+
+  async function handleCreateTestPayment(draft: PaymentTestPaymentDraft) {
+    await controller.createTestPayment(draft);
+  }
+
+  async function handleCheckTestPayment(intentId: string) {
+    await controller.checkTestPaymentStatus(intentId);
+  }
+
+  async function handleSettleTestPayment(intentId: string, outcome: "success" | "failed") {
+    await controller.settleTestPayment(intentId, outcome);
+  }
+
+  async function handleCancelTestPayment(intentId: string) {
+    await controller.cancelTestPayment(intentId);
+  }
+
+  async function handleRefundTestPayment(intentId: string) {
+    await controller.refundTestPayment(intentId);
+  }
+
+  async function handleTestNotification(draft: PaymentTestNotificationDraft) {
+    await controller.testNotification(draft);
+  }
+
   const sections: Record<PaymentDevConfigAdminSection, React.ReactNode> = {
+    testpayments: (
+      <TestPaymentConsole
+        products={state.testConsole.products}
+        accounts={state.providerAccounts}
+        results={state.testConsole}
+        busy={busy}
+        onReloadProducts={handleReloadCoverage}
+        onCreateTestPayment={handleCreateTestPayment}
+        onCheckStatus={handleCheckTestPayment}
+        onSettle={handleSettleTestPayment}
+        onCancel={handleCancelTestPayment}
+        onRefund={handleRefundTestPayment}
+        onTestNotification={handleTestNotification}
+      />
+    ),
     environment: (
       <EnvironmentSwitcher
         accounts={state.providerAccounts}
@@ -205,6 +266,9 @@ export function PaymentDevConfigAdminWorkspace(
             }
           >
             <PaymentAdminTabsList aria-label={m.workspace.sectionsAriaLabel}>
+              <PaymentAdminTabsTrigger value="testpayments">
+                {m.workspace.tabTestPayments}
+              </PaymentAdminTabsTrigger>
               <PaymentAdminTabsTrigger value="environment">
                 {m.workspace.tabEnvironment}
               </PaymentAdminTabsTrigger>
@@ -218,6 +282,10 @@ export function PaymentDevConfigAdminWorkspace(
                 {m.workspace.tabLogs}
               </PaymentAdminTabsTrigger>
             </PaymentAdminTabsList>
+
+            <PaymentAdminTabsContent value="testpayments">
+              {sections.testpayments}
+            </PaymentAdminTabsContent>
 
             <PaymentAdminTabsContent value="environment">
               {sections.environment}

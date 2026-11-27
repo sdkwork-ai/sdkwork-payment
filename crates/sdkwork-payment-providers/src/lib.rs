@@ -9,6 +9,7 @@ mod dev_credentials;
 mod error;
 mod http;
 mod money;
+mod notification_sign;
 mod notify_url;
 mod operations;
 mod paypal;
@@ -19,6 +20,11 @@ mod stripe;
 mod webhook_peek;
 mod wechat_pay;
 
+pub use adapter::{
+    declared_provider_capabilities, declared_provider_codes, product_payer_requirements,
+    CurrencyPolicy, PaymentAdapterOperation, PaymentProductRequirement,
+    PaymentProviderCapabilities, RefundMode,
+};
 pub use adapter::{
     normalize_provider_code, PaymentCreateRefundRequest, PaymentProviderAdapter,
     PaymentProviderOperationOutcome, PaymentQueryPaymentIntentRequest, PaymentQueryRefundRequest,
@@ -54,6 +60,10 @@ pub use operations::{
     ProviderRefundSubmissionState,
 };
 pub use paypal::{PayPalPaymentProviderAdapter, PayPalPaymentProviderConfig};
+pub use notification_sign::{
+    default_sign_scheme, private_key_signs, sign_provider_notification, NotificationSignScheme,
+    ProviderNotificationSignInputs, SignedProviderNotification,
+};
 pub use registry::{provider_registry_for_account, PaymentProviderRegistry};
 pub use sandbox_webhook::SandboxWebhookPaymentProviderAdapter;
 pub use webhook_peek::{peek_webhook_routing_fields, WebhookPeekOutcome};

@@ -23,8 +23,11 @@ export type ResolvedPaymentProviderBrand =
   | { kind: "sandbox" }
   | { kind: "monogram"; monogram: string };
 
-export function resolvePaymentProviderBrand(providerCode: string): ResolvedPaymentProviderBrand {
-  const code = providerCode.trim().toLowerCase();
+export function resolvePaymentProviderBrand(providerCode: string | null | undefined): ResolvedPaymentProviderBrand {
+  // An unset provider code is a real state (a list row whose account is not
+  // resolved yet). It resolves to an empty monogram tile instead of throwing,
+  // so one unconfigured row can never blank an entire admin table.
+  const code = (providerCode ?? "").trim().toLowerCase();
   if (NON_BRAND_PROVIDER_CODES.has(code)) {
     return { kind: "sandbox" };
   }

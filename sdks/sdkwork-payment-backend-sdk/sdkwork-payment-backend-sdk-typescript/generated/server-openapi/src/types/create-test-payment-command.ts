@@ -1,3 +1,5 @@
+import type { PayerIdentity } from './payer-identity';
+
 export interface CreateTestPaymentCommand {
   /** Payment method key (e.g., wechat_native, alipay_qr, alipay_wap, alipay_pc, stripe_card); must reference an active test-payment-capable method */
   methodKey: string;
@@ -5,4 +7,5 @@ export interface CreateTestPaymentCommand {
   amount?: string;
   /** Test currency (defaults to CNY) */
   currencyCode?: string;
+  payerIdentity?: PayerIdentity;
 }

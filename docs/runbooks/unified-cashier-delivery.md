@@ -127,8 +127,7 @@ reuses another platform's product.
 ```bash
 # payment
 cargo test -p sdkwork-payment-providers -p sdkwork-payment-repository-sqlx \
-           -p sdkwork-routes-payment-backend-api -p sdkwork-routes-payment-app-api
-# order
+           -p sdkwork-routes-payment-backend-api -p sdkwork-routes-payment-app-api# order
 cargo test -p sdkwork-order-integration-payment -p sdkwork-routes-order-app-api
 # utils
 cargo test -p sdkwork-utils-rust
@@ -205,7 +204,61 @@ UPDATE_BILLING_MATRIX=1 cargo test -p sdkwork-cloudrouter-router-service \
 The refresh must show only the intended endpoint rows in the golden diff; anything
 else is a real regression.
 
-## 11. Known gaps at handover
+## 11. One-cent test coverage (every provider × product)
+
+A configured service provider must be verifiable end to end from the admin, so the
+one-cent test surface covers the whole chain rather than a hand-picked subset:
+
+| Link | Admin action | Backend operation |
+| --- | --- | --- |
+| Coverage | Coverage board (`一分钱测试` tab) | `GET /backend/v3/api/payments/dev/test_payment_products` |
+| Checkout | Create test payment | `POST /backend/v3/api/payments/dev/test_payments` |
+| Settlement | Simulate success / failure (sandbox + client payloads) | `POST /backend/v3/api/payments/dev/settle_test_payment` |
+| Status | Query provider | `POST /backend/v3/api/payments/dev/check_attempt_status` |
+| Close | Close trade | `POST /backend/v3/api/payments/dev/cancel_test_payment` |
+| Refund | Refund test payment | `POST /backend/v3/api/payments/dev/refund_test_payment` |
+| Notification | Deliver notification | `POST /backend/v3/api/payments/dev/notification_test` |
+
+### Coverage contract
+
+The matrix is derived from the adapters' own declarations
+(`declared_provider_codes()` / `declared_provider_capabilities()` in
+`sdkwork-payment-providers`), not from a hand-kept list, so a product cannot be
+declared by an adapter and stay untestable. Each row reports the method-catalog
+state, the launch surface, whether settlement can be simulated, whether refunds can
+be driven, the payer inputs the product addresses, and the ordered findings that
+still block it. A backend unit test pins the two directions: every declared product
+must be reachable, and every testable key must belong to a declaration.
+
+### Payer-addressed products
+
+`wechat_jsapi` (openid), `wechat_h5` (client IP) and `alipay_jsapi` (buyer id)
+address a specific payer. The requirement is declared once in the provider crate
+(`product_payer_requirements`) and enforced **before** the test order is written, so
+a missing input is a configuration finding instead of a half-created test. The
+supplied identity is persisted on the attempt (`callback_payload.paymentMetadata`)
+where the checkout enrichment reads it, which is what makes these products reach a
+real provider trade.
+
+### Refund entry
+
+Only a `succeeded` attempt can be refunded. The command runs the production path —
+domain rules, captured-total cap, the processing claim, provider submission with
+bounded retries, and the status machine — so a `submitted` refund is never reported
+as if money moved. A provider that accepts the refund asynchronously leaves it
+`processing` and the operator polls it with the refund retry action.
+
+### Notification entry
+
+The deployment signs the body with the provider account's own stored credential
+(Stripe HMAC-SHA256 webhook secret, WeChat Pay merchant private key, Alipay merchant
+private key) and then feeds it through the **real** verification and ingest
+pipeline. No public callback URL, PSP account or local tunnel is needed, and a
+failing delivery is always a genuine defect in the credential, the canonicalization
+or the pipeline. Disabled on production-like deployments; the unsigned scheme is
+available for the sandbox provider only.
+
+### Known gaps at handover
 
 These are the items that were **not** completed in this pass. They are listed so the
 delivery boundary is auditable rather than implied.
@@ -231,7 +284,12 @@ delivery boundary is auditable rather than implied.
    without its encryption secret; the deploy service warns that certificate custody
    is unconfigured. None of these regress the payment flows, but each must be
    fail-closed before a production claim.
-6. **An image built from the current workspace `main` refuses to start.**
+6. **PayPal product presence in the admin catalogs.** The `paypal` adapter and its
+   `paypal` product are testable and listed by the coverage matrix, but the provider
+   pickers in Cloud Router's provider/channel workspaces resolve brands from the
+   generated brand table, which has no PayPal mark; it degrades to a monogram tile.
+   Add the mark to the canonical generator when the artwork is available.
+7. **An image built from the current workspace `main` refuses to start.**
    `sdkwork-api-cloud-gateway:0.1.109` (built from the synced siblings) panics during
    route composition:
 

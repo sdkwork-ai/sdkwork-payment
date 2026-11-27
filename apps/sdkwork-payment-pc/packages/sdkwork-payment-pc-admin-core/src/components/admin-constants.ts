@@ -9,21 +9,23 @@
 
 import { formatMoney } from "@sdkwork/utils/money";
 
-export const ADMIN_PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "sandbox"] as const;
+export const ADMIN_PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "paypal", "sandbox"] as const;
 export type AdminProviderCode = (typeof ADMIN_PROVIDER_CODES)[number];
 
 export const ADMIN_PROVIDER_LABEL: Record<AdminProviderCode, string> = {
   stripe: "Stripe",
   alipay: "Alipay",
   wechat_pay: "WeChat Pay",
+  paypal: "PayPal",
   sandbox: "Sandbox",
 };
 
-/** Provider options for forms (create/edit) — 4 values, no "All" placeholder. */
+/** Provider options for forms (create/edit) — one entry per shipped adapter. */
 export const ADMIN_PROVIDER_FORM_OPTIONS: ReadonlyArray<{ label: string; value: AdminProviderCode }> = [
   { label: "Stripe", value: "stripe" },
   { label: "Alipay", value: "alipay" },
   { label: "WeChat Pay", value: "wechat_pay" },
+  { label: "PayPal", value: "paypal" },
   { label: "Sandbox", value: "sandbox" },
 ];
 
@@ -33,6 +35,7 @@ export const ADMIN_PROVIDER_FILTER_OPTIONS: ReadonlyArray<{ label: string; value
   { label: "Stripe", value: "stripe" },
   { label: "Alipay", value: "alipay" },
   { label: "WeChat Pay", value: "wechat_pay" },
+  { label: "PayPal", value: "paypal" },
   { label: "Sandbox", value: "sandbox" },
 ];
 

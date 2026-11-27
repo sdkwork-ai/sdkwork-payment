@@ -107,6 +107,13 @@ export const BACKEND_PAYMENT_METHOD_TREE = {
   dev: {
     sandboxTrigger: true,
     webhookSignatureTest: true,
+    testPayments: true,
+    testPaymentProducts: { list: true },
+    checkAttemptStatus: true,
+    settleTestPayment: true,
+    cancelTestPayment: true,
+    refundTestPayment: true,
+    notificationTest: true,
   },
 } as const;
 

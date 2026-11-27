@@ -31,6 +31,10 @@ const ALIPAY_FAST_INSTANT_TRADE_PAY: &str = "FAST_INSTANT_TRADE_PAY";
 /// `product_code` discriminator required by `alipay.trade.wap.pay`.
 const ALIPAY_QUICK_WAP_WAY: &str = "QUICK_WAP_WAY";
 
+pub(crate) fn alipay_capabilities() -> &'static PaymentProviderCapabilities {
+    &ALIPAY_CAPABILITIES
+}
+
 static ALIPAY_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: ALIPAY_PROVIDER_CODE,
     operations: &[
@@ -567,6 +571,40 @@ fn canonical_form_payload(fields: &[(String, String)]) -> String {
         .map(|(key, value)| format!("{key}={value}"))
         .collect::<Vec<_>>()
         .join("&")
+}
+
+/// Canonical signed payload for an Alipay async notify form.
+///
+/// The verifier's rule is the single source of truth: `sign`/`sign_type` and
+/// empty values drop out, fields sort by name. The signing side of the payment
+/// centre imports this instead of re-deriving the rule, so a self-signed notify
+/// and a real one can never canonicalize differently.
+pub(crate) fn canonical_alipay_form(
+    fields: &std::collections::BTreeMap<String, String>,
+) -> ProviderResult<String> {
+    if fields.is_empty() {
+        return Err(ProviderError::invalid_request(
+            PaymentAdapterOperation::VerifyWebhook,
+            "an Alipay notification needs at least one field",
+        ));
+    }
+    let pairs = fields
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    Ok(canonical_form_payload(&pairs))
+}
+
+/// Signs a canonical Alipay form with the merchant private key (RSA-SHA256 /
+/// `RSA2`), the same algorithm the verifier checks.
+pub(crate) fn sign_alipay_canonical(
+    private_key_pem: &str,
+    canonical: &str,
+) -> ProviderResult<String> {
+    let private_key = parse_merchant_private_key(private_key_pem)?;
+    let signing_key = SigningKey::<Sha256>::new(private_key);
+    let signature: Signature = signing_key.sign(canonical.as_bytes());
+    Ok(BASE64.encode(signature.to_bytes()))
 }
 
 fn canonical_gateway_payload(params: &[(String, String)]) -> String {

@@ -4326,7 +4326,217 @@
         "x-sdkwork-idempotent": true
       }
     },
-    "/backend/v3/api/payments/dev/test_payments": {
+    "/backend/v3/api/payments/dev/test_payment_products": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "List one-cent test coverage per provider product (dev config).",
+        "description": "Dev config: enumerates every product the shipped provider adapters declare (Stripe card/wallets/cross-border, Alipay QR/PC/WAP/App/JSAPI, WeChat Pay Native/JSAPI/H5/App, PayPal, local sandbox) together with the configuration still missing before a one-cent test can run: whether the tenant's payment-method catalog has the key active, whether an active channel routes it to an active provider account, whether the admin test surface can reach it, whether settlement can be simulated for it, whether refunds can be driven for it, and which payer inputs (openid / client IP / buyer id) the product requires. It reads state only and is safe to call repeatedly.",
+        "operationId": "dev.testPaymentProducts.list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentProductsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devTestPaymentProducts",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.test_payments"
+      }
+    },    "/backend/v3/api/payments/dev/refund_test_payment": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Refund a settled dev test payment (dev config).",
+        "description": "Dev config: refunds a settled one-cent test payment through the production refund path — the domain refund rules, the amount cap against the captured total, the provider submission (including the async polling of a processing refund), and the refund status machine. Only a succeeded attempt can be refunded. This closes the last link of the one-cent chain so a configured provider can be verified end to end (checkout → settlement → notification → refund) from the console.",
+        "operationId": "dev.refundTestPayment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentRefundCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentRefundResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devRefundTestPayment",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.test_payments",
+        "x-sdkwork-idempotent": true
+      }
+    },
+    "/backend/v3/api/payments/dev/notification_test": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Deliver a self-signed provider notification (dev config).",
+        "description": "Dev config: the deployment signs a notification body with the provider account's own stored credentials (Stripe HMAC-SHA256 webhook secret, WeChat Pay merchant private key, Alipay merchant private key) and then feeds it through the real verification and ingest pipeline — signature verification, event de-duplication, trade-number resolution, and the payment status machine. This makes notification handling testable without a public callback URL, a PSP account or a local tunnel: a failing delivery is always a real defect in the credential, the canonicalization or the pipeline. Disabled on production-like deployments; the unsigned scheme is available for the sandbox provider only.",
+        "operationId": "dev.notificationTest",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestPaymentNotificationCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPaymentNotificationResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        },
+        "security": [
+          {
+            "AuthToken": [],
+            "AccessToken": []
+          }
+        ],
+        "x-sdkwork-auth-mode": "dual-token",
+        "x-sdkwork-forbid-credential-headers": false,
+        "x-sdkwork-owner": "sdkwork-payment",
+        "x-sdkwork-api-authority": "sdkwork-payment-backend-api",
+        "x-sdkwork-domain": "commerce",
+        "x-sdkwork-resource": "devNotificationTest",
+        "x-sdkwork-request-context": "WebRequestContext",
+        "x-sdkwork-api-surface": "backend-api",
+        "x-sdkwork-server-request-id": true,
+        "x-sdkwork-permission": "commerce.payments.dev.sandbox_trigger",
+        "x-sdkwork-idempotent": true
+      }
+    },    "/backend/v3/api/payments/dev/test_payments": {
       "post": {
         "tags": [
           "payments"
@@ -8621,6 +8831,434 @@
           }
         ]
       },
+      "TestPaymentPayerField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "methodKey",
+          "field",
+          "label"
+        ],
+        "properties": {
+          "methodKey": {
+            "type": "string",
+            "description": "Product the input belongs to"
+          },
+          "field": {
+            "type": "string",
+            "description": "Payer identity field name (openid, client_ip, buyer_id) as posted in payerIdentity"
+          },
+          "label": {
+            "type": "string",
+            "description": "Operator-facing description of who the value identifies"
+          }
+        }
+      },
+      "PayerIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Payer identity for products that address a specific payer instead of whoever scans the QR code. Required keys are reported by the product coverage listing and enforced before any order is created.",
+        "properties": {
+          "openid": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Payer openid (wechat_jsapi)"
+          },
+          "clientIp": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Payer browser IP the H5 trade is scoped to (wechat_h5)"
+          },
+          "buyerId": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Alipay buyer user_id (alipay_jsapi)"
+          },
+          "buyerOpenId": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Alipay buyer open_id alternative to buyerId (alipay_jsapi)"
+          }
+        }
+      },
+      "TestPaymentProduct": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerCode",
+          "providerLabel",
+          "methodKey",
+          "methodStatus",
+          "launchKind",
+          "settleSupported",
+          "refundSupported",
+          "testEnabled",
+          "activeProviderAccounts",
+          "activeChannelCount",
+          "readiness",
+          "ready"
+        ],
+        "properties": {
+          "providerCode": {
+            "type": "string"
+          },
+          "providerLabel": {
+            "type": "string"
+          },
+          "methodKey": {
+            "type": "string"
+          },
+          "methodStatus": {
+            "type": "string",
+            "description": "Tenant payment-method catalog state: active, inactive, or missing"
+          },
+          "launchKind": {
+            "type": "string",
+            "description": "Launch surface the product produces (qr_code, redirect, form_redirect, card, jsapi, app, local_sandbox, unsupported)"
+          },
+          "settleSupported": {
+            "type": "boolean",
+            "description": "Settlement can be simulated from the console (sandbox and client-payload products)"
+          },
+          "refundSupported": {
+            "type": "boolean",
+            "description": "A refund can be driven against the product"
+          },
+          "testEnabled": {
+            "type": "boolean",
+            "description": "The product is part of the admin one-cent test surface"
+          },
+          "requiredPayerFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestPaymentPayerField"
+            }
+          },
+          "activeProviderAccounts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Active channels of this product bound to an active provider account"
+          },
+          "activeChannelCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Active channels routing this product"
+          },
+          "readiness": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered findings; the single entry `ready` means the product can be exercised now"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TestPaymentProducts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "products",
+          "unconfiguredProviders",
+          "readyCount",
+          "totalCount",
+          "checkedAt"
+        ],
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestPaymentProduct"
+            }
+          },
+          "unconfiguredProviders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Provider codes whose adapter declares no product in this build"
+          },
+          "readyCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TestPaymentProductsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/TestPaymentProducts"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "TestPaymentRefundCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Payment intent id of the settled test payment to refund"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]{1,2})?$",
+            "description": "Refund amount; defaults to the full captured test amount"
+          },
+          "reasonCode": {
+            "type": "string",
+            "enum": [
+              "customer_request",
+              "duplicate",
+              "fraud",
+              "service_failure",
+              "other"
+            ],
+            "description": "Refund reason recorded with the refund"
+          }
+        }
+      },
+      "TestPaymentRefundResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paymentIntentId",
+          "attemptId",
+          "refundId",
+          "refundNo",
+          "amount",
+          "currencyCode",
+          "status",
+          "providerCode",
+          "refunded",
+          "nextStep"
+        ],
+        "properties": {
+          "paymentIntentId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "refundId": {
+            "type": "string"
+          },
+          "refundNo": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Refund status after the provider submission (succeeded, processing, failed, submitted)"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "refunded": {
+            "type": "boolean",
+            "description": "True when the provider submission reached a terminal success"
+          },
+          "nextStep": {
+            "type": "string",
+            "description": "Operator guidance derived from the resulting status"
+          }
+        }
+      },
+      "TestPaymentRefundResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/TestPaymentRefundResult"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "TestPaymentNotificationCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerAccountId",
+          "payload"
+        ],
+        "properties": {
+          "providerAccountId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Provider account whose stored credentials sign and verify the notification"
+          },
+          "payload": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Raw notification body (JSON for Stripe/WeChat Pay, JSON or form for Alipay)"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Extra headers added to the delivery after the signed ones (e.g. Wechatpay-Serial)"
+          },
+          "signer": {
+            "type": "string",
+            "enum": [
+              "hmac_sha256",
+              "wechat_pay_rsa_sha256",
+              "alipay_rsa_sha256",
+              "none"
+            ],
+            "description": "Signing scheme; defaults to the provider's contract. `none` is only allowed for the sandbox provider"
+          }
+        }
+      },
+      "TestPaymentNotificationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerAccountId",
+          "providerCode",
+          "verification",
+          "accepted",
+          "nativeSignature",
+          "documentSignature",
+          "deliveredAt"
+        ],
+        "properties": {
+          "providerAccountId": {
+            "type": "string"
+          },
+          "providerCode": {
+            "type": "string"
+          },
+          "verification": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "rejected"
+            ]
+          },
+          "accepted": {
+            "type": "boolean",
+            "description": "True when the signed delivery verified, normalized and was ingested"
+          },
+          "nativeSignature": {
+            "type": "string",
+            "description": "Result of the adapter's own signature verification"
+          },
+          "documentSignature": {
+            "type": "string",
+            "description": "Result of document-level signature verification, when the channel defines one"
+          },
+          "signatureHeader": {
+            "type": "string",
+            "description": "Signature header name the delivery carried"
+          },
+          "providerEventId": {
+            "type": "string"
+          },
+          "outTradeNo": {
+            "type": "string",
+            "description": "Merchant trade number the notification resolved to"
+          },
+          "webhookEventId": {
+            "type": "string",
+            "description": "Webhook event row created by the delivery"
+          },
+          "appliedStatus": {
+            "type": "string",
+            "description": "Status the status machine applied (null when nothing transitioned)"
+          },
+          "paymentAttemptId": {
+            "type": "string"
+          },
+          "diagnostic": {
+            "type": "string"
+          },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TestPaymentNotificationResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SdkWorkApiResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "required": [
+                  "item"
+                ],
+                "properties": {
+                  "item": {
+                    "$ref": "#/components/schemas/TestPaymentNotificationResult"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
       "CreateTestPaymentCommand": {
         "type": "object",
         "additionalProperties": false,
@@ -8642,6 +9280,9 @@
             "type": "string",
             "default": "CNY",
             "description": "Test currency (defaults to CNY)"
+          },
+          "payerIdentity": {
+            "$ref": "#/components/schemas/PayerIdentity"
           }
         }
       },
@@ -8744,6 +9385,20 @@
           "settleSupported": {
             "type": "boolean",
             "description": "True when the operator can settle this test payment from the dialog through dev.settleTestPayment (sandbox and client-payload products) instead of paying for real"
+          },
+          "providerParamKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Provider parameter keys the checkout returned, for diagnosis when the launch surface is unexpected"
+          },
+          "requiredPayerFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestPaymentPayerField"
+            },
+            "description": "Payer inputs the product addresses; empty for products open to whoever scans"
           },
           "expiresAt": {
             "type": "string",

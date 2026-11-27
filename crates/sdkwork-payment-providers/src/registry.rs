@@ -61,6 +61,33 @@ impl PaymentProviderRegistry {
             .cloned()
     }
 
+    /// Adapter for `provider_code` whether or not it was registered here.
+    ///
+    /// Adapters register only when their deployment credentials exist, so a
+    /// diagnostic surface (the admin one-cent test console) needs the static
+    /// declaration even on a deployment where the PSP is not configured yet —
+    /// that is exactly the state it exists to explain. Unknown provider codes
+    /// still return `None`.
+    pub fn capabilities(&self, provider_code: &str) -> Option<&'static crate::adapter::PaymentProviderCapabilities> {
+        let normalized = crate::adapter::normalize_provider_code(provider_code);
+        if let Some(adapter) = self.adapters.get(&normalized) {
+            return Some(adapter.capabilities());
+        }
+        crate::adapter::declared_provider_capabilities(&normalized)
+    }
+
+    /// Provider codes this registry can produce an adapter for.
+    pub fn provider_codes(&self) -> Vec<String> {
+        let mut codes: Vec<String> = self.adapters.keys().cloned().collect();
+        for code in crate::adapter::declared_provider_codes() {
+            if !codes.iter().any(|candidate| candidate == code) {
+                codes.push((*code).to_owned());
+            }
+        }
+        codes.sort();
+        codes
+    }
+
     fn register_stripe(&mut self, config: Option<StripePaymentProviderConfig>) {
         let Some(config) = config else {
             return;

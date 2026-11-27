@@ -23,6 +23,10 @@ type HmacSha256 = Hmac<Sha256>;
 pub const STRIPE_PROVIDER_CODE: &str = "stripe";
 const STRIPE_API_BASE_URL: &str = "https://api.stripe.com";
 
+pub(crate) fn stripe_capabilities() -> &'static PaymentProviderCapabilities {
+    &STRIPE_CAPABILITIES
+}
+
 static STRIPE_CAPABILITIES: PaymentProviderCapabilities = PaymentProviderCapabilities {
     provider_code: STRIPE_PROVIDER_CODE,
     operations: &[
@@ -559,8 +563,26 @@ fn verify_stripe_signature_at(
         .any(|signature| constant_time_eq(expected.as_bytes(), signature.as_bytes()))
 }
 
-fn stripe_signature_value<'a>(signature_header: &'a str, key: &str) -> Option<&'a str> {
-    stripe_signature_values(signature_header, key)
+/// Builds the `stripe-signature` header a merchant webhook secret produces.
+///
+/// The merchant side of [`verify_stripe_signature`]: both sides call the same
+/// HMAC over `<t>.<body>`, so the payment centre can prove that its stored
+/// webhook secret verifies by handing the delivery to the real verifier.
+pub(crate) fn sign_stripe_webhook(webhook_secret: &str, body: &str, timestamp: i64) -> String {
+    let mut mac = match HmacSha256::new_from_slice(webhook_secret.as_bytes()) {
+        Ok(mac) => mac,
+        // An empty or over-long key cannot produce a valid header; the caller
+        // verifies by running the delivery through the verifier, which rejects
+        // the empty signature.
+        Err(_) => return format!("t={timestamp},v1="),
+    };
+    mac.update(format!("{timestamp}.").as_bytes());
+    mac.update(body.as_bytes());
+    let signature = hex_encode(mac.finalize().into_bytes());
+    format!("t={timestamp},v1={signature}")
+}
+
+fn stripe_signature_value<'a>(signature_header: &'a str, key: &str) -> Option<&'a str> {    stripe_signature_values(signature_header, key)
         .into_iter()
         .next()
 }

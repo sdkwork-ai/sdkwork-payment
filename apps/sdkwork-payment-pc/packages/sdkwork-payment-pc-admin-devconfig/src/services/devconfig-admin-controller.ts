@@ -42,10 +42,26 @@ import type {
   PaymentDevWebhookSignatureTestResult,
   PaymentProviderAccountTestResult,
   PaymentProviderAccountView,
+  PaymentTestNotificationDraft,
+  PaymentTestNotificationView,
+  PaymentTestPaymentActionView,
+  PaymentTestPaymentDraft,
+  PaymentTestPaymentView,
+  PaymentTestPayerField,
+  PaymentTestProductView,
+  PaymentTestProductsView,
+  PaymentTestRefundView,
   PaymentWebhookEventListFilter,
   PaymentWebhookEventView,
   PaymentWebhookReplayResult,
 } from "../types/devconfig-admin-types";
+import {
+  mapTestNotification,
+  mapTestPayment,
+  mapTestPaymentAction,
+  mapTestPaymentProducts,
+  mapTestRefund,
+} from "./test-console-mappers";
 
 type Snapshot = Pick<
   PaymentDevConfigAdminState,
@@ -66,7 +82,7 @@ function cloneSnapshot(snapshot: Snapshot): Snapshot {
   };
 }
 
-const PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "sandbox"] as const;
+const PROVIDER_CODES = ["stripe", "alipay", "wechat_pay", "paypal", "sandbox"] as const;
 const ACCOUNT_MODES = ["direct", "partner"] as const;
 const ENVIRONMENTS = ["development", "sandbox", "production"] as const;
 const PROVIDER_ACCOUNT_STATUSES = ["active", "inactive", "suspended", "deprecated"] as const;
@@ -305,6 +321,7 @@ export function createPaymentDevConfigAdminController(
   let state: PaymentDevConfigAdminState = {
     ...EMPTY_SNAPSHOT,
     status: "idle",
+    testConsole: {},
   };
 
   function emit(): void {
@@ -363,7 +380,11 @@ export function createPaymentDevConfigAdminController(
 
     async load(section?: PaymentDevConfigAdminSection) {
       setStatus("loading", undefined);
-      const loadProviderAccounts = !section || section === "environment" || section === "webhook";
+      const loadProviderAccounts =
+        !section ||
+        section === "environment" ||
+        section === "webhook" ||
+        section === "testpayments";
       const loadCertificates = !section || section === "certificates";
       const loadWebhookEvents = !section || section === "webhook" || section === "logs";
       if (loadProviderAccounts) {
@@ -576,6 +597,200 @@ export function createPaymentDevConfigAdminController(
         return mapped;
       } catch (error) {
         setStatus("error", error instanceof Error ? error.message : "Failed to replay webhook event.");
+        throw error;
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // One-cent test console
+    // -----------------------------------------------------------------
+
+    async loadTestProducts() {
+      setStatus("loading", undefined);
+      try {
+        const response = await service.dev.testPaymentProducts.list();
+        const mapped = mapTestPaymentProducts(
+          extractSdkWorkResourceItem<unknown>(response),
+        );
+        if (!mapped) {
+          throw new Error("Failed to parse one-cent test coverage.");
+        }
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, products: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to load one-cent test coverage.",
+        );
+        throw error;
+      }
+    },
+
+    async createTestPayment(draft: PaymentTestPaymentDraft) {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.testPayments(draft);
+        const mapped = mapTestPayment(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the one-cent test payment.");
+        }
+        // A checkout either resolves a launch surface or reports
+        // `unsupported`; refresh the coverage matrix so a channel that was
+        // just configured shows up as ready without another click.
+        const products = await service.dev.testPaymentProducts
+          .list()
+          .then((value) => mapTestPaymentProducts(extractSdkWorkResourceItem<unknown>(value)))
+          .catch(() => undefined);
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: {
+            ...state.testConsole,
+            payment: mapped,
+            ...(products ? { products } : {}),
+          },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to create the one-cent test payment.",
+        );
+        throw error;
+      }
+    },
+
+    async checkTestPaymentStatus(paymentIntentId: string) {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.checkAttemptStatus({
+          paymentIntentId,
+          settleIfUnpaid: false,
+        });
+        const mapped = mapTestPaymentAction(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the test payment status.");
+        }
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, status: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to check the test payment status.",
+        );
+        throw error;
+      }
+    },
+
+    async settleTestPayment(paymentIntentId: string, outcome: "success" | "failed" = "success") {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.settleTestPayment({
+          paymentIntentId,
+          outcome,
+        });
+        const mapped = mapTestPaymentAction(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the simulated settlement.");
+        }
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, settled: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to settle the test payment.",
+        );
+        throw error;
+      }
+    },
+
+    async cancelTestPayment(paymentIntentId: string) {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.cancelTestPayment({ paymentIntentId });
+        const mapped = mapTestPaymentAction(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the cancelled test payment.");
+        }
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, cancelled: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to cancel the test payment.",
+        );
+        throw error;
+      }
+    },
+
+    async refundTestPayment(
+      paymentIntentId: string,
+      options?: { amount?: string; reasonCode?: string },
+    ) {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.refundTestPayment({
+          paymentIntentId,
+          ...(options?.amount ? { amount: options.amount } : {}),
+          ...(options?.reasonCode ? { reasonCode: options.reasonCode } : {}),
+        });
+        const mapped = mapTestRefund(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the test refund.");
+        }
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, refund: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to refund the test payment.",
+        );
+        throw error;
+      }
+    },
+
+    async testNotification(draft: PaymentTestNotificationDraft) {
+      setStatus("testing", undefined);
+      try {
+        const response = await service.dev.notificationTest(draft);
+        const mapped = mapTestNotification(extractSdkWorkResourceItem<unknown>(response));
+        if (!mapped) {
+          throw new Error("Failed to parse the notification delivery result.");
+        }
+        // A delivered notification is a webhook event: reload the log so the
+        // verification row and the integration log never disagree.
+        await sessions.webhookEvents.list().catch(() => undefined);
+        setState({
+          status: "ready",
+          lastError: undefined,
+          testConsole: { ...state.testConsole, notification: mapped },
+        });
+        return mapped;
+      } catch (error) {
+        setStatus(
+          "error",
+          error instanceof Error ? error.message : "Failed to deliver the test notification.",
+        );
         throw error;
       }
     },
